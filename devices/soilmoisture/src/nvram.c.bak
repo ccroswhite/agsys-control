@@ -1,0 +1,326 @@
+/**
+ * @file nvram.c
+ * @brief NVRAM Driver Implementation for SPI FRAM
+ * 
+ * Supports FM25V02 or similar SPI FRAM devices
+ */
+
+#include "nvram.h"
+#include "spi.h"
+#include "samd21.h"
+#include "config.h"
+#include <string.h>
+
+/* FRAM SPI Commands (FM25V02 compatible) */
+#define FRAM_CMD_WREN               0x06    /* Write Enable */
+#define FRAM_CMD_WRDI               0x04    /* Write Disable */
+#define FRAM_CMD_RDSR               0x05    /* Read Status Register */
+#define FRAM_CMD_WRSR               0x01    /* Write Status Register */
+#define FRAM_CMD_READ               0x03    /* Read Memory */
+#define FRAM_CMD_WRITE              0x02    /* Write Memory */
+#define FRAM_CMD_RDID               0x9F    /* Read Device ID */
+#define FRAM_CMD_SLEEP              0xB9    /* Enter Sleep Mode */
+#define FRAM_CMD_WAKE               0xAB    /* Exit Sleep Mode */
+
+/* Status register bits */
+#define FRAM_SR_WEL                 0x02    /* Write Enable Latch */
+#define FRAM_SR_BP0                 0x04    /* Block Protect 0 */
+#define FRAM_SR_BP1                 0x08    /* Block Protect 1 */
+#define FRAM_SR_WPEN                0x80    /* Write Protect Enable */
+
+/* CS pin for NVRAM */
+#define NVRAM_CS_PIN                17      /* PA17 */
+
+/* Log management structure stored at NVRAM_CONFIG_ADDR */
+typedef struct {
+    uint16_t log_head;          /* Next write position */
+    uint16_t log_tail;          /* Oldest unread position */
+    uint16_t log_count;         /* Total entries */
+    uint16_t pending_count;     /* Untransmitted entries */
+    uint32_t boot_count;        /* Device boot counter */
+    uint8_t  reserved[38];      /* Pad to NVRAM_CONFIG_SIZE */
+} __attribute__((packed)) nvram_config_t;
+
+static nvram_config_t config_cache;
+static bool initialized = false;
+
+/* UUID validation magic bytes */
+static const uint8_t UUID_MAGIC[] = {0xAG, 0x01};
+#define UUID_MAGIC_BYTE1    0x41    /* 'A' */
+#define UUID_MAGIC_BYTE2    0x47    /* 'G' */
+
+/* Helper functions */
+static void nvram_cs_low(void);
+static void nvram_cs_high(void);
+static void nvram_write_enable(void);
+static uint8_t nvram_read_status(void);
+static void nvram_load_config(void);
+static void nvram_save_config(void);
+
+static void nvram_cs_low(void)
+{
+    PORTA->OUTCLR = (1 << NVRAM_CS_PIN);
+}
+
+static void nvram_cs_high(void)
+{
+    PORTA->OUTSET = (1 << NVRAM_CS_PIN);
+}
+
+static void nvram_write_enable(void)
+{
+    nvram_cs_low();
+    spi_transfer(FRAM_CMD_WREN);
+    nvram_cs_high();
+}
+
+static uint8_t nvram_read_status(void)
+{
+    uint8_t status;
+    
+    nvram_cs_low();
+    spi_transfer(FRAM_CMD_RDSR);
+    status = spi_transfer(0x00);
+    nvram_cs_high();
+    
+    return status;
+}
+
+static void nvram_load_config(void)
+{
+    nvram_read(NVRAM_CONFIG_ADDR, (uint8_t *)&config_cache, sizeof(config_cache));
+    
+    /* Validate config - if invalid, initialize */
+    if (config_cache.log_head >= NVRAM_LOG_MAX_ENTRIES ||
+        config_cache.log_tail >= NVRAM_LOG_MAX_ENTRIES) {
+        /* Initialize fresh config */
+        memset(&config_cache, 0, sizeof(config_cache));
+        config_cache.boot_count = 1;
+        nvram_save_config();
+    } else {
+        config_cache.boot_count++;
+        nvram_save_config();
+    }
+}
+
+static void nvram_save_config(void)
+{
+    nvram_write(NVRAM_CONFIG_ADDR, (const uint8_t *)&config_cache, sizeof(config_cache));
+}
+
+bool nvram_init(void)
+{
+    /* Configure CS pin as output, initially high */
+    PORTA->DIRSET = (1 << NVRAM_CS_PIN);
+    PORTA->OUTSET = (1 << NVRAM_CS_PIN);
+    
+    /* Small delay for FRAM to be ready */
+    for (volatile int i = 0; i < 1000; i++);
+    
+    /* Try to read device ID to verify communication */
+    uint8_t id[3];
+    nvram_cs_low();
+    spi_transfer(FRAM_CMD_RDID);
+    id[0] = spi_transfer(0x00);
+    id[1] = spi_transfer(0x00);
+    id[2] = spi_transfer(0x00);
+    nvram_cs_high();
+    
+    /* FM25V02 should return manufacturer ID 0x04, 0x7F, 0x7F... */
+    /* Accept any non-zero response as valid for flexibility */
+    if (id[0] == 0x00 && id[1] == 0x00 && id[2] == 0x00) {
+        return false;
+    }
+    
+    /* Load configuration from NVRAM */
+    nvram_load_config();
+    
+    initialized = true;
+    return true;
+}
+
+bool nvram_read_uuid(uint8_t *uuid)
+{
+    uint8_t buffer[NVRAM_UUID_SIZE + 2];
+    
+    if (!nvram_read(NVRAM_UUID_ADDR, buffer, sizeof(buffer))) {
+        return false;
+    }
+    
+    /* Check magic bytes */
+    if (buffer[0] != UUID_MAGIC_BYTE1 || buffer[1] != UUID_MAGIC_BYTE2) {
+        return false;
+    }
+    
+    memcpy(uuid, &buffer[2], NVRAM_UUID_SIZE);
+    return true;
+}
+
+bool nvram_write_uuid(const uint8_t *uuid)
+{
+    uint8_t buffer[NVRAM_UUID_SIZE + 2];
+    
+    buffer[0] = UUID_MAGIC_BYTE1;
+    buffer[1] = UUID_MAGIC_BYTE2;
+    memcpy(&buffer[2], uuid, NVRAM_UUID_SIZE);
+    
+    return nvram_write(NVRAM_UUID_ADDR, buffer, sizeof(buffer));
+}
+
+bool nvram_has_uuid(void)
+{
+    uint8_t magic[2];
+    
+    if (!nvram_read(NVRAM_UUID_ADDR, magic, 2)) {
+        return false;
+    }
+    
+    return (magic[0] == UUID_MAGIC_BYTE1 && magic[1] == UUID_MAGIC_BYTE2);
+}
+
+bool nvram_read(uint16_t addr, uint8_t *data, uint16_t len)
+{
+    if (addr + len > NVRAM_SIZE_BYTES) {
+        return false;
+    }
+    
+    nvram_cs_low();
+    spi_transfer(FRAM_CMD_READ);
+    spi_transfer((addr >> 8) & 0xFF);
+    spi_transfer(addr & 0xFF);
+    
+    for (uint16_t i = 0; i < len; i++) {
+        data[i] = spi_transfer(0x00);
+    }
+    
+    nvram_cs_high();
+    return true;
+}
+
+bool nvram_write(uint16_t addr, const uint8_t *data, uint16_t len)
+{
+    if (addr + len > NVRAM_SIZE_BYTES) {
+        return false;
+    }
+    
+    nvram_write_enable();
+    
+    nvram_cs_low();
+    spi_transfer(FRAM_CMD_WRITE);
+    spi_transfer((addr >> 8) & 0xFF);
+    spi_transfer(addr & 0xFF);
+    
+    for (uint16_t i = 0; i < len; i++) {
+        spi_transfer(data[i]);
+    }
+    
+    nvram_cs_high();
+    return true;
+}
+
+bool nvram_log_append(const log_entry_t *entry)
+{
+    if (!initialized) {
+        return false;
+    }
+    
+    /* Calculate address for new entry */
+    uint16_t addr = NVRAM_LOG_START_ADDR + 
+                    (config_cache.log_head * NVRAM_LOG_ENTRY_SIZE);
+    
+    /* Write entry */
+    if (!nvram_write(addr, (const uint8_t *)entry, sizeof(log_entry_t))) {
+        return false;
+    }
+    
+    /* Update head pointer (circular) */
+    config_cache.log_head = (config_cache.log_head + 1) % NVRAM_LOG_MAX_ENTRIES;
+    
+    /* Update counts */
+    if (config_cache.log_count < NVRAM_LOG_MAX_ENTRIES) {
+        config_cache.log_count++;
+    } else {
+        /* Buffer full, advance tail (overwrite oldest) */
+        config_cache.log_tail = (config_cache.log_tail + 1) % NVRAM_LOG_MAX_ENTRIES;
+    }
+    
+    config_cache.pending_count++;
+    if (config_cache.pending_count > config_cache.log_count) {
+        config_cache.pending_count = config_cache.log_count;
+    }
+    
+    nvram_save_config();
+    return true;
+}
+
+uint16_t nvram_log_pending_count(void)
+{
+    return config_cache.pending_count;
+}
+
+bool nvram_log_read_pending(uint16_t index, log_entry_t *entry)
+{
+    if (index >= config_cache.pending_count) {
+        return false;
+    }
+    
+    /* Calculate position of pending entry */
+    /* Pending entries start from (head - pending_count) */
+    uint16_t pos = (config_cache.log_head + NVRAM_LOG_MAX_ENTRIES - 
+                    config_cache.pending_count + index) % NVRAM_LOG_MAX_ENTRIES;
+    
+    uint16_t addr = NVRAM_LOG_START_ADDR + (pos * NVRAM_LOG_ENTRY_SIZE);
+    
+    return nvram_read(addr, (uint8_t *)entry, sizeof(log_entry_t));
+}
+
+bool nvram_log_mark_transmitted(uint16_t count)
+{
+    if (count > config_cache.pending_count) {
+        count = config_cache.pending_count;
+    }
+    
+    config_cache.pending_count -= count;
+    nvram_save_config();
+    
+    return true;
+}
+
+uint16_t nvram_log_count(void)
+{
+    return config_cache.log_count;
+}
+
+bool nvram_log_clear(void)
+{
+    config_cache.log_head = 0;
+    config_cache.log_tail = 0;
+    config_cache.log_count = 0;
+    config_cache.pending_count = 0;
+    
+    nvram_save_config();
+    return true;
+}
+
+void nvram_sleep(void)
+{
+    nvram_cs_low();
+    spi_transfer(FRAM_CMD_SLEEP);
+    nvram_cs_high();
+}
+
+void nvram_wake(void)
+{
+    /* Toggle CS to wake from sleep */
+    nvram_cs_low();
+    for (volatile int i = 0; i < 100; i++);
+    nvram_cs_high();
+    
+    /* Or send wake command if supported */
+    nvram_cs_low();
+    spi_transfer(FRAM_CMD_WAKE);
+    nvram_cs_high();
+    
+    /* Wait for device ready */
+    for (volatile int i = 0; i < 1000; i++);
+}
