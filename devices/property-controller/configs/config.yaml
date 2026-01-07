@@ -1,0 +1,46 @@
+# AgSys Property Controller Configuration
+
+# Property identification
+property:
+  uid: ""  # Set by AgSys cloud
+  name: ""
+
+# Cloud connection
+cloud:
+  url: "wss://api.agsys.io/ws/property"
+  api_key: ""  # Set during provisioning
+
+# LoRa configuration (via ChirpStack Concentratord)
+lora:
+  # Concentratord ZeroMQ endpoints
+  event_url: "ipc:///tmp/concentratord_event"
+  command_url: "ipc:///tmp/concentratord_command"
+  # TX parameters
+  frequency: 915000000  # 915 MHz (US ISM band)
+  spreading_factor: 10
+  bandwidth: 125000
+  coding_rate: "4/5"  # "4/5", "4/6", "4/7", "4/8"
+  tx_power: 20
+  # AES-128 encryption key (32 hex characters = 16 bytes)
+  # Generate with: openssl rand -hex 16
+  aes_key: ""
+
+# Database
+database:
+  path: "/var/lib/agsys/controller.db"
+
+# Timing
+timing:
+  # How often to sync data to cloud (seconds)
+  sync_interval: 30
+  # Timeout for valve commands (seconds)
+  command_timeout: 10
+  # Max retries for valve commands
+  command_retries: 3
+  # How often to broadcast time sync (seconds)
+  time_sync_interval: 3600
+
+# Logging
+logging:
+  level: "info"  # debug, info, warn, error
+  file: "/var/log/agsys/controller.log"

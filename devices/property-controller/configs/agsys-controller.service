@@ -1,0 +1,26 @@
+[Unit]
+Description=AgSys Property Controller
+Documentation=https://github.com/agsys/property-controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agsys
+Group=agsys
+ExecStart=/usr/local/bin/agsys-controller run --config /etc/agsys/controller.yaml
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agsys-controller
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/agsys /var/log/agsys
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
