@@ -1,0 +1,57 @@
+# PlatformIO build artifacts
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Compiled binaries
+*.elf
+*.hex
+*.bin
+*.zip
+
+# Object files
+*.o
+*.obj
+
+# Dependency files
+*.d
+
+# IDE and editor files
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+*.bak
+
+# Log files
+*.log
+
+# Eagle CAD generated/backup files
+*.b#*
+*.s#*
+*.l#*
+*.pro
+*.gpi
+*.dri
+*.gbl
+*.gbo
+*.gbp
+*.gbs
+*.gml
+*.gtl
+*.gto
+*.gtp
+*.gts
+*.xln
+*.drl
+*.ger
+*_etch.gbr
+*_soldermask.gbr
+*_silkscreen.gbr
+docs/*.b#*
+docs/*.s#*
+docs/*.l#*
