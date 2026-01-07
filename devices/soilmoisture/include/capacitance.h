@@ -68,4 +68,21 @@ uint8_t capacitanceToMoisturePercent(uint16_t raw);
  */
 bool isHbridgeRunning();
 
+/**
+ * @brief Set H-bridge frequency
+ * 
+ * Changes the AC excitation frequency. Takes effect on next hbridgeStart().
+ * Valid range: 10kHz to 4MHz (limited by hardware)
+ * 
+ * @param frequencyHz Desired frequency in Hz
+ * @return Actual frequency set (may differ due to timer resolution)
+ */
+uint32_t hbridgeSetFrequency(uint32_t frequencyHz);
+
+/**
+ * @brief Get current H-bridge frequency setting
+ * @return Current frequency in Hz
+ */
+uint32_t hbridgeGetFrequency();
+
 #endif // CAPACITANCE_H

@@ -31,8 +31,9 @@
 #define LORA_RX_TIMEOUT_MS          3000
 #define SENSOR_STABILIZE_MS         100
 
-// BLE OTA window
-#define BLE_OTA_WINDOW_MS           300000  // 5 minutes after button press
+// BLE Pairing/OTA window
+#define BLE_PAIRING_TIMEOUT_MS      300000  // 5 minutes pairing window
+#define BLE_OTA_WINDOW_MS           BLE_PAIRING_TIMEOUT_MS  // Alias for backward compatibility
 
 /* ==========================================================================
  * PIN ASSIGNMENTS
@@ -51,32 +52,44 @@
 // SPI NOR Flash - External W25Q16 2MB (for firmware backup/rollback)
 #define PIN_FLASH_CS                12      // GPIO 12
 
-// Soil Moisture Sensor - Discrete H-Bridge Capacitance Measurement
-// Uses 100kHz bipolar AC signal via MOSFET H-bridge
-// H-bridge: 2× SSM6P15FU (P-ch) + 2× 2SK2009 (N-ch) + BAT54S flyback diodes
-// Drive: nRF52832 Timer2 + PPI + GPIOTE (hardware, zero CPU)
-// Detection: Envelope detector → ADC
-#define PIN_HBRIDGE_A               14      // H-bridge drive A (Timer2+PPI)
-#define PIN_HBRIDGE_B               15      // H-bridge drive B (complementary)
-#define PIN_MOISTURE_POWER          16      // H-bridge power enable
-#define PIN_MOISTURE_ADC            2       // AIN0 - envelope detector output
+// Soil Moisture Sensor - Oscillator Frequency Shift Measurement
+// Each probe has a relaxation oscillator (74LVC1G17 Schmitt trigger + R + C_soil)
+// Frequency varies with soil capacitance: dry soil = high freq, wet soil = low freq
+// Up to 4 probes at different depths (1, 3, 5, 7 feet)
+// Single P-FET high-side switch controls power to all probes
+#define PIN_PROBE_POWER             16      // P-FET gate (active LOW) - powers all probes
+#define PIN_PROBE_1_FREQ            3       // Probe 1 frequency input (1 ft depth)
+#define PIN_PROBE_2_FREQ            4       // Probe 2 frequency input (3 ft depth)
+#define PIN_PROBE_3_FREQ            5       // Probe 3 frequency input (5 ft depth)
+#define PIN_PROBE_4_FREQ            28      // Probe 4 frequency input (7 ft depth)
 
-// H-Bridge Configuration
-#define HBRIDGE_FREQUENCY_HZ        100000  // 100 kHz AC excitation
-#define MOISTURE_MEASUREMENT_MS     1000    // 1 second measurement window
-#define ADC_SAMPLES_PER_MEASUREMENT 1000    // Samples to average per reading
+// Number of probes (can be 1-4)
+#define NUM_MOISTURE_PROBES         4
+#define MAX_PROBES                  4       // Maximum supported probes
+
+// Probe measurement configuration
+#define PROBE_STABILIZE_MS          10      // Time for oscillator to stabilize after power-on
+#define PROBE_MEASUREMENT_MS        100     // Frequency measurement window per probe
+#define PROBE_POWER_ACTIVE_LOW      1       // P-FET gate is active LOW
 
 // Battery Voltage Monitoring
 // nRF52 has built-in VBAT measurement via internal divider
 #define PIN_BATTERY_ANALOG          A6      // VBAT/2 on Feather nRF52 (P0.30)
 
-// Status LEDs
-#define PIN_LED_STATUS              17      // Green LED - system status (heartbeat)
-#define PIN_LED_SPI                 19      // Yellow LED - SPI activity indicator
-#define PIN_LED_CONN                20      // Blue LED - BLE connection indicator
+// Status LED (single green LED for all status indication)
+#define PIN_LED_STATUS              17      // Green LED - system status
 
-// OTA Update Button
-#define PIN_OTA_BUTTON              7       // User button to enable BLE OTA mode
+// LED blink patterns (periods in ms)
+#define LED_PATTERN_OFF             0       // LED off
+#define LED_PATTERN_SLOW_BLINK      1000    // 1 Hz - ready/idle
+#define LED_PATTERN_FAST_BLINK      250     // 4 Hz - calibrating
+#define LED_PATTERN_SOLID           1       // Solid on - calibration complete
+#define LED_PATTERN_SOS             100     // SOS pattern - error
+
+// Pairing Button (formerly OTA button)
+#define PIN_PAIRING_BUTTON          7       // User button to enter BLE pairing mode
+#define PIN_OTA_BUTTON              PIN_PAIRING_BUTTON  // Alias for backward compatibility
+#define PAIRING_BUTTON_HOLD_MS      2000    // Hold 2 seconds to enter pairing mode
 
 /* ==========================================================================
  * VOLTAGE CONFIGURATION
@@ -103,20 +116,23 @@
 #define BATTERY_LOW_THRESHOLD_MV    3400    // Low battery warning (~50%)
 #define BATTERY_CRITICAL_MV         3200    // Critical - extend sleep (~20%)
 
-// Soil moisture calibration for H-bridge capacitance sensor
-// ADC reads envelope detector output (0-4095 for 12-bit)
-// WARNING: These are UNCALIBRATED PLACEHOLDERS - you MUST measure actual values!
-// Calibration procedure:
-//   1. Enable DEBUG_MODE and connect serial monitor
-//   2. Hold probe in dry air, record ADC value -> MOISTURE_DRY_VALUE
-//   3. Submerge probe in water, record ADC value -> MOISTURE_WET_VALUE
-#define MOISTURE_DRY_VALUE          0       // TODO: Calibrate - ADC reading when dry
-#define MOISTURE_WET_VALUE          0       // TODO: Calibrate - ADC reading when wet
+// Oscillator-based soil moisture calibration
+// Calibration is stored per-probe in FRAM (see moisture_cal.h)
+// f_air: frequency in air (factory calibration, normalizes hardware)
+// f_dry: frequency in dry soil (field calibration)
+// f_wet: frequency in wet/saturated soil (field calibration)
+// Moisture % = 100 × (f_dry - f_measured) / (f_dry - f_wet)
 
-// Compile-time check to ensure calibration values are set
-#if MOISTURE_DRY_VALUE == 0 || MOISTURE_WET_VALUE == 0
-    #warning "MOISTURE_DRY_VALUE and MOISTURE_WET_VALUE must be calibrated for your hardware!"
-#endif
+// Auto-calibration parameters (first boot f_air calibration)
+#define CAL_MIN_DURATION_MS         30000   // Minimum 30 seconds
+#define CAL_MAX_DURATION_MS         300000  // Maximum 5 minutes
+#define CAL_SAMPLE_INTERVAL_MS      100     // Sample every 100ms
+#define CAL_WINDOW_SIZE             50      // Rolling window of 50 samples
+#define CAL_STABILITY_THRESHOLD     0.001f  // 0.1% relative std dev = stable
+
+// Expected frequency ranges (for sanity checking)
+#define FREQ_MIN_VALID_HZ           50000   // Below this = probe disconnected/shorted
+#define FREQ_MAX_VALID_HZ           5000000 // Above this = probe open/disconnected
 
 /* ==========================================================================
  * LORA CONFIGURATION (RFM95C - 915 MHz ISM Band)
@@ -260,8 +276,12 @@
 // Extended sleep when battery critical
 #define CRITICAL_SLEEP_MULTIPLIER   4
 
-// Debug mode - set to 0 for production
-#define DEBUG_MODE                  1
+// Debug mode - controlled by build flags (DEBUG_BUILD or RELEASE_BUILD)
+#if defined(RELEASE_BUILD)
+    #define DEBUG_MODE              0
+#else
+    #define DEBUG_MODE              1
+#endif
 
 #if DEBUG_MODE
     #define DEBUG_PRINT(x)          Serial.print(x)

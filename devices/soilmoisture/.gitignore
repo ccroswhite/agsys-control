@@ -1,0 +1,31 @@
+# PlatformIO build artifacts
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Compiled binaries
+*.elf
+*.hex
+*.bin
+*.zip
+
+# Object files
+*.o
+*.obj
+
+# Dependency files
+*.d
+
+# IDE and editor files
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+*.bak
+
+# Log files
+*.log

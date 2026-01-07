@@ -18,7 +18,7 @@
  */
 
 // Skip this file in test modes (test files provide their own setup/loop)
-#if defined(TEST_MODE_CYCLE_READINGS) || defined(TEST_MODE_POWER_ALL) || defined(TEST_MODE_FAILBACK_GOOD) || defined(TEST_MODE_FAILBACK_BAD)
+#if defined(TEST_MODE_CYCLE_READINGS) || defined(TEST_MODE_POWER_ALL) || defined(TEST_MODE_FAILBACK_GOOD) || defined(TEST_MODE_FAILBACK_BAD) || defined(TEST_MODE_FREQUENCY)
 // Empty - test mode files handle everything
 #else
 
@@ -30,7 +30,9 @@
 #include "config.h"
 #include "protocol.h"
 #include "nvram.h"
-#include "capacitance.h"
+#include "moisture_probe.h"
+#include "moisture_cal.h"
+#include "auto_calibration.h"
 #include "ota_lora.h"
 #include "security.h"
 #include "firmware_backup.h"
@@ -55,20 +57,26 @@ static uint8_t moisturePercent = 0;
 static uint16_t batteryMv = 0;
 static int16_t temperature = 0;
 
-// OTA mode state
-static bool otaModeActive = false;
-static unsigned long otaModeStartTime = 0;
+// BLE/Pairing mode state
+static bool bleInitialized = false;
+static bool pairingModeActive = false;
+static unsigned long pairingModeStartTime = 0;
+
+// Wake source tracking
+static volatile bool buttonWakeFlag = false;
 
 // Function prototypes
 void systemInit();
 void initBLE();
-void checkOTAButton();
-void enterOTAMode();
+bool checkPairingButton();
+void enterPairingMode();
+void exitPairingMode();
+void initBLEIfNeeded();
 bool loadOrGenerateUUID();
 void readSensors();
 bool transmitData();
 void logDataLocally(bool txSuccess);
-void enterDeepSleep();
+void enterDeepSleep(uint32_t remainingSleepMs = 0);
 void handlePendingLogs();
 void onWakeup();
 
@@ -85,6 +93,8 @@ void ledSpiOff();
 // BLE callbacks
 void bleConnectCallback(uint16_t conn_handle);
 void bleDisconnectCallback(uint16_t conn_handle, uint8_t reason);
+bool isButtonHeld(uint32_t holdTimeMs);
+void buttonWakeISR();
 
 /**
  * @brief Arduino setup function
@@ -130,19 +140,30 @@ void loop() {
     // Check firmware validation timeout (triggers rollback if expired)
     fw_backup_check_validation_timeout();
     
-    // Check if OTA button is pressed
-    checkOTAButton();
-    
-    // If in OTA mode, handle BLE and wait for update
-    if (otaModeActive) {
-        // Check if OTA window has expired
-        if (millis() - otaModeStartTime > BLE_OTA_WINDOW_MS) {
-            DEBUG_PRINTLN("OTA: Window expired, resuming normal operation");
-            otaModeActive = false;
-            Bluefruit.Advertising.stop();
-            digitalWrite(PIN_LED_CONN, LOW);
+    // If in pairing mode, handle BLE and wait for connection
+    if (pairingModeActive) {
+        // Check if pairing window has expired
+        if (millis() - pairingModeStartTime > BLE_PAIRING_TIMEOUT_MS) {
+            DEBUG_PRINTLN("Pairing: Window expired, entering sleep");
+            exitPairingMode();
+            return;
         }
-        // Stay awake and let BLE handle DFU
+        
+        // Check if button pressed to manually exit pairing mode
+        if (digitalRead(PIN_PAIRING_BUTTON) == LOW) {
+            delay(50);  // Debounce
+            if (digitalRead(PIN_PAIRING_BUTTON) == LOW) {
+                DEBUG_PRINTLN("Pairing: Button pressed, exiting pairing mode");
+                // Wait for button release to avoid re-triggering
+                while (digitalRead(PIN_PAIRING_BUTTON) == LOW) {
+                    delay(10);
+                }
+                exitPairingMode();
+                return;
+            }
+        }
+        
+        // Stay awake and let BLE handle connections
         delay(100);
         return;
     }
@@ -272,25 +293,28 @@ void systemInit() {
     
     // Configure LED pins (active LOW - HIGH = off)
     pinMode(PIN_LED_STATUS, OUTPUT);
-    digitalWrite(PIN_LED_STATUS, HIGH);  // Green status LED off
+    digitalWrite(PIN_LED_STATUS, LOW);  // Green status LED off
     
-    pinMode(PIN_LED_SPI, OUTPUT);
-    digitalWrite(PIN_LED_SPI, HIGH);     // Yellow SPI activity LED off
-    
-    pinMode(PIN_LED_CONN, OUTPUT);
-    digitalWrite(PIN_LED_CONN, HIGH);    // Blue BLE connection LED off
-    
-    pinMode(PIN_MOISTURE_POWER, OUTPUT);
-    digitalWrite(PIN_MOISTURE_POWER, LOW);
+    // Probe power is controlled by moisture_probe module
+    pinMode(PIN_PROBE_POWER, OUTPUT);
+    digitalWrite(PIN_PROBE_POWER, HIGH);  // P-FET off (active low)
     
     pinMode(PIN_OTA_BUTTON, INPUT_PULLUP);
     
     // Set ADC resolution (nRF52 supports up to 14-bit, using 12-bit)
     analogReadResolution(ADC_RESOLUTION_BITS);
     
-    // Initialize capacitance measurement hardware (H-bridge, Timer, PPI)
-    capacitanceInit();
-    DEBUG_PRINTLN("Capacitance: H-bridge initialized");
+    // Initialize moisture probe hardware (oscillator frequency measurement)
+    moistureProbe_init();
+    moistureCal_init();
+    autoCal_init();
+    DEBUG_PRINTLN("MoistureProbe: Initialized");
+    
+    // Check if first boot calibration is needed
+    if (autoCal_needed()) {
+        DEBUG_PRINTLN("MoistureProbe: First boot - running f_air calibration");
+        autoCal_runAll();
+    }
     
     // Initialize SPI (each device driver manages its own speed via beginTransaction)
     SPI.begin();
@@ -341,8 +365,22 @@ void systemInit() {
         LoRa.enableCrc();
     }
     
-    // Initialize BLE for OTA updates
-    initBLE();
+    // BLE is NOT initialized here - only when entering pairing mode
+    // This saves power during normal sensor operation
+    
+    // Check if button is held at boot (2 seconds) to enter pairing mode
+    if (isButtonHeld(PAIRING_BUTTON_HOLD_MS)) {
+        DEBUG_PRINTLN("Button held at boot - entering pairing mode");
+        enterPairingMode();
+    }
+    // Check if first boot calibration is needed
+    else if (autoCal_needed()) {
+        DEBUG_PRINTLN("First boot - running f_air calibration with BLE");
+        // Initialize BLE so user can review calibration values
+        initBLEIfNeeded();
+        autoCal_runAll();
+        enterPairingMode();  // Stay in pairing mode for field calibration
+    }
     
     DEBUG_PRINTLN("System initialized");
 }
@@ -413,44 +451,106 @@ void initBLE() {
 }
 
 /**
- * @brief Check if OTA button is pressed and enter OTA mode
+ * @brief Check if button is held for specified duration
+ * @param holdTimeMs Time button must be held (milliseconds)
+ * @return true if button was held for the full duration
  */
-void checkOTAButton() {
-    if (digitalRead(PIN_OTA_BUTTON) == LOW) {
-        // Debounce
-        delay(50);
-        if (digitalRead(PIN_OTA_BUTTON) == LOW) {
-            enterOTAMode();
-        }
+bool isButtonHeld(uint32_t holdTimeMs) {
+    // Check if button is currently pressed
+    if (digitalRead(PIN_PAIRING_BUTTON) != LOW) {
+        return false;
     }
+    
+    // Debounce
+    delay(50);
+    if (digitalRead(PIN_PAIRING_BUTTON) != LOW) {
+        return false;
+    }
+    
+    // Wait for hold duration, checking button state
+    uint32_t startTime = millis();
+    while (millis() - startTime < holdTimeMs) {
+        if (digitalRead(PIN_PAIRING_BUTTON) != LOW) {
+            return false;  // Button released early
+        }
+        // Blink LED to indicate button is being held
+        digitalWrite(PIN_LED_STATUS, ((millis() / 250) % 2) ? HIGH : LOW);
+        delay(10);
+    }
+    
+    digitalWrite(PIN_LED_STATUS, LOW);
+    return true;
 }
 
 /**
- * @brief Enter BLE OTA mode
+ * @brief Check if pairing button is pressed (called during wake)
+ * @return true if button held for required duration
  */
-void enterOTAMode() {
-    if (otaModeActive) return;
+bool checkPairingButton() {
+    return isButtonHeld(PAIRING_BUTTON_HOLD_MS);
+}
+
+/**
+ * @brief Initialize BLE stack if not already initialized
+ */
+void initBLEIfNeeded() {
+    if (bleInitialized) return;
     
-    DEBUG_PRINTLN("OTA: Entering OTA mode");
-    otaModeActive = true;
-    otaModeStartTime = millis();
+    initBLE();
+    bleInitialized = true;
+}
+
+/**
+ * @brief Enter BLE pairing mode
+ */
+void enterPairingMode() {
+    if (pairingModeActive) return;
+    
+    DEBUG_PRINTLN("Pairing: Entering pairing mode");
+    
+    // Initialize BLE if not already done
+    initBLEIfNeeded();
+    
+    pairingModeActive = true;
+    pairingModeStartTime = millis();
     
     // Visual indicator - blink then solid
     for (int i = 0; i < 5; i++) {
-        digitalWrite(PIN_LED_CONN, HIGH);
+        digitalWrite(PIN_LED_STATUS, HIGH);
         delay(100);
-        digitalWrite(PIN_LED_CONN, LOW);
+        digitalWrite(PIN_LED_STATUS, LOW);
         delay(100);
     }
-    digitalWrite(PIN_LED_CONN, HIGH);
-    
+    digitalWrite(PIN_LED_STATUS, HIGH);
+        
     // Start BLE advertising
     Bluefruit.Advertising.start(0);  // Advertise indefinitely until connected
-    
-    DEBUG_PRINTLN("OTA: BLE advertising started");
-    DEBUG_PRINT("OTA: Window open for ");
-    DEBUG_PRINT(BLE_OTA_WINDOW_MS / 1000);
+        
+    DEBUG_PRINTLN("Pairing: BLE advertising started");
+    DEBUG_PRINT("Pairing: Window open for ");
+    DEBUG_PRINT(BLE_PAIRING_TIMEOUT_MS / 1000);
     DEBUG_PRINTLN(" seconds");
+}
+
+/**
+ * @brief Exit BLE pairing mode and enter deep sleep
+ */
+void exitPairingMode() {
+    pairingModeActive = false;
+    
+    if (bleInitialized) {
+        // Disconnect any active connection
+        if (Bluefruit.connected()) {
+            Bluefruit.disconnect(Bluefruit.connHandle());
+            delay(100);  // Give time for disconnect
+        }
+        Bluefruit.Advertising.stop();
+    }
+    
+    digitalWrite(PIN_LED_STATUS, LOW);
+    DEBUG_PRINTLN("Pairing: Exited pairing mode");
+    
+    enterDeepSleep();
 }
 
 /**
@@ -459,7 +559,10 @@ void enterOTAMode() {
 void bleConnectCallback(uint16_t conn_handle) {
     DEBUG_PRINTLN("BLE: Connected");
     // Keep LED on solid during connection
-    digitalWrite(PIN_LED_CONN, HIGH);
+    digitalWrite(PIN_LED_STATUS, HIGH);
+    
+    // Reset pairing timeout when connected
+    pairingModeStartTime = millis();
 }
 
 /**
@@ -469,11 +572,11 @@ void bleDisconnectCallback(uint16_t conn_handle, uint8_t reason) {
     DEBUG_PRINT("BLE: Disconnected, reason: ");
     DEBUG_PRINTLN(reason);
     
-    // If still in OTA mode, keep advertising
-    if (otaModeActive) {
-        digitalWrite(PIN_LED_CONN, HIGH);
+    // If still in pairing mode, keep advertising
+    if (pairingModeActive) {
+        digitalWrite(PIN_LED_STATUS, HIGH);
     } else {
-        digitalWrite(PIN_LED_CONN, LOW);
+        digitalWrite(PIN_LED_STATUS, LOW);
     }
 }
 
@@ -523,28 +626,35 @@ uint16_t readBatteryVoltage() {
 }
 
 /**
- * @brief Read moisture sensor using AC capacitance method
+ * @brief Read moisture sensor using oscillator frequency shift method
  * 
- * Uses 100kHz H-bridge drive with 1-second averaging for high fidelity.
+ * Reads all probes and returns the first probe's frequency as raw value.
+ * For full multi-probe support, use moistureProbe_readAll() directly.
  */
 uint16_t readMoistureRaw() {
-    DEBUG_PRINTLN("Moisture: Starting AC capacitance measurement...");
+    DEBUG_PRINTLN("Moisture: Starting oscillator frequency measurement...");
     
-    // Use the capacitance module for measurement
-    uint16_t raw = readCapacitance();
+    // Read first probe for backward compatibility
+    ProbeReading reading;
+    moistureProbe_readSingle(0, &reading);
     
-    DEBUG_PRINT("Moisture: Raw ADC = ");
-    DEBUG_PRINTLN(raw);
+    DEBUG_PRINTF("Moisture: Probe 0 freq=%lu Hz, moisture=%d%%\n", 
+                 reading.frequency, reading.moisturePercent);
     
-    return raw;
+    // Return frequency scaled to 16-bit range for compatibility
+    // (actual frequency is in reading.frequency)
+    return (uint16_t)(reading.frequency / 100);
 }
 
 /**
  * @brief Convert raw moisture reading to percentage
  */
 uint8_t moistureToPercent(uint16_t raw) {
-    // Use capacitance module's conversion function
-    return capacitanceToMoisturePercent(raw);
+    // New oscillator approach uses per-probe calibration
+    // This function is for backward compatibility only
+    // Use moistureProbe_frequencyToPercent() for proper conversion
+    (void)raw;
+    return 0;
 }
 
 /* ==========================================================================
@@ -565,14 +675,14 @@ void ledStatusBlink() {
  * @brief Turn on SPI activity LED
  */
 void ledSpiOn() {
-    digitalWrite(PIN_LED_SPI, LOW);
+    // SPI LED removed - single status LED only
 }
 
 /**
  * @brief Turn off SPI activity LED
  */
 void ledSpiOff() {
-    digitalWrite(PIN_LED_SPI, HIGH);
+    // SPI LED removed - single status LED only
 }
 
 /**
@@ -686,9 +796,19 @@ void handlePendingLogs() {
 }
 
 /**
- * @brief Enter deep sleep mode (nRF52 System ON sleep with RTC wake)
+ * @brief Button wake interrupt service routine
+ * Called when button is pressed during sleep
  */
-void enterDeepSleep() {
+void buttonWakeISR() {
+    // Set flag - will be checked after wake
+    buttonWakeFlag = true;
+}
+
+/**
+ * @brief Enter deep sleep mode (nRF52 System ON sleep with RTC or GPIO wake)
+ * @param remainingSleepMs If non-zero, sleep for this duration instead of full interval
+ */
+void enterDeepSleep(uint32_t remainingSleepMs) {
     DEBUG_PRINTLN("Entering deep sleep...");
     
     #if DEBUG_MODE
@@ -701,40 +821,89 @@ void enterDeepSleep() {
     // Put NVRAM to sleep
     nvram.sleep();
     
-    // Turn off LEDs
+    // Turn off LED
     digitalWrite(PIN_LED_STATUS, LOW);
-    digitalWrite(PIN_LED_CONN, LOW);
     
-    // Turn off moisture sensor power
-    digitalWrite(PIN_MOISTURE_POWER, LOW);
+    // Turn off moisture sensor power (P-FET active low, so HIGH = off)
+    digitalWrite(PIN_PROBE_POWER, HIGH);
     
     // Calculate sleep duration
-    uint32_t sleepMs = SLEEP_INTERVAL_MS;
-    
-    // Extend sleep if battery is critical
-    if (batteryMv < BATTERY_CRITICAL_MV) {
-        sleepMs *= CRITICAL_SLEEP_MULTIPLIER;
-        DEBUG_PRINTLN("Battery critical - extended sleep");
+    uint32_t sleepMs;
+    if (remainingSleepMs > 0) {
+        // Resume previous sleep with remaining time
+        sleepMs = remainingSleepMs;
+        DEBUG_PRINT("Resuming sleep with ");
+        DEBUG_PRINT(sleepMs / 1000);
+        DEBUG_PRINTLN(" seconds remaining");
+    } else {
+        // Start fresh sleep interval
+        sleepMs = SLEEP_INTERVAL_MS;
+        
+        // Extend sleep if battery is critical
+        if (batteryMv < BATTERY_CRITICAL_MV) {
+            sleepMs *= CRITICAL_SLEEP_MULTIPLIER;
+            DEBUG_PRINTLN("Battery critical - extended sleep");
+        }
     }
+    
+    // Track sleep start time to calculate remaining time on early wake
+    uint32_t sleepStartTime = millis();
+    
+    // Clear button wake flag before sleep
+    buttonWakeFlag = false;
+    
+    // Attach interrupt to wake on button press (falling edge = button pressed)
+    attachInterrupt(digitalPinToInterrupt(PIN_PAIRING_BUTTON), buttonWakeISR, FALLING);
     
     // nRF52 uses SoftDevice for sleep management
     // suspendLoop() + delay() puts device in System ON sleep mode
-    // which draws ~1.9µA with RTC running
+    // The delay() will be interrupted early if button ISR fires
     suspendLoop();
     delay(sleepMs);
     resumeLoop();
     
-    // === Execution resumes here after wake ===
+    // Detach interrupt after wake
+    detachInterrupt(digitalPinToInterrupt(PIN_PAIRING_BUTTON));
+    
+    // Calculate elapsed sleep time
+    uint32_t elapsedMs = millis() - sleepStartTime;
+    uint32_t remainingMs = (elapsedMs < sleepMs) ? (sleepMs - elapsedMs) : 0;
+    
+    // === Execution resumes here after wake (RTC timeout or button press) ===
     
     // Wake NVRAM
     nvram.wake();
     
     // LoRa will be re-initialized on next TX
     LoRa.idle();
+    
+    // Check if woken by button press
+    if (buttonWakeFlag) {
+        DEBUG_PRINTLN("Woke from button press");
+        DEBUG_PRINTF("Sleep elapsed: %lu ms, remaining: %lu ms\n", elapsedMs, remainingMs);
+        buttonWakeFlag = false;
+        
+        // Check if button is still held (2 second hold required)
+        if (isButtonHeld(PAIRING_BUTTON_HOLD_MS)) {
+            DEBUG_PRINTLN("Button held - entering pairing mode");
+            enterPairingMode();
+        } else {
+            DEBUG_PRINTLN("Button released early - going back to sleep");
+            // Go back to sleep with remaining time
+            if (remainingMs > 1000) {  // Only if more than 1 second remains
+                enterDeepSleep(remainingMs);
+            } else {
+                // Less than 1 second remaining, just do normal wake cycle
+                DEBUG_PRINTLN("Less than 1s remaining - proceeding with wake cycle");
+            }
+        }
+    } else {
+        DEBUG_PRINTLN("Woke from RTC timer");
+    }
 }
 
 /**
- * @brief Callback for wake interrupt (button or RTC)
+ * @brief Callback for wake interrupt (legacy - not used)
  */
 void onWakeup() {
     // This is called in interrupt context

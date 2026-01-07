@@ -54,12 +54,12 @@
 </layers>
 <schematic xreflabel="%F%N/%S.%C%R" xrefpart="/%S.%C%R">
 <description>AgSys Soil Moisture Sensor - Wiring Diagram
-nRF52832 + RFM95C LoRa + FM25V02 FRAM + H-Bridge Capacitance Sensor</description>
+nRF52832 + RFM95C LoRa + FM25V02 FRAM + Oscillator Frequency Shift Probes (4x)</description>
 <libraries>
 </libraries>
 <attributes>
 <attribute name="AUTHOR" value="AgSys Control"/>
-<attribute name="REVISION" value="1.0"/>
+<attribute name="REVISION" value="2.0"/>
 <attribute name="TITLE" value="Soil Moisture Sensor"/>
 </attributes>
 <variantdefs>
@@ -79,22 +79,16 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + H-Bridge Capacitance Sensor</description
 <part name="U3" library="fram" deviceset="FM25V02" device="" value="FM25V02-8KB"/>
 <!-- SPI NOR Flash for firmware backup -->
 <part name="U5" library="flash" deviceset="W25Q16" device="" value="W25Q16-2MB"/>
-<!-- H-Bridge MOSFETs -->
-<part name="Q1" library="mosfet" deviceset="SSM6P15FU" device="" value="SSM6P15FU"/>
-<part name="Q2" library="mosfet" deviceset="SSM6P15FU" device="" value="SSM6P15FU"/>
-<part name="Q3" library="mosfet" deviceset="2SK2009" device="" value="2SK2009"/>
-<part name="Q4" library="mosfet" deviceset="2SK2009" device="" value="2SK2009"/>
-<!-- Flyback Diodes -->
-<part name="D1" library="diode" deviceset="BAT54S" device="" value="BAT54S"/>
-<part name="D2" library="diode" deviceset="BAT54S" device="" value="BAT54S"/>
+<!-- Probe Power Switch (P-FET high-side) -->
+<part name="Q1" library="mosfet" deviceset="SI2301" device="" value="SI2301-PFET"/>
+<!-- Gate pull-up resistor for Q1 -->
+<part name="R7" library="resistor" deviceset="R" device="" value="10K"/>
 <!-- LDO Regulator -->
 <part name="U4" library="regulator" deviceset="MCP1700" device="" value="MCP1700-2502E"/>
 <!-- Battery -->
 <part name="BT1" library="battery" deviceset="21700" device="" value="21700-5000mAh"/>
-<!-- LEDs -->
+<!-- Status LED (single) -->
 <part name="LED1" library="led" deviceset="LED" device="" value="GREEN"/>
-<part name="LED2" library="led" deviceset="LED" device="" value="YELLOW"/>
-<part name="LED3" library="led" deviceset="LED" device="" value="BLUE"/>
 <!-- Resistors -->
 <part name="R1" library="resistor" deviceset="R" device="" value="100K"/>
 <part name="R2" library="resistor" deviceset="R" device="" value="100K"/>
@@ -111,8 +105,11 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + H-Bridge Capacitance Sensor</description
 <part name="SW1" library="switch" deviceset="TACTILE" device="" value="OTA_BTN"/>
 <!-- Antenna -->
 <part name="ANT1" library="antenna" deviceset="ANTENNA" device="" value="915MHz"/>
-<!-- Capacitive Probe -->
-<part name="PROBE1" library="connector" deviceset="PROBE" device="" value="CAP_PROBE"/>
+<!-- Oscillator Probe Connectors (4x, 3-pin: VCC, GND, FREQ) -->
+<part name="J1" library="connector" deviceset="CONN_3" device="" value="PROBE1-1FT"/>
+<part name="J2" library="connector" deviceset="CONN_3" device="" value="PROBE2-3FT"/>
+<part name="J3" library="connector" deviceset="CONN_3" device="" value="PROBE3-5FT"/>
+<part name="J4" library="connector" deviceset="CONN_3" device="" value="PROBE4-7FT"/>
 <!-- Power Supply Labels -->
 <part name="VCC" library="supply" deviceset="VCC" device="" value="2.5V"/>
 <part name="GND" library="supply" deviceset="GND" device=""/>
@@ -124,20 +121,22 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + H-Bridge Capacitance Sensor</description
 <plain>
 <!-- Title Block -->
 <text x="200" y="10" size="3.81" layer="97">AgSys Soil Moisture Sensor</text>
-<text x="200" y="5" size="2.54" layer="97">nRF52832 + RFM95C + FM25V02 + H-Bridge</text>
-<text x="200" y="0" size="1.778" layer="97">Rev 1.0 - January 2026</text>
+<text x="200" y="5" size="2.54" layer="97">nRF52832 + RFM95C + FM25V02 + Oscillator Probes</text>
+<text x="200" y="0" size="1.778" layer="97">Rev 2.0 - January 2026</text>
 
 <!-- Section Labels -->
 <text x="10" y="180" size="2.54" layer="97" font="vector">POWER SUPPLY</text>
 <text x="80" y="180" size="2.54" layer="97" font="vector">MCU - nRF52832</text>
 <text x="160" y="180" size="2.54" layer="97" font="vector">SPI BUS</text>
-<text x="10" y="100" size="2.54" layer="97" font="vector">H-BRIDGE DRIVER</text>
+<text x="10" y="100" size="2.54" layer="97" font="vector">PROBE POWER SWITCH</text>
 <text x="160" y="100" size="2.54" layer="97" font="vector">LORA MODULE</text>
 <text x="160" y="50" size="2.54" layer="97" font="vector">FRAM</text>
+<text x="10" y="50" size="2.54" layer="97" font="vector">PROBE CONNECTORS</text>
 
 <!-- Connection Notes -->
-<text x="10" y="70" size="1.778" layer="97">100kHz AC drive via Timer2+PPI</text>
-<text x="10" y="65" size="1.778" layer="97">Envelope detector to AIN0 (P0.02)</text>
+<text x="10" y="70" size="1.778" layer="97">P-FET high-side switch (SI2301) controls power to all probes</text>
+<text x="10" y="65" size="1.778" layer="97">Each probe has 74LVC1G17 oscillator, frequency measured via GPIO</text>
+<text x="10" y="60" size="1.778" layer="97">Probe depths: 1ft (P0.03), 3ft (P0.04), 5ft (P0.05), 7ft (P0.28)</text>
 </plain>
 <instances>
 <!-- Component placements would go here -->
@@ -239,40 +238,62 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + H-Bridge Capacitance Sensor</description
 <label x="135" y="80" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- H-Bridge Drive A -->
-<net name="HBRIDGE_A" class="0">
-<segment>
-<pinref part="U1" gate="G$1" pin="P0.14"/>
-<pinref part="Q1" gate="G$1" pin="G"/>
-<pinref part="Q3" gate="G$1" pin="G"/>
-<wire x1="80" y1="90" x2="40" y2="90" width="0.254" layer="91"/>
-<label x="50" y="92" size="1.778" layer="95"/>
-</segment>
-</net>
-<!-- H-Bridge Drive B -->
-<net name="HBRIDGE_B" class="0">
-<segment>
-<pinref part="U1" gate="G$1" pin="P0.15"/>
-<pinref part="Q2" gate="G$1" pin="G"/>
-<pinref part="Q4" gate="G$1" pin="G"/>
-<wire x1="80" y1="85" x2="40" y2="85" width="0.254" layer="91"/>
-<label x="50" y="87" size="1.778" layer="95"/>
-</segment>
-</net>
-<!-- H-Bridge Power Enable -->
-<net name="HBRIDGE_PWR" class="0">
+<!-- Probe Power Enable (P-FET gate, active LOW) -->
+<net name="PROBE_PWR" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.16"/>
+<pinref part="Q1" gate="G$1" pin="G"/>
+<pinref part="R7" gate="G$1" pin="1"/>
 <wire x1="80" y1="80" x2="30" y2="80" width="0.254" layer="91"/>
 <label x="40" y="82" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- Moisture ADC -->
-<net name="MOISTURE_ADC" class="0">
+<!-- Probe Power VCC (switched by Q1) -->
+<net name="PROBE_VCC" class="1">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.02/AIN0"/>
-<wire x1="80" y1="160" x2="30" y2="60" width="0.254" layer="91"/>
-<label x="35" y="62" size="1.778" layer="95"/>
+<pinref part="Q1" gate="G$1" pin="S"/>
+<pinref part="J1" gate="G$1" pin="1"/>
+<pinref part="J2" gate="G$1" pin="1"/>
+<pinref part="J3" gate="G$1" pin="1"/>
+<pinref part="J4" gate="G$1" pin="1"/>
+<wire x1="30" y1="75" x2="30" y2="40" width="0.4064" layer="91"/>
+<label x="32" y="55" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- Probe 1 Frequency Input (1ft depth) -->
+<net name="PROBE1_FREQ" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.03"/>
+<pinref part="J1" gate="G$1" pin="3"/>
+<wire x1="80" y1="90" x2="50" y2="45" width="0.254" layer="91"/>
+<label x="55" y="70" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- Probe 2 Frequency Input (3ft depth) -->
+<net name="PROBE2_FREQ" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.04"/>
+<pinref part="J2" gate="G$1" pin="3"/>
+<wire x1="80" y1="85" x2="60" y2="45" width="0.254" layer="91"/>
+<label x="65" y="65" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- Probe 3 Frequency Input (5ft depth) -->
+<net name="PROBE3_FREQ" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.05"/>
+<pinref part="J3" gate="G$1" pin="3"/>
+<wire x1="80" y1="80" x2="70" y2="45" width="0.254" layer="91"/>
+<label x="75" y="60" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- Probe 4 Frequency Input (7ft depth) -->
+<net name="PROBE4_FREQ" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.28"/>
+<pinref part="J4" gate="G$1" pin="3"/>
+<wire x1="80" y1="75" x2="80" y2="45" width="0.254" layer="91"/>
+<label x="82" y="55" size="1.778" layer="95"/>
 </segment>
 </net>
 <!-- Battery ADC -->
@@ -293,35 +314,18 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + H-Bridge Capacitance Sensor</description
 <label x="135" y="75" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- LED Status -->
+<!-- Status LED (single green LED for all status indication) -->
 <net name="LED_STATUS" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.17"/>
 <pinref part="LED1" gate="G$1" pin="A"/>
+<pinref part="R3" gate="G$1" pin="1"/>
 <wire x1="120" y1="70" x2="140" y2="70" width="0.254" layer="91"/>
 <label x="125" y="72" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- LED SPI -->
-<net name="LED_SPI" class="0">
-<segment>
-<pinref part="U1" gate="G$1" pin="P0.19"/>
-<pinref part="LED2" gate="G$1" pin="A"/>
-<wire x1="120" y1="65" x2="140" y2="65" width="0.254" layer="91"/>
-<label x="125" y="67" size="1.778" layer="95"/>
-</segment>
-</net>
-<!-- LED BLE -->
-<net name="LED_CONN" class="0">
-<segment>
-<pinref part="U1" gate="G$1" pin="P0.20"/>
-<pinref part="LED3" gate="G$1" pin="A"/>
-<wire x1="120" y1="60" x2="140" y2="60" width="0.254" layer="91"/>
-<label x="125" y="62" size="1.778" layer="95"/>
-</segment>
-</net>
-<!-- OTA Button -->
-<net name="OTA_BTN" class="0">
+<!-- Pairing Button (2s hold to enter BLE pairing mode) -->
+<net name="PAIRING_BTN" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.07"/>
 <pinref part="SW1" gate="G$1" pin="1"/>
