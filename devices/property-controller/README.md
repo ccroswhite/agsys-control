@@ -610,3 +610,4 @@ journalctl -u agsys-controller | grep -i sync
 ## License
 
 Copyright © AgSys. All rights reserved.
+# Trigger sync
