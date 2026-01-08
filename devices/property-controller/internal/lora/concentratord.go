@@ -48,6 +48,8 @@ func DefaultConcentratordConfig() ConcentratordConfig {
 type ConcentratordDriver struct {
 	config     ConcentratordConfig
 	cipher     cipher.Block
+	keyCache   *DeviceKeyCache
+	txNonce    uint32
 	eventSock  zmq4.Socket
 	cmdSock    zmq4.Socket
 	ctx        context.Context
@@ -66,11 +68,13 @@ func NewConcentratordDriver(config ConcentratordConfig) (*ConcentratordDriver, e
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &ConcentratordDriver{
-		config: config,
-		ctx:    ctx,
-		cancel: cancel,
+		config:   config,
+		ctx:      ctx,
+		cancel:   cancel,
+		keyCache: NewDeviceKeyCache(),
 	}
 
+	// Legacy: support single shared key if provided (for backward compatibility)
 	if len(config.AESKey) == 16 {
 		block, err := aes.NewCipher(config.AESKey)
 		if err != nil {
@@ -181,10 +185,15 @@ func (d *ConcentratordDriver) SendToDevice(deviceUID [8]byte, msgType uint8, pay
 	d.mu.Unlock()
 
 	msg := &protocol.LoRaMessage{
-		DeviceUID: deviceUID,
-		MsgType:   msgType,
-		SeqNum:    seq,
-		Payload:   payload,
+		Header: protocol.Header{
+			Magic:      [2]byte{protocol.MagicByte1, protocol.MagicByte2},
+			Version:    protocol.ProtocolVersion,
+			MsgType:    msgType,
+			DeviceType: 0, // Controller doesn't have a device type
+			DeviceUID:  deviceUID,
+			Sequence:   seq,
+		},
+		Payload: payload,
 	}
 
 	return d.Send(msg)
@@ -395,7 +404,25 @@ func (d *ConcentratordDriver) handleStats(stats *gw.GatewayStats) {
 	log.Printf("Gateway stats: RX=%d, TX=%d", stats.RxPacketsReceivedOk, stats.TxPacketsEmitted)
 }
 
-// encrypt encrypts data using AES-128-CTR
+// encryptForDevice encrypts data using AES-128-GCM with per-device key
+func (d *ConcentratordDriver) encryptForDevice(deviceUID [8]byte, plaintext []byte) ([]byte, error) {
+	key := d.keyCache.GetKey(deviceUID)
+
+	d.mu.Lock()
+	d.txNonce++
+	nonce := d.txNonce
+	d.mu.Unlock()
+
+	return EncryptGCM(key, nonce, plaintext)
+}
+
+// decryptFromDevice decrypts data using AES-128-GCM with per-device key
+func (d *ConcentratordDriver) decryptFromDevice(deviceUID [8]byte, ciphertext []byte) ([]byte, error) {
+	key := d.keyCache.GetKey(deviceUID)
+	return DecryptGCM(key, ciphertext)
+}
+
+// encrypt encrypts data using legacy AES-128-CTR (for backward compatibility)
 func (d *ConcentratordDriver) encrypt(plaintext []byte) ([]byte, error) {
 	if d.cipher == nil {
 		return plaintext, nil
@@ -415,7 +442,7 @@ func (d *ConcentratordDriver) encrypt(plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-// decrypt decrypts data using AES-128-CTR
+// decrypt decrypts data using legacy AES-128-CTR (for backward compatibility)
 func (d *ConcentratordDriver) decrypt(ciphertext []byte) ([]byte, error) {
 	if d.cipher == nil {
 		return ciphertext, nil

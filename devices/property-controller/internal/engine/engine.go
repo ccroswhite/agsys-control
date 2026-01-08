@@ -174,11 +174,11 @@ func (e *Engine) handleLoRaMessage(msg *protocol.LoRaMessage) {
 	e.db.UpsertDevice(device)
 
 	// Process based on message type
-	switch msg.MsgType {
-	case protocol.MsgTypeSensorData:
+	switch msg.Header.MsgType {
+	case protocol.MsgTypeSensorReport:
 		e.handleSensorData(deviceUID, msg)
 
-	case protocol.MsgTypeWaterMeterData:
+	case protocol.MsgTypeWaterMeterReport:
 		e.handleWaterMeterData(deviceUID, msg)
 
 	case protocol.MsgTypeValveStatus:
@@ -194,7 +194,7 @@ func (e *Engine) handleLoRaMessage(msg *protocol.LoRaMessage) {
 		log.Printf("Heartbeat from %s, RSSI: %d", deviceUID, msg.RSSI)
 
 	default:
-		log.Printf("Unknown message type 0x%02X from %s", msg.MsgType, deviceUID)
+		log.Printf("Unknown message type 0x%02X from %s", msg.Header.MsgType, deviceUID)
 	}
 }
 
@@ -353,7 +353,7 @@ func (e *Engine) handleScheduleRequest(deviceUID string, msg *protocol.LoRaMessa
 	// Send schedule to device
 	uid, _ := lora.ParseDeviceUID(deviceUID)
 	scheduleMsg := lora.CreateScheduleUpdateMessage(uid, schedule.Version, protoEntries)
-	scheduleMsg.SeqNum = e.lora.GetNextSeqNum()
+	scheduleMsg.Header.Sequence = e.lora.GetNextSeqNum()
 
 	if err := e.lora.Send(scheduleMsg); err != nil {
 		log.Printf("Failed to send schedule to %s: %v", deviceUID, err)
@@ -480,7 +480,7 @@ func (e *Engine) SendValveCommand(controllerUID string, actuatorAddr uint8, comm
 
 	// Create and send message
 	msg := lora.CreateValveCommand(uid, actuatorAddr, command, cmdID)
-	msg.SeqNum = e.lora.GetNextSeqNum()
+	msg.Header.Sequence = e.lora.GetNextSeqNum()
 
 	if err := e.lora.Send(msg); err != nil {
 		return fmt.Errorf("failed to send command: %w", err)
@@ -617,7 +617,7 @@ func (e *Engine) retryExpiredCommands() {
 
 		// Resend command
 		msg := lora.CreateValveCommand(uid, cmd.ActuatorAddr, cmd.Command, cmd.CommandID)
-		msg.SeqNum = e.lora.GetNextSeqNum()
+		msg.Header.Sequence = e.lora.GetNextSeqNum()
 
 		if err := e.lora.Send(msg); err != nil {
 			log.Printf("Failed to retry command: %v", err)
@@ -657,7 +657,7 @@ func (e *Engine) timeSyncLoop(ctx context.Context) {
 // broadcastTimeSync sends a time sync message to all devices
 func (e *Engine) broadcastTimeSync() {
 	msg := lora.CreateTimeSyncMessage(0) // UTC offset 0 for now
-	msg.SeqNum = e.lora.GetNextSeqNum()
+	msg.Header.Sequence = e.lora.GetNextSeqNum()
 
 	if err := e.lora.Send(msg); err != nil {
 		log.Printf("Failed to broadcast time sync: %v", err)

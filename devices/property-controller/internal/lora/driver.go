@@ -154,10 +154,15 @@ func (d *Driver) SendToDevice(deviceUID [8]byte, msgType uint8, payload []byte) 
 	d.mu.Unlock()
 
 	msg := &protocol.LoRaMessage{
-		DeviceUID: deviceUID,
-		MsgType:   msgType,
-		SeqNum:    seq,
-		Payload:   payload,
+		Header: protocol.Header{
+			Magic:      [2]byte{protocol.MagicByte1, protocol.MagicByte2},
+			Version:    protocol.ProtocolVersion,
+			MsgType:    msgType,
+			DeviceType: 0,
+			DeviceUID:  deviceUID,
+			Sequence:   seq,
+		},
+		Payload: payload,
 	}
 
 	return d.Send(msg)
@@ -395,9 +400,14 @@ func CreateValveCommand(controllerUID [8]byte, actuatorAddr uint8, command uint8
 	}
 
 	return &protocol.LoRaMessage{
-		DeviceUID: controllerUID,
-		MsgType:   protocol.MsgTypeValveCommand,
-		Payload:   payload.Encode(),
+		Header: protocol.Header{
+			Magic:      [2]byte{protocol.MagicByte1, protocol.MagicByte2},
+			Version:    protocol.ProtocolVersion,
+			MsgType:    protocol.MsgTypeValveCommand,
+			DeviceType: 0,
+			DeviceUID:  controllerUID,
+		},
+		Payload: payload.Encode(),
 	}
 }
 
@@ -414,9 +424,14 @@ func CreateTimeSyncMessage(utcOffset int8) *protocol.LoRaMessage {
 	}
 
 	return &protocol.LoRaMessage{
-		DeviceUID: broadcastUID,
-		MsgType:   protocol.MsgTypeTimeSync,
-		Payload:   payload.Encode(),
+		Header: protocol.Header{
+			Magic:      [2]byte{protocol.MagicByte1, protocol.MagicByte2},
+			Version:    protocol.ProtocolVersion,
+			MsgType:    protocol.MsgTypeTimeSync,
+			DeviceType: 0,
+			DeviceUID:  broadcastUID,
+		},
+		Payload: payload.Encode(),
 	}
 }
 
@@ -429,9 +444,14 @@ func CreateScheduleUpdateMessage(controllerUID [8]byte, version uint16, entries 
 	}
 
 	return &protocol.LoRaMessage{
-		DeviceUID: controllerUID,
-		MsgType:   protocol.MsgTypeScheduleUpdate,
-		Payload:   payload.Encode(),
+		Header: protocol.Header{
+			Magic:      [2]byte{protocol.MagicByte1, protocol.MagicByte2},
+			Version:    protocol.ProtocolVersion,
+			MsgType:    protocol.MsgTypeScheduleUpdate,
+			DeviceType: 0,
+			DeviceUID:  controllerUID,
+		},
+		Payload: payload.Encode(),
 	}
 }
 

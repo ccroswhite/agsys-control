@@ -18,6 +18,9 @@
 #include "can_bus.h"
 #include "rtc.h"
 #include "schedule_manager.h"
+#include "agsys_protocol.h"
+#include "agsys_lora.h"
+#include "agsys_crypto.h"
 
 /* ==========================================================================
  * GLOBAL STATE
@@ -38,6 +41,12 @@ uint32_t pairingModeStartTime = 0;
 uint32_t lastSchedulePull = 0;
 uint32_t lastHeartbeat = 0;
 uint32_t lastStatusReport = 0;
+
+// Device UID
+uint8_t deviceUid[AGSYS_DEVICE_UID_SIZE];
+
+// Pending command tracking
+uint16_t pendingCommandId = 0;
 
 /* ==========================================================================
  * FUNCTION PROTOTYPES
@@ -78,6 +87,9 @@ void exitPairingMode(void);
 uint32_t getRTCTime(void);
 void logEvent(uint8_t eventType, uint8_t valveId, uint16_t duration, uint16_t volume);
 void updateLEDs(void);
+void getDeviceUid(uint8_t* uid);
+void handleValveCommand(AgsysValveCommand* cmd);
+void sendValveAck(uint8_t actuatorAddr, uint16_t commandId, uint8_t resultState, bool success, uint8_t errorCode);
 
 /* ==========================================================================
  * SETUP
@@ -96,6 +108,12 @@ void setup() {
     initFRAM();
     initCAN();
     initLoRa();
+    
+    // Get device UID and initialize AgSys LoRa layer
+    getDeviceUid(deviceUid);
+    if (!agsys_lora_init(deviceUid, AGSYS_DEVICE_TYPE_VALVE_CONTROLLER)) {
+        DEBUG_PRINTLN("ERROR: Failed to initialize AgSys LoRa");
+    }
     
     loadSchedules();
     
@@ -332,20 +350,195 @@ void runScheduledIrrigation(ScheduleEntry* entry) {
  * ========================================================================== */
 
 void processLoRa(void) {
-    int packetSize = LoRa.parsePacket();
-    if (packetSize > 0) {
-        // Process incoming LoRa message
-        // Implementation will handle commands from property controller
+    AgsysHeader header;
+    uint8_t payload[128];
+    size_t payloadLen = sizeof(payload);
+    int16_t rssi;
+    
+    if (agsys_lora_receive(&header, payload, &payloadLen, &rssi)) {
+        DEBUG_PRINTF("Received message type 0x%02X, RSSI=%d\n", header.msgType, rssi);
+        
+        switch (header.msgType) {
+            case AGSYS_MSG_VALVE_COMMAND: {
+                if (payloadLen >= sizeof(AgsysValveCommand)) {
+                    AgsysValveCommand* cmd = (AgsysValveCommand*)payload;
+                    handleValveCommand(cmd);
+                }
+                break;
+            }
+            
+            case AGSYS_MSG_SCHEDULE_UPDATE: {
+                if (payloadLen >= sizeof(AgsysScheduleHeader)) {
+                    AgsysScheduleHeader* schedHeader = (AgsysScheduleHeader*)payload;
+                    DEBUG_PRINTF("Schedule update: version=%d, entries=%d\n", 
+                                 schedHeader->scheduleVersion, schedHeader->entryCount);
+                    // Parse and store schedule entries
+                    // schedule_update(payload, payloadLen);
+                }
+                break;
+            }
+            
+            case AGSYS_MSG_TIME_SYNC: {
+                if (payloadLen >= sizeof(AgsysTimeSync)) {
+                    AgsysTimeSync* timeSync = (AgsysTimeSync*)payload;
+                    DEBUG_PRINTF("Time sync: %lu\n", timeSync->unixTimestamp);
+                    rtc_setUnixTime(timeSync->unixTimestamp);
+                }
+                break;
+            }
+            
+            case AGSYS_MSG_CONFIG_UPDATE: {
+                if (payloadLen >= sizeof(AgsysConfigUpdate)) {
+                    AgsysConfigUpdate* config = (AgsysConfigUpdate*)payload;
+                    DEBUG_PRINTF("Config update: version=%d\n", config->configVersion);
+                    // Apply configuration changes
+                }
+                break;
+            }
+            
+            case AGSYS_MSG_ACK: {
+                if (payloadLen >= sizeof(AgsysAck)) {
+                    AgsysAck* ack = (AgsysAck*)payload;
+                    DEBUG_PRINTF("ACK for seq %d, status=%d\n", ack->ackedSequence, ack->status);
+                }
+                break;
+            }
+            
+            default:
+                DEBUG_PRINTF("Unknown message type: 0x%02X\n", header.msgType);
+                break;
+        }
+    }
+}
+
+void handleValveCommand(AgsysValveCommand* cmd) {
+    DEBUG_PRINTF("Valve command: addr=%d, cmd=%d, id=%d, duration=%d\n",
+                 cmd->actuatorAddr, cmd->command, cmd->commandId, cmd->durationSec);
+    
+    bool success = false;
+    uint8_t resultState = AGSYS_VALVE_STATE_ERROR;
+    uint8_t errorCode = AGSYS_VALVE_ERR_NONE;
+    
+    // Execute command via CAN bus
+    switch (cmd->command) {
+        case AGSYS_VALVE_CMD_OPEN:
+            if (cmd->actuatorAddr == 0xFF) {
+                // Open all - not typically used
+                success = false;
+                errorCode = AGSYS_VALVE_ERR_ACTUATOR_OFFLINE;
+            } else {
+                success = canbus_open_valve(cmd->actuatorAddr);
+                resultState = success ? AGSYS_VALVE_STATE_OPEN : AGSYS_VALVE_STATE_ERROR;
+            }
+            break;
+            
+        case AGSYS_VALVE_CMD_CLOSE:
+            if (cmd->actuatorAddr == 0xFF) {
+                canbus_emergency_close_all();
+                success = true;
+                resultState = AGSYS_VALVE_STATE_CLOSED;
+            } else {
+                success = canbus_close_valve(cmd->actuatorAddr);
+                resultState = success ? AGSYS_VALVE_STATE_CLOSED : AGSYS_VALVE_STATE_ERROR;
+            }
+            break;
+            
+        case AGSYS_VALVE_CMD_STOP:
+            success = canbus_stop_valve(cmd->actuatorAddr);
+            resultState = AGSYS_VALVE_STATE_ERROR;  // Unknown state after stop
+            break;
+            
+        case AGSYS_VALVE_CMD_QUERY:
+            resultState = canbus_get_valve_state(cmd->actuatorAddr);
+            success = (resultState != AGSYS_VALVE_STATE_ERROR);
+            break;
+    }
+    
+    if (!success && errorCode == AGSYS_VALVE_ERR_NONE) {
+        errorCode = AGSYS_VALVE_ERR_ACTUATOR_OFFLINE;
+    }
+    
+    // Send acknowledgment
+    sendValveAck(cmd->actuatorAddr, cmd->commandId, resultState, success, errorCode);
+    
+    // Log event
+    logEvent(cmd->command == AGSYS_VALVE_CMD_OPEN ? EVENT_VALVE_OPEN : EVENT_VALVE_CLOSE,
+             cmd->actuatorAddr, cmd->durationSec, 0);
+}
+
+void sendValveAck(uint8_t actuatorAddr, uint16_t commandId, uint8_t resultState, bool success, uint8_t errorCode) {
+    AgsysValveAck ack;
+    ack.actuatorAddr = actuatorAddr;
+    ack.commandId = commandId;
+    ack.resultState = resultState;
+    ack.success = success ? 1 : 0;
+    ack.errorCode = errorCode;
+    
+    if (agsys_lora_send(AGSYS_MSG_VALVE_ACK, (uint8_t*)&ack, sizeof(ack))) {
+        DEBUG_PRINTLN("Valve ACK sent");
+    } else {
+        DEBUG_PRINTLN("ERROR: Failed to send valve ACK");
     }
 }
 
 void sendStatusReport(void) {
-    // Send status to property controller
+    DEBUG_PRINTLN("Sending valve status report...");
+    
+    // Build status report with all actuator states
+    uint8_t buffer[128];
+    AgsysValveStatusHeader* header = (AgsysValveStatusHeader*)buffer;
+    header->timestamp = getRTCTime();
+    header->actuatorCount = 0;
+    
+    AgsysActuatorStatus* statuses = (AgsysActuatorStatus*)(buffer + sizeof(AgsysValveStatusHeader));
+    
+    // Query all online actuators
+    for (uint8_t addr = ACTUATOR_ADDR_MIN; addr <= ACTUATOR_ADDR_MAX; addr++) {
+        if (canbus_is_actuator_online(addr)) {
+            statuses[header->actuatorCount].address = addr;
+            statuses[header->actuatorCount].state = canbus_get_valve_state(addr);
+            statuses[header->actuatorCount].currentMa = canbus_get_motor_current(addr);
+            statuses[header->actuatorCount].flags = onBatteryPower ? AGSYS_VALVE_FLAG_ON_BATTERY : 0;
+            header->actuatorCount++;
+            
+            if (header->actuatorCount >= 20) break;  // Limit to fit in packet
+        }
+    }
+    
+    size_t payloadLen = sizeof(AgsysValveStatusHeader) + 
+                        (header->actuatorCount * sizeof(AgsysActuatorStatus));
+    
+    if (agsys_lora_send(AGSYS_MSG_VALVE_STATUS, buffer, payloadLen)) {
+        DEBUG_PRINTF("Status report sent: %d actuators\n", header->actuatorCount);
+    } else {
+        DEBUG_PRINTLN("ERROR: Failed to send status report");
+    }
 }
 
 void pullScheduleUpdate(void) {
-    DEBUG_PRINTLN("Pulling schedule update from property controller...");
-    // Request schedule update via LoRa
+    DEBUG_PRINTLN("Requesting schedule update from property controller...");
+    
+    // Send schedule request message (no payload needed)
+    if (agsys_lora_send(AGSYS_MSG_SCHEDULE_REQUEST, NULL, 0)) {
+        DEBUG_PRINTLN("Schedule request sent");
+    } else {
+        DEBUG_PRINTLN("ERROR: Failed to send schedule request");
+    }
+}
+
+void getDeviceUid(uint8_t* uid) {
+    // Read device ID from nRF52 FICR registers
+    uint32_t deviceId0 = NRF_FICR->DEVICEID[0];
+    uint32_t deviceId1 = NRF_FICR->DEVICEID[1];
+    
+    uid[0] = (deviceId0 >> 0) & 0xFF;
+    uid[1] = (deviceId0 >> 8) & 0xFF;
+    uid[2] = (deviceId0 >> 16) & 0xFF;
+    uid[3] = (deviceId0 >> 24) & 0xFF;
+    uid[4] = (deviceId1 >> 0) & 0xFF;
+    uid[5] = (deviceId1 >> 8) & 0xFF;
+    uid[6] = (deviceId1 >> 16) & 0xFF;
+    uid[7] = (deviceId1 >> 24) & 0xFF;
 }
 
 /* ==========================================================================
