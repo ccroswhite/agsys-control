@@ -1,105 +1,118 @@
-// Package cloud provides WebSocket communication with the AgSys cloud service.
+// Package cloud provides communication with the AgSys cloud service.
+// Uses HTTPS REST for data submission and WebSocket for real-time events.
 package cloud
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"math/rand"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
-// MessageType defines the type of cloud message
+// MessageType defines the type of WebSocket message
 type MessageType string
 
 const (
-	// Outbound messages (to cloud)
-	MsgTypeSensorData   MessageType = "sensor_data"
-	MsgTypeWaterMeter   MessageType = "water_meter"
-	MsgTypeValveEvent   MessageType = "valve_event"
-	MsgTypeValveAck     MessageType = "valve_ack"
-	MsgTypeHeartbeat    MessageType = "heartbeat"
-	MsgTypeDeviceStatus MessageType = "device_status"
+	// Outbound WebSocket messages (to cloud)
+	MsgTypeAck  MessageType = "ack"
+	MsgTypePong MessageType = "pong"
 
-	// Inbound messages (from cloud)
-	MsgTypeConfig         MessageType = "config"
-	MsgTypeDeviceList     MessageType = "device_list"
-	MsgTypeScheduleUpdate MessageType = "schedule_update"
+	// Inbound WebSocket messages (from cloud)
 	MsgTypeValveCommand   MessageType = "valve_command"
-	MsgTypeTimeSync       MessageType = "time_sync"
+	MsgTypeScheduleUpdate MessageType = "schedule_update"
+	MsgTypeDeviceAdded    MessageType = "device_added"
+	MsgTypeConfigUpdate   MessageType = "config_update"
+	MsgTypePing           MessageType = "ping"
 )
 
 // Message represents a WebSocket message to/from the cloud
 type Message struct {
 	Type      MessageType     `json:"type"`
-	ID        string          `json:"id,omitempty"` // Message ID for tracking
-	Timestamp int64           `json:"timestamp"`
+	ID        string          `json:"id,omitempty"`
+	Timestamp string          `json:"timestamp"`
 	Payload   json.RawMessage `json:"payload"`
 }
 
 // Config holds cloud client configuration
 type Config struct {
-	URL            string        // WebSocket URL (wss://...)
-	PropertyUID    string        // Property UID for authentication
-	APIKey         string        // API key for authentication
-	ReconnectDelay time.Duration // Delay between reconnection attempts
-	PingInterval   time.Duration // Interval for ping/keepalive
-	WriteTimeout   time.Duration // Timeout for write operations
-	ReadTimeout    time.Duration // Timeout for read operations
+	BaseURL      string // REST API base URL (https://api.agsys.io/api/v1/device)
+	WebSocketURL string // WebSocket URL (wss://api.agsys.io/ws/device)
+	ControllerID string // Controller UUID
+	APIKey       string // API key for authentication
+
+	PingInterval time.Duration // Interval for ping/keepalive
+	WriteTimeout time.Duration // Timeout for write operations
+	ReadTimeout  time.Duration // Timeout for read operations
+	HTTPTimeout  time.Duration // Timeout for HTTP requests
+
+	// Reconnection settings (exponential backoff)
+	InitialRetryDelay time.Duration
+	MaxRetryDelay     time.Duration
+	BackoffMultiplier float64
+	JitterPercent     float64
 }
 
 // DefaultConfig returns default cloud client configuration
 func DefaultConfig() Config {
 	return Config{
-		ReconnectDelay: 5 * time.Second,
-		PingInterval:   30 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		ReadTimeout:    60 * time.Second,
+		PingInterval:      30 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		HTTPTimeout:       30 * time.Second,
+		InitialRetryDelay: 1 * time.Second,
+		MaxRetryDelay:     60 * time.Second,
+		BackoffMultiplier: 2.0,
+		JitterPercent:     0.25,
 	}
 }
 
-// Client handles WebSocket communication with the AgSys cloud
+// Client handles communication with the AgSys cloud
 type Client struct {
-	config    Config
-	conn      *websocket.Conn
-	sendChan  chan *Message
-	recvChan  chan *Message
-	stopChan  chan struct{}
-	wg        sync.WaitGroup
-	mu        sync.Mutex
-	connected bool
+	config     Config
+	httpClient *http.Client
+	conn       *websocket.Conn
+	sendChan   chan *Message
+	stopChan   chan struct{}
+	wg         sync.WaitGroup
+	mu         sync.Mutex
+	connected  bool
 
-	// Callbacks for different message types
-	onConfig       func(json.RawMessage)
-	onDeviceList   func(json.RawMessage)
-	onSchedule     func(json.RawMessage)
+	// Current retry delay for exponential backoff
+	currentRetryDelay time.Duration
+
+	// Callbacks for WebSocket messages from cloud
 	onValveCommand func(json.RawMessage)
+	onSchedule     func(json.RawMessage)
+	onDeviceAdded  func(json.RawMessage)
+	onConfigUpdate func(json.RawMessage)
 }
 
 // New creates a new cloud client
 func New(config Config) *Client {
 	return &Client{
-		config:   config,
-		sendChan: make(chan *Message, 100),
-		recvChan: make(chan *Message, 100),
-		stopChan: make(chan struct{}),
+		config: config,
+		httpClient: &http.Client{
+			Timeout: config.HTTPTimeout,
+		},
+		sendChan:          make(chan *Message, 100),
+		stopChan:          make(chan struct{}),
+		currentRetryDelay: config.InitialRetryDelay,
 	}
 }
 
-// SetConfigCallback sets the callback for config messages
-func (c *Client) SetConfigCallback(cb func(json.RawMessage)) {
+// SetValveCommandCallback sets the callback for valve command messages
+func (c *Client) SetValveCommandCallback(cb func(json.RawMessage)) {
 	c.mu.Lock()
-	c.onConfig = cb
-	c.mu.Unlock()
-}
-
-// SetDeviceListCallback sets the callback for device list messages
-func (c *Client) SetDeviceListCallback(cb func(json.RawMessage)) {
-	c.mu.Lock()
-	c.onDeviceList = cb
+	c.onValveCommand = cb
 	c.mu.Unlock()
 }
 
@@ -110,14 +123,21 @@ func (c *Client) SetScheduleCallback(cb func(json.RawMessage)) {
 	c.mu.Unlock()
 }
 
-// SetValveCommandCallback sets the callback for valve command messages
-func (c *Client) SetValveCommandCallback(cb func(json.RawMessage)) {
+// SetDeviceAddedCallback sets the callback for device added messages
+func (c *Client) SetDeviceAddedCallback(cb func(json.RawMessage)) {
 	c.mu.Lock()
-	c.onValveCommand = cb
+	c.onDeviceAdded = cb
 	c.mu.Unlock()
 }
 
-// Start connects to the cloud and starts the message loops
+// SetConfigUpdateCallback sets the callback for config update messages
+func (c *Client) SetConfigUpdateCallback(cb func(json.RawMessage)) {
+	c.mu.Lock()
+	c.onConfigUpdate = cb
+	c.mu.Unlock()
+}
+
+// Start connects to the cloud and starts the WebSocket message loops
 func (c *Client) Start(ctx context.Context) error {
 	c.wg.Add(1)
 	go c.connectionLoop(ctx)
@@ -131,123 +151,179 @@ func (c *Client) Stop() error {
 	return nil
 }
 
-// IsConnected returns whether the client is connected
+// IsConnected returns whether the WebSocket is connected
 func (c *Client) IsConnected() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.connected
 }
 
-// Send queues a message for sending to the cloud
-func (c *Client) Send(msg *Message) error {
-	if msg.Timestamp == 0 {
-		msg.Timestamp = time.Now().Unix()
-	}
+// =============================================================================
+// REST API Methods (Controller → Backend)
+// =============================================================================
 
-	select {
-	case c.sendChan <- msg:
-		return nil
-	default:
-		return fmt.Errorf("send queue full")
-	}
+// SensorReading represents a single sensor reading
+type SensorReading struct {
+	Timestamp    time.Time   `json:"timestamp"`
+	Probes       []ProbeData `json:"probes"`
+	BatteryMV    int         `json:"battery_mv"`
+	TemperatureC float64     `json:"temperature_c,omitempty"`
+	SignalRSSI   int         `json:"signal_rssi,omitempty"`
 }
 
-// SendSensorData sends soil moisture sensor data to the cloud
-func (c *Client) SendSensorData(deviceUID string, probeID uint8, moisturePercent uint8,
-	temperature int16, batteryMV uint16, timestamp time.Time) error {
+// ProbeData represents data from a single probe
+type ProbeData struct {
+	Index           int     `json:"index"`
+	FrequencyHz     int     `json:"frequency_hz,omitempty"`
+	MoisturePercent float64 `json:"moisture_percent"`
+}
 
+// IngestSensorData sends soil moisture sensor readings via REST API
+func (c *Client) IngestSensorData(ctx context.Context, deviceUID string, readings []SensorReading) error {
+	payload := map[string]interface{}{
+		"device_uid": deviceUID,
+		"readings":   readings,
+	}
+	return c.postJSON(ctx, "/sensors/ingest", payload)
+}
+
+// MeterReading represents a single water meter reading
+type MeterReading struct {
+	Timestamp   time.Time   `json:"timestamp"`
+	TotalLiters float64     `json:"total_liters"`
+	FlowRateLPM float64     `json:"flow_rate_lpm"`
+	VelocityMPS float64     `json:"velocity_mps,omitempty"`
+	Direction   string      `json:"direction,omitempty"`
+	BatteryMV   int         `json:"battery_mv,omitempty"`
+	SignalRSSI  int         `json:"signal_rssi,omitempty"`
+	Flags       *MeterFlags `json:"flags,omitempty"`
+}
+
+// MeterFlags represents water meter status flags
+type MeterFlags struct {
+	LowBattery  bool `json:"low_battery"`
+	ReverseFlow bool `json:"reverse_flow"`
+	CoilFault   bool `json:"coil_fault"`
+}
+
+// IngestMeterData sends water meter readings via REST API
+func (c *Client) IngestMeterData(ctx context.Context, deviceUID string, readings []MeterReading) error {
+	payload := map[string]interface{}{
+		"device_uid": deviceUID,
+		"readings":   readings,
+	}
+	return c.postJSON(ctx, "/meters/ingest", payload)
+}
+
+// ActuatorStatus represents the status of a valve actuator
+type ActuatorStatus struct {
+	Address   uint8          `json:"address"`
+	State     string         `json:"state"`
+	CurrentMA int            `json:"current_ma,omitempty"`
+	ChangedAt time.Time      `json:"changed_at"`
+	CommandID string         `json:"command_id,omitempty"`
+	Flags     *ActuatorFlags `json:"flags,omitempty"`
+}
+
+// ActuatorFlags represents valve actuator status flags
+type ActuatorFlags struct {
+	PowerFail   bool `json:"power_fail"`
+	Overcurrent bool `json:"overcurrent"`
+	OnBattery   bool `json:"on_battery"`
+}
+
+// ReportValveStatus sends valve status updates via REST API
+func (c *Client) ReportValveStatus(ctx context.Context, controllerUID string, actuators []ActuatorStatus) error {
+	payload := map[string]interface{}{
+		"controller_uid": controllerUID,
+		"actuators":      actuators,
+	}
+	return c.postJSON(ctx, "/valves/status", payload)
+}
+
+// AcknowledgeValveCommand acknowledges a valve command via REST API
+func (c *Client) AcknowledgeValveCommand(ctx context.Context, valveID, commandID string, success bool, currentState string, errorMsg *string) error {
+	payload := map[string]interface{}{
+		"command_id":    commandID,
+		"success":       success,
+		"current_state": currentState,
+		"executed_at":   time.Now().UTC().Format(time.RFC3339),
+	}
+	if errorMsg != nil {
+		payload["error_message"] = *errorMsg
+	}
+	return c.postJSON(ctx, fmt.Sprintf("/valves/%s/acknowledge", valveID), payload)
+}
+
+// RegisterDevice registers a new device discovered by the controller
+func (c *Client) RegisterDevice(ctx context.Context, deviceUID, deviceType, firmwareVersion string, firstSeen time.Time, signalRSSI int) error {
 	payload := map[string]interface{}{
 		"device_uid":       deviceUID,
-		"probe_id":         probeID,
-		"moisture_percent": moisturePercent,
-		"temperature":      temperature,
-		"battery_mv":       batteryMV,
-		"reading_time":     timestamp.Unix(),
+		"device_type":      deviceType,
+		"firmware_version": firmwareVersion,
+		"first_seen":       firstSeen.UTC().Format(time.RFC3339),
+		"signal_rssi":      signalRSSI,
 	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	return c.Send(&Message{
-		Type:    MsgTypeSensorData,
-		Payload: data,
-	})
+	return c.postJSON(ctx, "/devices/register", payload)
 }
 
-// SendWaterMeterData sends water meter data to the cloud
-func (c *Client) SendWaterMeterData(deviceUID string, totalLiters uint32,
-	flowRateLPM float32, batteryMV uint16, timestamp time.Time) error {
+// LoRaStats represents LoRa radio statistics
+type LoRaStats struct {
+	PacketsReceived int `json:"packets_received"`
+	PacketsSent     int `json:"packets_sent"`
+	Errors          int `json:"errors"`
+}
 
+// SendHeartbeat sends a heartbeat to the backend via REST API
+func (c *Client) SendHeartbeat(ctx context.Context, uptimeSeconds int64, firmwareVersion string, loraStats *LoRaStats, connectedDevices int) error {
 	payload := map[string]interface{}{
-		"device_uid":    deviceUID,
-		"total_liters":  totalLiters,
-		"flow_rate_lpm": flowRateLPM,
-		"battery_mv":    batteryMV,
-		"reading_time":  timestamp.Unix(),
+		"timestamp":         time.Now().UTC().Format(time.RFC3339),
+		"uptime_seconds":    uptimeSeconds,
+		"firmware_version":  firmwareVersion,
+		"connected_devices": connectedDevices,
 	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
+	if loraStats != nil {
+		payload["lora_stats"] = loraStats
 	}
-
-	return c.Send(&Message{
-		Type:    MsgTypeWaterMeter,
-		Payload: data,
-	})
+	return c.postJSON(ctx, "/controllers/heartbeat", payload)
 }
 
-// SendValveEvent sends a valve state change event to the cloud
-func (c *Client) SendValveEvent(controllerUID string, actuatorAddr uint8,
-	prevState, newState uint8, source string, timestamp time.Time) error {
-
-	payload := map[string]interface{}{
-		"controller_uid": controllerUID,
-		"actuator_addr":  actuatorAddr,
-		"prev_state":     prevState,
-		"new_state":      newState,
-		"source":         source,
-		"event_time":     timestamp.Unix(),
-	}
-
+// postJSON sends a POST request with JSON body to the REST API
+func (c *Client) postJSON(ctx context.Context, endpoint string, payload interface{}) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal payload: %w", err)
 	}
 
-	return c.Send(&Message{
-		Type:    MsgTypeValveEvent,
-		Payload: data,
-	})
-}
-
-// SendValveAck sends a valve command acknowledgment to the cloud
-func (c *Client) SendValveAck(controllerUID string, actuatorAddr uint8,
-	commandID uint16, resultState uint8, success bool) error {
-
-	payload := map[string]interface{}{
-		"controller_uid": controllerUID,
-		"actuator_addr":  actuatorAddr,
-		"command_id":     commandID,
-		"result_state":   resultState,
-		"success":        success,
-		"ack_time":       time.Now().Unix(),
-	}
-
-	data, err := json.Marshal(payload)
+	url := c.config.BaseURL + endpoint
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("create request: %w", err)
 	}
 
-	return c.Send(&Message{
-		Type:    MsgTypeValveAck,
-		Payload: data,
-	})
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", c.config.APIKey)
+	req.Header.Set("X-Controller-ID", c.config.ControllerID)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
 }
 
-// connectionLoop manages the WebSocket connection with automatic reconnection
+// =============================================================================
+// WebSocket Methods (Backend → Controller)
+// =============================================================================
+
+// connectionLoop manages the WebSocket connection with exponential backoff
 func (c *Client) connectionLoop(ctx context.Context) {
 	defer c.wg.Done()
 
@@ -265,31 +341,48 @@ func (c *Client) connectionLoop(ctx context.Context) {
 		// Attempt to connect
 		if err := c.connect(); err != nil {
 			log.Printf("Failed to connect to cloud: %v", err)
-			time.Sleep(c.config.ReconnectDelay)
+			c.waitWithBackoff()
 			continue
 		}
+
+		// Reset retry delay on successful connection
+		c.currentRetryDelay = c.config.InitialRetryDelay
 
 		// Run read/write loops until disconnected
 		c.runMessageLoops(ctx)
 
 		// Disconnected, wait before reconnecting
 		log.Println("Disconnected from cloud, reconnecting...")
-		time.Sleep(c.config.ReconnectDelay)
+		c.waitWithBackoff()
+	}
+}
+
+// waitWithBackoff waits for the current retry delay with jitter
+func (c *Client) waitWithBackoff() {
+	// Add jitter
+	jitter := c.currentRetryDelay.Seconds() * c.config.JitterPercent * (rand.Float64()*2 - 1)
+	delay := c.currentRetryDelay + time.Duration(jitter*float64(time.Second))
+
+	time.Sleep(delay)
+
+	// Increase delay for next time (exponential backoff)
+	c.currentRetryDelay = time.Duration(float64(c.currentRetryDelay) * c.config.BackoffMultiplier)
+	if c.currentRetryDelay > c.config.MaxRetryDelay {
+		c.currentRetryDelay = c.config.MaxRetryDelay
 	}
 }
 
 // connect establishes the WebSocket connection
 func (c *Client) connect() error {
-	// Add authentication headers
-	header := make(map[string][]string)
-	header["X-Property-UID"] = []string{c.config.PropertyUID}
-	header["X-API-Key"] = []string{c.config.APIKey}
+	// Build WebSocket URL with query parameters
+	wsURL := fmt.Sprintf("%s?api_key=%s&controller_id=%s",
+		c.config.WebSocketURL, c.config.APIKey, c.config.ControllerID)
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, _, err := dialer.Dial(c.config.URL, header)
+	conn, _, err := dialer.Dial(wsURL, nil)
 	if err != nil {
 		return fmt.Errorf("dial failed: %w", err)
 	}
@@ -299,7 +392,7 @@ func (c *Client) connect() error {
 	c.connected = true
 	c.mu.Unlock()
 
-	log.Printf("Connected to cloud: %s", c.config.URL)
+	log.Printf("Connected to cloud WebSocket: %s", c.config.WebSocketURL)
 	return nil
 }
 
@@ -332,13 +425,6 @@ func (c *Client) runMessageLoops(ctx context.Context) {
 	go func() {
 		defer wg.Done()
 		c.writeLoop(ctx, done)
-	}()
-
-	// Ping loop
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c.pingLoop(done)
 	}()
 
 	// Wait for any loop to exit
@@ -381,6 +467,9 @@ func (c *Client) readLoop(done chan struct{}) {
 
 // writeLoop sends messages to the WebSocket
 func (c *Client) writeLoop(ctx context.Context, done chan struct{}) {
+	ticker := time.NewTicker(c.config.PingInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-done:
@@ -389,6 +478,7 @@ func (c *Client) writeLoop(ctx context.Context, done chan struct{}) {
 			return
 		case <-c.stopChan:
 			return
+
 		case msg := <-c.sendChan:
 			c.mu.Lock()
 			conn := c.conn
@@ -409,22 +499,9 @@ func (c *Client) writeLoop(ctx context.Context, done chan struct{}) {
 				log.Printf("WebSocket write error: %v", err)
 				return
 			}
-		}
-	}
-}
 
-// pingLoop sends periodic pings to keep the connection alive
-func (c *Client) pingLoop(done chan struct{}) {
-	ticker := time.NewTicker(c.config.PingInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-done:
-			return
-		case <-c.stopChan:
-			return
 		case <-ticker.C:
+			// Send WebSocket ping frame
 			c.mu.Lock()
 			conn := c.conn
 			c.mu.Unlock()
@@ -433,64 +510,120 @@ func (c *Client) pingLoop(done chan struct{}) {
 				return
 			}
 
-			// Send heartbeat message
-			heartbeat := &Message{
-				Type:      MsgTypeHeartbeat,
-				Timestamp: time.Now().Unix(),
-			}
-
-			data, _ := json.Marshal(heartbeat)
 			conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
-			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				log.Printf("Heartbeat failed: %v", err)
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("Ping failed: %v", err)
 				return
 			}
 		}
 	}
 }
 
-// handleMessage processes an incoming message
+// handleMessage processes an incoming WebSocket message
 func (c *Client) handleMessage(msg *Message) {
 	c.mu.Lock()
-	onConfig := c.onConfig
-	onDeviceList := c.onDeviceList
-	onSchedule := c.onSchedule
 	onValveCommand := c.onValveCommand
+	onSchedule := c.onSchedule
+	onDeviceAdded := c.onDeviceAdded
+	onConfigUpdate := c.onConfigUpdate
 	c.mu.Unlock()
 
 	switch msg.Type {
-	case MsgTypeConfig:
-		if onConfig != nil {
-			onConfig(msg.Payload)
+	case MsgTypeValveCommand:
+		if onValveCommand != nil {
+			onValveCommand(msg.Payload)
 		}
-
-	case MsgTypeDeviceList:
-		if onDeviceList != nil {
-			onDeviceList(msg.Payload)
-		}
+		// Send acknowledgment
+		c.sendAck(msg.ID, true, nil)
 
 	case MsgTypeScheduleUpdate:
 		if onSchedule != nil {
 			onSchedule(msg.Payload)
 		}
+		c.sendAck(msg.ID, true, nil)
 
-	case MsgTypeValveCommand:
-		if onValveCommand != nil {
-			onValveCommand(msg.Payload)
+	case MsgTypeDeviceAdded:
+		if onDeviceAdded != nil {
+			onDeviceAdded(msg.Payload)
 		}
+		c.sendAck(msg.ID, true, nil)
+
+	case MsgTypeConfigUpdate:
+		if onConfigUpdate != nil {
+			onConfigUpdate(msg.Payload)
+		}
+		c.sendAck(msg.ID, true, nil)
+
+	case MsgTypePing:
+		c.sendPong(msg.ID)
 
 	default:
 		log.Printf("Unknown message type: %s", msg.Type)
 	}
 }
 
+// sendAck sends an acknowledgment message
+func (c *Client) sendAck(messageID string, success bool, errMsg *string) {
+	payload := map[string]interface{}{
+		"message_id": messageID,
+		"success":    success,
+	}
+	if errMsg != nil {
+		payload["error"] = *errMsg
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+
+	msg := &Message{
+		Type:      MsgTypeAck,
+		ID:        uuid.New().String(),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Payload:   payloadBytes,
+	}
+
+	select {
+	case c.sendChan <- msg:
+	default:
+		log.Printf("Send queue full, dropping ack")
+	}
+}
+
+// sendPong sends a pong response to a ping
+func (c *Client) sendPong(pingID string) {
+	payload := map[string]interface{}{
+		"ping_id": pingID,
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+
+	msg := &Message{
+		Type:      MsgTypePong,
+		ID:        uuid.New().String(),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Payload:   payloadBytes,
+	}
+
+	select {
+	case c.sendChan <- msg:
+	default:
+		log.Printf("Send queue full, dropping pong")
+	}
+}
+
+// =============================================================================
+// Payload Types for Inbound Messages
+// =============================================================================
+
 // ValveCommandPayload represents a valve command from the cloud
 type ValveCommandPayload struct {
-	ControllerUID string `json:"controller_uid"`
-	ActuatorAddr  uint8  `json:"actuator_addr"`
-	Command       string `json:"command"` // "open", "close", "stop"
-	CommandID     string `json:"command_id"`
-	Priority      string `json:"priority"` // "normal", "immediate", "emergency"
+	ValveID         string `json:"valve_id"`
+	ActuatorAddress uint8  `json:"actuator_address"`
+	Command         string `json:"command"` // "open", "close", "stop"
+	CommandID       string `json:"command_id"`
+	DurationSeconds *int   `json:"duration_seconds"`
+	Priority        string `json:"priority"` // "normal", "emergency"
+	Source          string `json:"source"`
+	SourceID        string `json:"source_id"`
 }
 
 // ParseValveCommand parses a valve command payload
@@ -504,21 +637,26 @@ func ParseValveCommand(data json.RawMessage) (*ValveCommandPayload, error) {
 
 // ScheduleUpdatePayload represents a schedule update from the cloud
 type ScheduleUpdatePayload struct {
-	ControllerUID string          `json:"controller_uid"`
-	ScheduleUID   string          `json:"schedule_uid"`
-	Version       uint16          `json:"version"`
-	Name          string          `json:"name"`
-	IsActive      bool            `json:"is_active"`
-	Entries       []ScheduleEntry `json:"entries"`
+	PropertyID string     `json:"property_id"`
+	Schedules  []Schedule `json:"schedules"`
 }
 
-// ScheduleEntry represents a single schedule entry
-type ScheduleEntry struct {
-	DayMask      uint8  `json:"day_mask"`
-	StartHour    uint8  `json:"start_hour"`
-	StartMinute  uint8  `json:"start_minute"`
-	DurationMins uint16 `json:"duration_mins"`
-	ActuatorMask uint64 `json:"actuator_mask"`
+// Schedule represents a single irrigation schedule
+type Schedule struct {
+	ScheduleID      string          `json:"schedule_id"`
+	ZoneID          string          `json:"zone_id"`
+	Name            string          `json:"name"`
+	Enabled         bool            `json:"enabled"`
+	Days            []string        `json:"days"`
+	StartTime       string          `json:"start_time"`
+	DurationMinutes int             `json:"duration_minutes"`
+	Valves          []ScheduleValve `json:"valves"`
+}
+
+// ScheduleValve represents a valve in a schedule
+type ScheduleValve struct {
+	ValveID         string `json:"valve_id"`
+	ActuatorAddress uint8  `json:"actuator_address"`
 }
 
 // ParseScheduleUpdate parses a schedule update payload
@@ -530,27 +668,36 @@ func ParseScheduleUpdate(data json.RawMessage) (*ScheduleUpdatePayload, error) {
 	return &schedule, nil
 }
 
-// DeviceListPayload represents the device list from the cloud
-type DeviceListPayload struct {
-	PropertyUID  string       `json:"property_uid"`
-	PropertyName string       `json:"property_name"`
-	Devices      []DeviceInfo `json:"devices"`
+// DeviceAddedPayload represents a device added notification from the cloud
+type DeviceAddedPayload struct {
+	DeviceID   string                 `json:"device_id"`
+	DeviceUID  string                 `json:"device_uid"`
+	DeviceType string                 `json:"device_type"`
+	Name       string                 `json:"name"`
+	ZoneID     string                 `json:"zone_id,omitempty"`
+	Config     map[string]interface{} `json:"config,omitempty"`
 }
 
-// DeviceInfo represents device information from the cloud
-type DeviceInfo struct {
-	UID        string `json:"uid"`
-	DeviceType uint8  `json:"device_type"`
-	Name       string `json:"name"`
-	Alias      string `json:"alias,omitempty"`
-	ZoneUID    string `json:"zone_uid,omitempty"`
-}
-
-// ParseDeviceList parses a device list payload
-func ParseDeviceList(data json.RawMessage) (*DeviceListPayload, error) {
-	var list DeviceListPayload
-	if err := json.Unmarshal(data, &list); err != nil {
+// ParseDeviceAdded parses a device added payload
+func ParseDeviceAdded(data json.RawMessage) (*DeviceAddedPayload, error) {
+	var device DeviceAddedPayload
+	if err := json.Unmarshal(data, &device); err != nil {
 		return nil, err
 	}
-	return &list, nil
+	return &device, nil
+}
+
+// ConfigUpdatePayload represents a config update from the cloud
+type ConfigUpdatePayload struct {
+	Target string                 `json:"target"` // "controller" or device UID
+	Config map[string]interface{} `json:"config"`
+}
+
+// ParseConfigUpdate parses a config update payload
+func ParseConfigUpdate(data json.RawMessage) (*ConfigUpdatePayload, error) {
+	var cfg ConfigUpdatePayload
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
 }

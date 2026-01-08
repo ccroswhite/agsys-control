@@ -1,14 +1,19 @@
 # AgSys Property Controller Configuration
 
-# Property identification
+# Controller identification
+controller:
+  id: ""  # Controller UUID - set during provisioning
+
+# Property identification (optional, for display)
 property:
-  uid: ""  # Set by AgSys cloud
+  uid: ""
   name: ""
 
-# Cloud connection
+# Cloud connection (gRPC)
 cloud:
-  url: "wss://api.agsys.io/ws/property"
+  grpc_addr: "grpc.agsys.io:443"  # gRPC server address
   api_key: ""  # Set during provisioning
+  use_tls: true  # Use TLS for production (false for local dev)
 
 # LoRa configuration (via ChirpStack Concentratord)
 lora:

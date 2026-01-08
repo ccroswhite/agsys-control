@@ -15,31 +15,38 @@ import (
 	"github.com/agsys/property-controller/internal/lora"
 	"github.com/agsys/property-controller/internal/protocol"
 	"github.com/agsys/property-controller/internal/storage"
+	controllerv1 "github.com/ccroswhite/agsys-api/gen/go/proto/controller/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Config holds engine configuration
 type Config struct {
 	DatabasePath     string
-	CloudURL         string
-	PropertyUID      string
+	GRPCAddr         string // gRPC server address (e.g., "grpc.agsys.io:443")
+	ControllerID     string // Controller UUID
 	APIKey           string
+	UseTLS           bool // Use TLS for gRPC connection
 	AESKey           []byte
 	LoRaFrequency    uint32
 	CommandTimeout   time.Duration
 	CommandRetries   int
 	SyncInterval     time.Duration
 	TimeSyncInterval time.Duration
+	FirmwareVersion  string
 }
 
 // DefaultConfig returns default engine configuration
 func DefaultConfig() Config {
 	return Config{
 		DatabasePath:     "/var/lib/agsys/controller.db",
+		GRPCAddr:         "localhost:50051",
+		UseTLS:           false,
 		LoRaFrequency:    915000000,
 		CommandTimeout:   10 * time.Second,
 		CommandRetries:   3,
 		SyncInterval:     30 * time.Second,
 		TimeSyncInterval: 1 * time.Hour,
+		FirmwareVersion:  "1.0.0",
 	}
 }
 
@@ -48,7 +55,7 @@ type Engine struct {
 	config    Config
 	db        *storage.DB
 	lora      *lora.Driver
-	cloud     *cloud.Client
+	cloud     *cloud.GRPCClient
 	stopChan  chan struct{}
 	wg        sync.WaitGroup
 	mu        sync.RWMutex
@@ -77,13 +84,15 @@ func New(config Config) (*Engine, error) {
 		return nil, fmt.Errorf("failed to create LoRa driver: %w", err)
 	}
 
-	// Create cloud client
-	cloudConfig := cloud.DefaultConfig()
-	cloudConfig.URL = config.CloudURL
-	cloudConfig.PropertyUID = config.PropertyUID
-	cloudConfig.APIKey = config.APIKey
+	// Create gRPC cloud client
+	grpcConfig := cloud.DefaultGRPCConfig()
+	grpcConfig.ServerAddr = config.GRPCAddr
+	grpcConfig.ControllerID = config.ControllerID
+	grpcConfig.APIKey = config.APIKey
+	grpcConfig.UseTLS = config.UseTLS
 
-	cloudClient := cloud.New(cloudConfig)
+	cloudClient := cloud.NewGRPCClient(grpcConfig)
+	cloudClient.SetFirmwareVersion(config.FirmwareVersion)
 
 	return &Engine{
 		config:            config,
@@ -97,22 +106,22 @@ func New(config Config) (*Engine, error) {
 
 // Start starts the engine
 func (e *Engine) Start(ctx context.Context) error {
-	// Set up callbacks
+	// Set up LoRa receive callback
 	e.lora.SetReceiveCallback(e.handleLoRaMessage)
-	e.cloud.SetDeviceListCallback(e.handleDeviceList)
-	e.cloud.SetScheduleCallback(e.handleScheduleUpdate)
-	e.cloud.SetValveCommandCallback(e.handleValveCommand)
+
+	// Set up gRPC callbacks for messages from cloud
+	e.cloud.SetValveCommandHandler(e.handleValveCommandGRPC)
+	e.cloud.SetScheduleHandler(e.handleScheduleUpdateGRPC)
+	e.cloud.SetDeviceAddedHandler(e.handleDeviceAddedGRPC)
+	e.cloud.SetConfigUpdateHandler(e.handleConfigUpdateGRPC)
 
 	// Start LoRa driver
 	if err := e.lora.Start(); err != nil {
 		return fmt.Errorf("failed to start LoRa driver: %w", err)
 	}
 
-	// Start cloud client
-	if err := e.cloud.Start(ctx); err != nil {
-		e.lora.Stop()
-		return fmt.Errorf("failed to start cloud client: %w", err)
-	}
+	// Connect to cloud (with automatic reconnection)
+	go e.cloud.ConnectWithRetry(ctx)
 
 	// Start background tasks
 	e.wg.Add(1)
@@ -133,7 +142,7 @@ func (e *Engine) Stop() error {
 	close(e.stopChan)
 	e.wg.Wait()
 
-	if err := e.cloud.Stop(); err != nil {
+	if err := e.cloud.Close(); err != nil {
 		log.Printf("Error stopping cloud client: %v", err)
 	}
 
@@ -323,8 +332,15 @@ func (e *Engine) handleValveAck(deviceUID string, msg *protocol.LoRaMessage) {
 	log.Printf("Valve ack from %s addr %d: cmd %d %s, state: %s",
 		deviceUID, ack.ActuatorAddr, ack.CommandID, successStr, valveStateString(ack.ResultState))
 
-	// Send acknowledgment to cloud
-	e.cloud.SendValveAck(deviceUID, ack.ActuatorAddr, ack.CommandID, ack.ResultState, ack.Success)
+	// Send acknowledgment to cloud via gRPC
+	cmdIDStr := fmt.Sprintf("%d", ack.CommandID)
+	errMsg := ""
+	if !ack.Success {
+		errMsg = "command failed"
+	}
+	if err := e.cloud.SendCommandAck(cmdIDStr, ack.Success, errMsg); err != nil {
+		log.Printf("Failed to send valve ack to cloud: %v", err)
+	}
 }
 
 // handleScheduleRequest processes schedule requests from valve controllers
@@ -362,41 +378,47 @@ func (e *Engine) handleScheduleRequest(deviceUID string, msg *protocol.LoRaMessa
 	}
 }
 
-// handleDeviceList processes device list updates from the cloud
-func (e *Engine) handleDeviceList(data json.RawMessage) {
-	list, err := cloud.ParseDeviceList(data)
+// handleDeviceAdded processes device added notifications from the cloud
+func (e *Engine) handleDeviceAdded(data json.RawMessage) {
+	deviceInfo, err := cloud.ParseDeviceAdded(data)
 	if err != nil {
-		log.Printf("Failed to parse device list: %v", err)
+		log.Printf("Failed to parse device added: %v", err)
 		return
 	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Clear existing registered devices
-	e.registeredDevices = make(map[string]*storage.Device)
+	// Add the new device
+	device := &storage.Device{
+		UID:          deviceInfo.DeviceUID,
+		DeviceType:   deviceTypeFromString(deviceInfo.DeviceType),
+		Name:         deviceInfo.Name,
+		ZoneID:       deviceInfo.ZoneID,
+		IsRegistered: true,
+		FirstSeen:    time.Now(),
+		LastSeen:     time.Now(),
+	}
+	e.registeredDevices[deviceInfo.DeviceUID] = device
 
-	// Add new devices
-	for _, d := range list.Devices {
-		device := &storage.Device{
-			UID:          d.UID,
-			DeviceType:   d.DeviceType,
-			Name:         d.Name,
-			Alias:        d.Alias,
-			ZoneID:       d.ZoneUID,
-			IsRegistered: true,
-			FirstSeen:    time.Now(),
-			LastSeen:     time.Now(),
-		}
-		e.registeredDevices[d.UID] = device
-
-		// Store in database
-		if err := e.db.UpsertDevice(device); err != nil {
-			log.Printf("Failed to store device %s: %v", d.UID, err)
-		}
+	// Store in database
+	if err := e.db.UpsertDevice(device); err != nil {
+		log.Printf("Failed to store device %s: %v", deviceInfo.DeviceUID, err)
 	}
 
-	log.Printf("Updated device list: %d devices registered", len(list.Devices))
+	log.Printf("Device added: %s (%s) - %s", deviceInfo.DeviceUID, deviceInfo.DeviceType, deviceInfo.Name)
+}
+
+// handleConfigUpdate processes config updates from the cloud
+func (e *Engine) handleConfigUpdate(data json.RawMessage) {
+	cfgUpdate, err := cloud.ParseConfigUpdate(data)
+	if err != nil {
+		log.Printf("Failed to parse config update: %v", err)
+		return
+	}
+
+	log.Printf("Config update received for target: %s", cfgUpdate.Target)
+	// TODO: Apply configuration changes
 }
 
 // handleScheduleUpdate processes schedule updates from the cloud
@@ -407,33 +429,88 @@ func (e *Engine) handleScheduleUpdate(data json.RawMessage) {
 		return
 	}
 
-	// Convert to storage format
-	schedule := &storage.Schedule{
-		UID:           update.ScheduleUID,
-		ControllerUID: update.ControllerUID,
-		Version:       update.Version,
-		Name:          update.Name,
-		IsActive:      update.IsActive,
-	}
+	// Process each schedule in the update
+	for _, sched := range update.Schedules {
+		// Convert days to day mask
+		dayMask := daysToDayMask(sched.Days)
+		startHour, startMinute := parseStartTime(sched.StartTime)
 
-	entries := make([]storage.ScheduleEntry, len(update.Entries))
-	for i, e := range update.Entries {
-		entries[i] = storage.ScheduleEntry{
-			DayMask:      e.DayMask,
-			StartHour:    e.StartHour,
-			StartMinute:  e.StartMinute,
-			DurationMins: e.DurationMins,
-			ActuatorMask: e.ActuatorMask,
+		// Convert to storage format
+		schedule := &storage.Schedule{
+			UID:      sched.ScheduleID,
+			Name:     sched.Name,
+			IsActive: sched.Enabled,
+		}
+
+		// Create a single entry for this schedule
+		var actuatorMask uint64
+		for _, v := range sched.Valves {
+			actuatorMask |= (1 << v.ActuatorAddress)
+		}
+
+		entries := []storage.ScheduleEntry{{
+			DayMask:      dayMask,
+			StartHour:    startHour,
+			StartMinute:  startMinute,
+			DurationMins: uint16(sched.DurationMinutes),
+			ActuatorMask: actuatorMask,
+		}}
+
+		// Store in database
+		if err := e.db.UpsertSchedule(schedule, entries); err != nil {
+			log.Printf("Failed to store schedule: %v", err)
+			continue
+		}
+
+		log.Printf("Updated schedule %s: %s", sched.ScheduleID, sched.Name)
+	}
+}
+
+// deviceTypeFromString converts a device type string to uint8
+func deviceTypeFromString(s string) uint8 {
+	switch s {
+	case "soil_moisture":
+		return 0x01
+	case "valve_controller":
+		return 0x02
+	case "water_meter":
+		return 0x03
+	case "valve_actuator":
+		return 0x04
+	default:
+		return 0x00
+	}
+}
+
+// daysToDayMask converts a slice of day strings to a bitmask
+func daysToDayMask(days []string) uint8 {
+	var mask uint8
+	for _, day := range days {
+		switch day {
+		case "sun":
+			mask |= 0x01
+		case "mon":
+			mask |= 0x02
+		case "tue":
+			mask |= 0x04
+		case "wed":
+			mask |= 0x08
+		case "thu":
+			mask |= 0x10
+		case "fri":
+			mask |= 0x20
+		case "sat":
+			mask |= 0x40
 		}
 	}
+	return mask
+}
 
-	// Store in database
-	if err := e.db.UpsertSchedule(schedule, entries); err != nil {
-		log.Printf("Failed to store schedule: %v", err)
-		return
-	}
-
-	log.Printf("Updated schedule %s v%d for controller %s", update.ScheduleUID, update.Version, update.ControllerUID)
+// parseStartTime parses a time string like "06:00" into hour and minute
+func parseStartTime(s string) (uint8, uint8) {
+	var hour, minute int
+	fmt.Sscanf(s, "%d:%d", &hour, &minute)
+	return uint8(hour), uint8(minute)
 }
 
 // handleValveCommand processes immediate valve commands from the cloud
@@ -444,8 +521,8 @@ func (e *Engine) handleValveCommand(data json.RawMessage) {
 		return
 	}
 
-	log.Printf("Valve command from cloud: %s addr %d -> %s",
-		cmd.ControllerUID, cmd.ActuatorAddr, cmd.Command)
+	log.Printf("Valve command from cloud: valve %s addr %d -> %s",
+		cmd.ValveID, cmd.ActuatorAddress, cmd.Command)
 
 	// Convert command string to protocol command
 	var protoCmd uint8
@@ -462,7 +539,9 @@ func (e *Engine) handleValveCommand(data json.RawMessage) {
 	}
 
 	// Send command to device
-	if err := e.SendValveCommand(cmd.ControllerUID, cmd.ActuatorAddr, protoCmd); err != nil {
+	// TODO: Need to map valve_id to controller_uid - for now use valve_id as controller
+	controllerUID := cmd.ValveID // This should be looked up from database
+	if err := e.SendValveCommand(controllerUID, cmd.ActuatorAddress, protoCmd); err != nil {
 		log.Printf("Failed to send valve command: %v", err)
 	}
 }
@@ -525,39 +604,74 @@ func (e *Engine) cloudSyncLoop(ctx context.Context) {
 	}
 }
 
-// syncToCloud sends unsynced data to the cloud
+// syncToCloud sends unsynced data to the cloud via gRPC
 func (e *Engine) syncToCloud() {
 	if !e.cloud.IsConnected() {
-		return
+		return // Skip sync if not connected
 	}
 
-	// Sync soil moisture readings
+	// Sync soil moisture readings - batch by device
 	readings, err := e.db.GetUnsyncedSoilMoistureReadings(50)
 	if err != nil {
 		log.Printf("Failed to get unsynced sensor readings: %v", err)
 	} else {
+		// Group readings by device
+		byDevice := make(map[string][]*controllerv1.SensorReading)
 		for _, r := range readings {
-			if err := e.cloud.SendSensorData(r.DeviceUID, r.ProbeID, r.MoisturePercent,
-				r.Temperature, r.BatteryMV, r.Timestamp); err != nil {
-				log.Printf("Failed to sync sensor reading: %v", err)
+			reading := &controllerv1.SensorReading{
+				Timestamp: timestamppb.New(r.Timestamp),
+				Probes: []*controllerv1.ProbeReading{{
+					Index:           int32(r.ProbeID),
+					MoisturePercent: float32(r.MoisturePercent),
+				}},
+				BatteryMv:    int32(r.BatteryMV),
+				TemperatureC: float32(r.Temperature) / 10.0,
+				SignalRssi:   int32(r.RSSI),
+			}
+			byDevice[r.DeviceUID] = append(byDevice[r.DeviceUID], reading)
+		}
+
+		for deviceUID, deviceReadings := range byDevice {
+			if err := e.cloud.SendSensorData(deviceUID, deviceReadings); err != nil {
+				log.Printf("Failed to sync sensor readings for %s: %v", deviceUID, err)
 				continue
 			}
-			e.db.MarkSoilMoistureReadingSynced(r.ID)
+			// Mark all readings for this device as synced
+			for _, r := range readings {
+				if r.DeviceUID == deviceUID {
+					e.db.MarkSoilMoistureReadingSynced(r.ID)
+				}
+			}
 		}
 	}
 
-	// Sync water meter readings
+	// Sync water meter readings - batch by device
 	meterReadings, err := e.db.GetUnsyncedWaterMeterReadings(50)
 	if err != nil {
 		log.Printf("Failed to get unsynced meter readings: %v", err)
 	} else {
+		byDevice := make(map[string][]*controllerv1.MeterReading)
 		for _, r := range meterReadings {
-			if err := e.cloud.SendWaterMeterData(r.DeviceUID, r.TotalLiters,
-				r.FlowRateLPM, r.BatteryMV, r.Timestamp); err != nil {
-				log.Printf("Failed to sync meter reading: %v", err)
+			reading := &controllerv1.MeterReading{
+				Timestamp:   timestamppb.New(r.Timestamp),
+				TotalLiters: float64(r.TotalLiters),
+				FlowRateLpm: float32(r.FlowRateLPM),
+				BatteryMv:   intPtr32(int32(r.BatteryMV)),
+				SignalRssi:  int32(r.RSSI),
+			}
+			byDevice[r.DeviceUID] = append(byDevice[r.DeviceUID], reading)
+		}
+
+		for deviceUID, deviceReadings := range byDevice {
+			if err := e.cloud.SendMeterData(deviceUID, deviceReadings); err != nil {
+				log.Printf("Failed to sync meter readings for %s: %v", deviceUID, err)
 				continue
 			}
-			e.db.MarkWaterMeterReadingSynced(r.ID)
+			for _, r := range meterReadings {
+				if r.DeviceUID == deviceUID {
+					e.db.MarkWaterMeterReadingSynced(r.ID)
+				}
+			}
 		}
 	}
 
@@ -566,15 +680,33 @@ func (e *Engine) syncToCloud() {
 	if err != nil {
 		log.Printf("Failed to get unsynced valve events: %v", err)
 	} else {
+		// Group by controller
+		byController := make(map[string][]*controllerv1.ActuatorStatus)
 		for _, ev := range events {
-			if err := e.cloud.SendValveEvent(ev.ControllerUID, ev.ActuatorAddr,
-				ev.PrevState, ev.NewState, ev.Source, ev.Timestamp); err != nil {
-				log.Printf("Failed to sync valve event: %v", err)
+			status := &controllerv1.ActuatorStatus{
+				Address:   int32(ev.ActuatorAddr),
+				State:     valveStateString(ev.NewState),
+				ChangedAt: timestamppb.New(ev.Timestamp),
+			}
+			byController[ev.ControllerUID] = append(byController[ev.ControllerUID], status)
+		}
+
+		for controllerUID, statuses := range byController {
+			if err := e.cloud.SendValveStatus(controllerUID, statuses); err != nil {
+				log.Printf("Failed to sync valve events for %s: %v", controllerUID, err)
 				continue
 			}
-			e.db.MarkValveEventSynced(ev.ID)
+			for _, ev := range events {
+				if ev.ControllerUID == controllerUID {
+					e.db.MarkValveEventSynced(ev.ID)
+				}
+			}
 		}
 	}
+}
+
+func intPtr32(i int32) *int32 {
+	return &i
 }
 
 // commandRetryLoop retries expired commands
@@ -678,6 +810,108 @@ func (e *Engine) queueForCloudSync(dataType string, dataID int64, data interface
 	// It will be synced when connection is restored
 }
 
+// gRPC message handlers
+
+// handleValveCommandGRPC processes valve commands from the cloud via gRPC
+func (e *Engine) handleValveCommandGRPC(cmd *controllerv1.ValveCommand) {
+	log.Printf("Valve command from cloud: valve %s addr %d -> %s",
+		cmd.ValveId, cmd.ActuatorAddress, cmd.Command.String())
+
+	// Convert command to protocol command
+	var protoCmd uint8
+	switch cmd.Command {
+	case controllerv1.Command_COMMAND_OPEN:
+		protoCmd = protocol.ValveCmdOpen
+	case controllerv1.Command_COMMAND_CLOSE:
+		protoCmd = protocol.ValveCmdClose
+	case controllerv1.Command_COMMAND_STOP:
+		protoCmd = protocol.ValveCmdStop
+	default:
+		log.Printf("Unknown valve command: %s", cmd.Command.String())
+		return
+	}
+
+	// Send command to device
+	controllerUID := cmd.ControllerUid
+	if err := e.SendValveCommand(controllerUID, uint8(cmd.ActuatorAddress), protoCmd); err != nil {
+		log.Printf("Failed to send valve command: %v", err)
+	}
+}
+
+// handleScheduleUpdateGRPC processes schedule updates from the cloud via gRPC
+func (e *Engine) handleScheduleUpdateGRPC(update *controllerv1.ScheduleUpdate) {
+	log.Printf("Schedule update for property %s with %d schedules", update.PropertyId, len(update.Schedules))
+
+	for _, sched := range update.Schedules {
+		// Convert days to day mask
+		dayMask := daysToDayMask(sched.Days)
+		startHour, startMinute := parseStartTime(sched.StartTime)
+
+		// Convert to storage format
+		schedule := &storage.Schedule{
+			UID:      sched.ScheduleId,
+			Name:     sched.Name,
+			IsActive: sched.Enabled,
+		}
+
+		// Create a single entry for this schedule
+		var actuatorMask uint64
+		for _, v := range sched.Valves {
+			actuatorMask |= (1 << v.ActuatorAddress)
+		}
+
+		entries := []storage.ScheduleEntry{{
+			DayMask:      dayMask,
+			StartHour:    startHour,
+			StartMinute:  startMinute,
+			DurationMins: uint16(sched.DurationMinutes),
+			ActuatorMask: actuatorMask,
+		}}
+
+		// Store in database
+		if err := e.db.UpsertSchedule(schedule, entries); err != nil {
+			log.Printf("Failed to store schedule: %v", err)
+			continue
+		}
+
+		log.Printf("Updated schedule %s: %s", sched.ScheduleId, sched.Name)
+	}
+}
+
+// handleDeviceAddedGRPC processes device approval notifications from the cloud via gRPC
+func (e *Engine) handleDeviceAddedGRPC(approved *controllerv1.DeviceApproved) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Add the new device
+	device := &storage.Device{
+		UID:          approved.DeviceUid,
+		DeviceType:   deviceTypeFromString(approved.DeviceType),
+		Name:         approved.Name,
+		ZoneID:       approved.GetZoneId(),
+		IsRegistered: true,
+		FirstSeen:    time.Now(),
+		LastSeen:     time.Now(),
+	}
+	e.registeredDevices[approved.DeviceUid] = device
+
+	// Store in database
+	if err := e.db.UpsertDevice(device); err != nil {
+		log.Printf("Failed to store device %s: %v", approved.DeviceUid, err)
+	}
+
+	log.Printf("Device approved: %s (%s) - %s", approved.DeviceUid, approved.DeviceType, approved.Name)
+}
+
+// handleConfigUpdateGRPC processes config updates from the cloud via gRPC
+func (e *Engine) handleConfigUpdateGRPC(update *controllerv1.ConfigUpdate) {
+	log.Printf("Config update received for target: %s", update.Target)
+	// TODO: Apply configuration changes
+	for key, value := range update.Config {
+		log.Printf("  %s = %s", key, value)
+	}
+}
+
 // Helper functions
 
 func valveStateString(state uint8) string {
@@ -700,9 +934,9 @@ func valveStateString(state uint8) string {
 func valveCommandString(cmd uint8) string {
 	switch cmd {
 	case protocol.ValveCmdClose:
-		return "CLOSE"
+		return "close"
 	case protocol.ValveCmdOpen:
-		return "OPEN"
+		return "open"
 	case protocol.ValveCmdStop:
 		return "STOP"
 	case protocol.ValveCmdQuery:

@@ -6,7 +6,7 @@ Property controller for the AgSys agricultural IoT system. Runs on Raspberry Pi 
 
 The property controller is the "master brains" for all devices on a customer property. It serves as a two-way gateway between:
 - **Field Devices**: Soil moisture sensors, water meters, valve controllers (via LoRa)
-- **AgSys Cloud**: Main UI and application backend (via WebSocket)
+- **AgSys Cloud**: Main UI and application backend (via gRPC)
 
 ### Responsibilities
 
@@ -36,7 +36,7 @@ The property controller is the "master brains" for all devices on a customer pro
 ## Features
 
 - **LoRa Gateway**: Communicates with soil moisture sensors, water meters, and valve controllers via LoRa (915 MHz)
-- **Cloud Sync**: WebSocket connection to AgSys cloud for bidirectional data flow
+- **Cloud Sync**: gRPC bidirectional streaming to AgSys cloud for real-time data flow
 - **Local Storage**: SQLite database for offline operation and data caching
 - **Valve Control**: Immediate command execution with acknowledgment tracking
 - **Schedule Management**: Stores and distributes watering schedules to valve controllers
@@ -288,7 +288,7 @@ agsys-db query "SELECT * FROM devices WHERE device_type = 1"
 │  │                    agsys-controller (Go)                    │ │
 │  │                                                             │ │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │ │
-│  │  │LoRa Handler │  │ Core Engine │  │ Cloud Client (WS)   │ │ │
+│  │  │LoRa Handler │  │  │ Core Engine │  │ Cloud Client (gRPC) │ │ │
 │  │  │ (SX1301 SPI)│◄─┤             ├─►│ - Config pull       │ │ │
 │  │  │ - RX/TX     │  │ - SQLite DB │  │ - Telemetry push    │ │ │
 │  │  │ - AES-128   │  │ - Routing   │  │ - Command receive   │ │ │
@@ -297,7 +297,7 @@ agsys-db query "SELECT * FROM devices WHERE device_type = 1"
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
          │                                         │
-         ▼ LoRa 915MHz                             ▼ WebSocket
+         ▼ LoRa 915MHz                             ▼ gRPC
    ┌───────────┐                            ┌───────────┐
    │  Devices  │                            │  AgSys    │
    │ - Sensors │                            │  Cloud    │
@@ -312,18 +312,18 @@ agsys-db query "SELECT * FROM devices WHERE device_type = 1"
 1. Device sends LoRa packet
 2. Controller receives, decrypts, validates
 3. Data stored in SQLite (synced_to_cloud = false)
-4. Sync loop sends to cloud via WebSocket
+4. Sync loop sends to cloud via gRPC stream
 5. On success, marks synced_to_cloud = true
 
 ### Cloud → Device (Immediate Command)
-1. Cloud sends valve command via WebSocket
+1. Cloud sends valve command via gRPC stream
 2. Controller creates pending command record
 3. Sends encrypted LoRa packet to device
 4. Device executes, sends acknowledgment
 5. Controller updates pending command, notifies cloud
 
 ### Cloud → Device (Schedule)
-1. Cloud sends schedule update via WebSocket
+1. Cloud sends schedule update via gRPC stream
 2. Controller stores in SQLite
 3. Valve controller periodically requests schedule
 4. Controller sends schedule via LoRa
@@ -357,8 +357,9 @@ property:
   name: "My Vineyard"
 
 cloud:
-  url: "wss://api.agsys.io/ws/property"
+  grpc_addr: "grpc.agsys.io:443"  # gRPC server address
   api_key: "your-api-key"
+  use_tls: true                    # Use TLS for production
 
 lora:
   # Concentratord ZeroMQ endpoints
@@ -432,21 +433,23 @@ This section documents the architectural decisions made during design.
 
 **Decision**: Go chosen for single-binary deployment, better concurrency model for handling simultaneous LoRa messages and WebSocket events, and lower resource usage on Pi.
 
-### Why WebSocket (not MQTT)?
+### Why gRPC (not REST+WebSocket or MQTT)?
 
-| Aspect | WebSocket | MQTT |
-|--------|-----------|------|
-| Connection model | Persistent bidirectional | Persistent pub/sub |
-| Reconnection | Manual handling | Built-in with session resume |
-| Message delivery | None (TCP only) | QoS 0/1/2 levels |
-| Infrastructure | Simple endpoint | Requires MQTT broker |
-| Complexity | Lower | Higher |
+| Aspect | gRPC | REST+WebSocket | MQTT |
+|--------|------|----------------|------|
+| Connection model | Bidirectional streaming | Separate protocols | Pub/sub |
+| Typing | Strong (protobuf) | JSON schema | None |
+| Efficiency | Binary, compact | Text-based | Binary |
+| Infrastructure | Single endpoint | Two endpoints | Requires broker |
 
-**Decision**: WebSocket chosen because:
-- Low message frequency (sensors every 2 hours, meters every 5 minutes)
-- We control both ends (property controller + AgSys cloud)
-- Simpler cloud infrastructure (no MQTT broker needed)
-- Reliable delivery implemented at application layer
+**Decision**: gRPC chosen because:
+- Single protocol for bidirectional communication
+- Strong typing via Protocol Buffers
+- Efficient binary protocol
+- Built-in keepalive and reconnection semantics
+- Both ends are Go - trivial integration
+
+**API Definition**: See [agsys-api](https://github.com/ccroswhite/agsys-api) repository for the shared Protocol Buffer definitions.
 
 ### Why SQLite (not PostgreSQL)?
 

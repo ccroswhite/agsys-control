@@ -26,9 +26,14 @@ type Config struct {
 	} `yaml:"property"`
 
 	Cloud struct {
-		URL    string `yaml:"url"`
-		APIKey string `yaml:"api_key"`
+		GRPCAddr string `yaml:"grpc_addr"`
+		APIKey   string `yaml:"api_key"`
+		UseTLS   bool   `yaml:"use_tls"`
 	} `yaml:"cloud"`
+
+	Controller struct {
+		ID string `yaml:"id"`
+	} `yaml:"controller"`
 
 	LoRa struct {
 		Frequency       uint32 `yaml:"frequency"`
@@ -115,11 +120,8 @@ func runController(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate required fields
-	if cfg.Property.UID == "" {
-		return fmt.Errorf("property.uid is required")
-	}
-	if cfg.Cloud.URL == "" {
-		return fmt.Errorf("cloud.url is required")
+	if cfg.Controller.ID == "" {
+		return fmt.Errorf("controller.id is required")
 	}
 	if cfg.Cloud.APIKey == "" {
 		return fmt.Errorf("cloud.api_key is required")
@@ -139,9 +141,12 @@ func runController(cmd *cobra.Command, args []string) error {
 
 	// Build engine config
 	engineCfg := engine.DefaultConfig()
-	engineCfg.PropertyUID = cfg.Property.UID
-	engineCfg.CloudURL = cfg.Cloud.URL
+	engineCfg.ControllerID = cfg.Controller.ID
+	if cfg.Cloud.GRPCAddr != "" {
+		engineCfg.GRPCAddr = cfg.Cloud.GRPCAddr
+	}
 	engineCfg.APIKey = cfg.Cloud.APIKey
+	engineCfg.UseTLS = cfg.Cloud.UseTLS
 	engineCfg.AESKey = aesKey
 
 	if cfg.Database.Path != "" {
