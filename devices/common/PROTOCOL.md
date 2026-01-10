@@ -100,47 +100,71 @@ All decrypted packets begin with a 15-byte header:
 
 ## Message Types
 
-### Device → Controller (0x01 - 0x0F)
+Message types are organized by device/function for clarity:
+- **0x00-0x0F**: Common messages (all devices)
+- **0x10-0x1F**: Common controller→device messages
+- **0x20-0x2F**: Soil moisture sensor
+- **0x30-0x3F**: Water meter
+- **0x40-0x4F**: Valve controller
+- **0x50-0xDF**: Reserved for future devices
+- **0xE0-0xEF**: OTA firmware updates
+
+### Common Messages - All Devices (0x00 - 0x0F)
 
 | Value | Name | Description |
 |-------|------|-------------|
-| 0x01 | SENSOR_REPORT | Soil moisture sensor data |
-| 0x02 | WATER_METER_REPORT | Water meter reading |
-| 0x03 | VALVE_STATUS | Valve controller status |
-| 0x04 | VALVE_ACK | Valve command acknowledgment |
-| 0x05 | SCHEDULE_REQUEST | Request schedule from controller |
-| 0x06 | HEARTBEAT | Device heartbeat/keepalive |
-| 0x07 | LOG_BATCH | Batch of stored log entries |
+| 0x01 | HEARTBEAT | Device keepalive (optional, for devices without regular reports) |
+| 0x02 | LOG_BATCH | Batch of stored readings (offline recovery) |
+| 0x03 | CONFIG_REQUEST | Request configuration from controller |
+| 0x0E | ACK | Generic acknowledgment |
+| 0x0F | NACK | Negative acknowledgment |
 
-### Controller → Device (0x10 - 0x1F)
+### Common Controller → Device (0x10 - 0x1F)
 
 | Value | Name | Description |
 |-------|------|-------------|
-| 0x10 | VALVE_COMMAND | Immediate valve open/close |
-| 0x11 | SCHEDULE_UPDATE | Schedule data for valve controller |
-| 0x12 | CONFIG_UPDATE | Configuration update |
-| 0x13 | TIME_SYNC | Time synchronization |
+| 0x10 | CONFIG_UPDATE | Configuration update (interval, calibration, etc.) |
+| 0x11 | TIME_SYNC | Time synchronization |
 
-### OTA Messages (0x20 - 0x2F)
+### Soil Moisture Sensor (0x20 - 0x2F)
 
-| Value | Name | Description |
-|-------|------|-------------|
-| 0x20 | OTA_ANNOUNCE | OTA firmware announcement |
-| 0x21 | OTA_CHUNK | OTA firmware chunk |
-| 0x22 | OTA_STATUS | OTA status response |
+| Value | Name | Direction | Description |
+|-------|------|-----------|-------------|
+| 0x20 | SOIL_REPORT | Device→Ctrl | Moisture/temp/battery reading |
+| 0x21 | SOIL_CALIBRATE_REQ | Device→Ctrl | Request calibration data |
 
-### Bidirectional (0xF0 - 0xFF)
+### Water Meter (0x30 - 0x3F)
 
-| Value | Name | Description |
-|-------|------|-------------|
-| 0xF0 | ACK | Generic acknowledgment |
-| 0xF1 | NACK | Negative acknowledgment |
+| Value | Name | Direction | Description |
+|-------|------|-----------|-------------|
+| 0x30 | METER_REPORT | Device→Ctrl | Flow rate, total volume, battery |
+| 0x31 | METER_ALARM | Device→Ctrl | Leak/reverse flow/tamper alert (immediate) |
+| 0x32 | METER_CALIBRATE_REQ | Device→Ctrl | Request calibration data |
+| 0x33 | METER_RESET_TOTAL | Ctrl→Device | Reset totalizer (after meter replacement) |
+
+### Valve Controller (0x40 - 0x4F)
+
+| Value | Name | Direction | Description |
+|-------|------|-----------|-------------|
+| 0x40 | VALVE_STATUS | Device→Ctrl | State change notification (only on change) |
+| 0x41 | VALVE_ACK | Device→Ctrl | Command acknowledgment with commandId |
+| 0x42 | VALVE_SCHEDULE_REQ | Device→Ctrl | Request schedule from controller |
+| 0x43 | VALVE_COMMAND | Ctrl→Device | Open/close/stop/query |
+| 0x44 | VALVE_SCHEDULE | Ctrl→Device | Schedule update |
+
+### OTA Firmware (0xE0 - 0xEF)
+
+| Value | Name | Direction | Description |
+|-------|------|-----------|-------------|
+| 0xE0 | OTA_ANNOUNCE | Ctrl→Device | Firmware available announcement |
+| 0xE1 | OTA_CHUNK | Ctrl→Device | Firmware data chunk |
+| 0xE2 | OTA_STATUS | Device→Ctrl | OTA progress/result |
 
 ## Payload Structures
 
-### Sensor Report (0x01)
+### Sensor Report (0x20)
 
-Sent by soil moisture sensors every 2 hours.
+Sent by soil moisture sensors every 2 hours (configurable).
 
 ```
 ┌───────────┬────────────┬─────────────────────────────────┬───────────┬─────────────┬─────────────┬───────┐
@@ -163,9 +187,9 @@ Sent by soil moisture sensors every 2 hours.
 - Bit 2: Config request
 - Bit 3: Has pending logs
 
-### Water Meter Report (0x02)
+### Water Meter Report (0x30)
 
-Sent by water meters every 5 minutes.
+Sent by water meters every 60 seconds (configurable via CONFIG_UPDATE).
 
 ```
 ┌───────────┬─────────────┬─────────────┬─────────────┬───────────┬───────┐
@@ -180,9 +204,9 @@ Sent by water meters every 5 minutes.
 - Bit 2: Leak detected
 - Bit 3: Tamper detected
 
-### Valve Status (0x03)
+### Valve Status (0x40)
 
-Sent by valve controller periodically and after state changes.
+Sent by valve controller on state changes only (open→closed, closed→open, error).
 
 ```
 ┌───────────┬───────────────┬─────────────────────────────────────┐
@@ -212,7 +236,7 @@ Sent by valve controller periodically and after state changes.
 - Bit 2: Timeout
 - Bit 3: On battery
 
-### Valve Command (0x10)
+### Valve Command (0x43)
 
 Sent by property controller to open/close valves.
 
@@ -231,7 +255,7 @@ Sent by property controller to open/close valves.
 
 **ActuatorAddr:** 1-64 for specific actuator, 0xFF for all
 
-### Valve Ack (0x04)
+### Valve Ack (0x41)
 
 Sent by valve controller to acknowledge a command.
 
@@ -249,7 +273,7 @@ Sent by valve controller to acknowledge a command.
 - 0x03: Actuator offline
 - 0x04: Power fail
 
-### Time Sync (0x13)
+### Time Sync (0x11)
 
 Sent by property controller to synchronize device time.
 
@@ -260,7 +284,7 @@ Sent by property controller to synchronize device time.
 └───────────────┴───────────┘
 ```
 
-### ACK (0xF0)
+### ACK (0x0E)
 
 Generic acknowledgment for any message.
 
@@ -293,9 +317,11 @@ Generic acknowledgment for any message.
 
 | Device | Report Interval | Notes |
 |--------|-----------------|-------|
-| Soil Moisture | 2 hours | Battery optimization |
-| Water Meter | 5 minutes | Flow monitoring |
-| Valve Controller | 60 seconds | Status updates |
+| Soil Moisture | 2 hours (configurable) | Battery optimization |
+| Water Meter | 60 seconds (configurable) | Flow monitoring, leak detection |
+| Valve Controller | On state change only | Reduces airtime, sends on open/close/error |
+
+All intervals are configurable via CONFIG_UPDATE (0x10) from property controller, which syncs from AgSys backend.
 
 ## Retry Logic
 

@@ -70,6 +70,11 @@
 #define BTN_DEBOUNCE_MS             50
 #define BTN_LONG_PRESS_MS           2000
 
+// BLE Pairing Mode: Hold UP + DOWN together for 2 seconds
+// (SELECT long press enters menu/config mode, so we use a combo for BLE)
+#define BLE_PAIRING_COMBO_MS        2000        // Hold time for UP+DOWN combo
+#define BLE_PAIRING_TIMEOUT_MS      300000      // 5 minutes pairing window
+
 /* ==========================================================================
  * DISPLAY CONFIGURATION
  * ========================================================================== */
@@ -144,6 +149,16 @@ typedef struct {
 #define CAL_OFFSET_DEFAULT          0           // ADC offset
 #define CAL_GAIN_DEFAULT            0x800000    // ADC gain (1.0)
 #define CAL_K_FACTOR_DEFAULT        1.0f        // Flow calibration factor
+
+// ADC-level calibration structure (stored in FRAM)
+typedef struct {
+    int32_t offset_ch0;     // Channel 0 offset calibration
+    int32_t offset_ch1;     // Channel 1 offset calibration
+    uint32_t gain_ch0;      // Channel 0 gain calibration
+    uint32_t gain_ch1;      // Channel 1 gain calibration
+    float k_factor;         // Flow calibration factor
+    uint32_t checksum;      // Validation checksum
+} ADCCalibration_t;
 
 /* ==========================================================================
  * LORA CONFIGURATION

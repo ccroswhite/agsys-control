@@ -115,3 +115,47 @@ bool buttons_anyPressed(void) {
     }
     return false;
 }
+
+bool buttons_isSelectHeld(void) {
+    return !buttons[BTN_IDX_SELECT].currentState;
+}
+
+uint32_t buttons_getSelectHoldTime(void) {
+    if (!buttons[BTN_IDX_SELECT].currentState && buttons[BTN_IDX_SELECT].pressStartTime > 0) {
+        return millis() - buttons[BTN_IDX_SELECT].pressStartTime;
+    }
+    return 0;
+}
+
+// Track UP+DOWN combo for BLE pairing
+static uint32_t upDownComboStartTime = 0;
+static bool upDownComboTriggered = false;
+
+bool buttons_checkPairingCombo(void) {
+    bool upPressed = !buttons[BTN_IDX_UP].currentState;
+    bool downPressed = !buttons[BTN_IDX_DOWN].currentState;
+    
+    if (upPressed && downPressed) {
+        // Both buttons held
+        if (upDownComboStartTime == 0) {
+            upDownComboStartTime = millis();
+        }
+        
+        if (!upDownComboTriggered && 
+            (millis() - upDownComboStartTime) >= BLE_PAIRING_COMBO_MS) {
+            upDownComboTriggered = true;
+            return true;  // Combo triggered
+        }
+    } else {
+        // Reset when either button released
+        upDownComboStartTime = 0;
+        upDownComboTriggered = false;
+    }
+    
+    return false;
+}
+
+void buttons_resetPairingCombo(void) {
+    upDownComboStartTime = 0;
+    upDownComboTriggered = false;
+}

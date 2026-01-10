@@ -21,6 +21,7 @@
 #include "agsys_protocol.h"
 #include "agsys_lora.h"
 #include "agsys_crypto.h"
+#include "agsys_ble.h"
 
 /* ==========================================================================
  * GLOBAL STATE
@@ -81,6 +82,8 @@ void handlePowerRestore(void);
 
 // BLE operations
 void enterPairingMode(void);
+void onBleValveCommand(AgsysBleValveCmd_t* cmd);
+void onBleDiscoveryRequest(void);
 void exitPairingMode(void);
 
 // Utility
@@ -90,6 +93,8 @@ void updateLEDs(void);
 void getDeviceUid(uint8_t* uid);
 void handleValveCommand(AgsysValveCommand* cmd);
 void sendValveAck(uint8_t actuatorAddr, uint16_t commandId, uint8_t resultState, bool success, uint8_t errorCode);
+void handleDiscoveryCommand(void);
+void sendDiscoveryResponse(void);
 
 /* ==========================================================================
  * SETUP
@@ -116,6 +121,19 @@ void setup() {
     }
     
     loadSchedules();
+    
+    // Initialize unified BLE service
+    agsys_ble_init(AGSYS_BLE_DEVICE_NAME, AGSYS_DEVICE_TYPE_VALVE_CTRL, AGSYS_BLE_FRAM_PIN_ADDR,
+                   FIRMWARE_VERSION_MAJOR, FIRMWARE_VERSION_MINOR, FIRMWARE_VERSION_PATCH);
+    agsys_ble_set_valve_callback(onBleValveCommand);
+    agsys_ble_set_discovery_callback(onBleDiscoveryRequest);
+    
+    // Discover actuators on CAN bus and get their UIDs
+    DEBUG_PRINTLN("Discovering actuators...");
+    canbus_discover_all();
+    delay(500);  // Wait for responses (64 actuators * 5ms stagger = 320ms max)
+    canbus_process();  // Process UID responses
+    DEBUG_PRINTF("Discovered %d actuators with UIDs\n", canbus_get_online_count());
     
     // Attach power fail interrupt
     pinMode(PIN_POWER_FAIL, INPUT_PULLUP);
@@ -150,7 +168,8 @@ void loop() {
         if (now - pairingModeStartTime > BLE_PAIRING_TIMEOUT_MS) {
             exitPairingMode();
         }
-        // In pairing mode, skip normal operations
+        // In pairing mode, still process BLE but skip other operations
+        agsys_ble_process();
         updateLEDs();
         return;
     }
@@ -166,6 +185,9 @@ void loop() {
             enterPairingMode();
         }
     }
+    
+    // Process BLE events (handles discovery requests, etc.)
+    agsys_ble_process();
     
     // Process CAN bus messages
     if (canbus_has_message()) {
@@ -186,9 +208,10 @@ void loop() {
         checkSchedules();
     }
     
-    // Periodic heartbeat to actuators
+    // Periodic heartbeat to actuators (also re-discovers UIDs)
     if (now - lastHeartbeat > HEARTBEAT_INTERVAL_MS) {
-        canbus_query_all();
+        canbus_discover_all();  // Re-discover to catch new actuators
+        canbus_query_all();     // Query status of known actuators
         lastHeartbeat = now;
     }
     
@@ -382,7 +405,7 @@ void processLoRa(void) {
                 if (payloadLen >= sizeof(AgsysTimeSync)) {
                     AgsysTimeSync* timeSync = (AgsysTimeSync*)payload;
                     DEBUG_PRINTF("Time sync: %lu\n", timeSync->unixTimestamp);
-                    rtc_setUnixTime(timeSync->unixTimestamp);
+                    rtc_set_unix_time(timeSync->unixTimestamp);
                 }
                 break;
             }
@@ -393,6 +416,12 @@ void processLoRa(void) {
                     DEBUG_PRINTF("Config update: version=%d\n", config->configVersion);
                     // Apply configuration changes
                 }
+                break;
+            }
+            
+            case AGSYS_MSG_VALVE_DISCOVER: {
+                DEBUG_PRINTLN("Received discovery command");
+                handleDiscoveryCommand();
                 break;
             }
             
@@ -462,7 +491,7 @@ void handleValveCommand(AgsysValveCommand* cmd) {
     sendValveAck(cmd->actuatorAddr, cmd->commandId, resultState, success, errorCode);
     
     // Log event
-    logEvent(cmd->command == AGSYS_VALVE_CMD_OPEN ? EVENT_VALVE_OPEN : EVENT_VALVE_CLOSE,
+    logEvent(cmd->command == AGSYS_VALVE_CMD_OPEN ? EVENT_VALVE_OPENED : EVENT_VALVE_CLOSED,
              cmd->actuatorAddr, cmd->durationSec, 0);
 }
 
@@ -526,6 +555,57 @@ void pullScheduleUpdate(void) {
     }
 }
 
+void handleDiscoveryCommand(void) {
+    DEBUG_PRINTLN("Running CAN bus discovery...");
+    
+    // Send discovery broadcast to all actuators
+    canbus_discover_all();
+    
+    // Wait for responses (64 actuators * 5ms stagger = 320ms max)
+    delay(500);
+    
+    // Process all pending CAN messages (UID responses)
+    canbus_process();
+    
+    DEBUG_PRINTF("Discovery complete: %d actuators found\n", canbus_get_online_count());
+    
+    // Send discovery results back to property controller
+    sendDiscoveryResponse();
+}
+
+void sendDiscoveryResponse(void) {
+    // Build discovery response with all known actuators and their UIDs
+    uint8_t buffer[200];
+    AgsysValveDiscoveryHeader* header = (AgsysValveDiscoveryHeader*)buffer;
+    header->actuatorCount = 0;
+    
+    AgsysDiscoveredActuator* actuators = (AgsysDiscoveredActuator*)(buffer + sizeof(AgsysValveDiscoveryHeader));
+    
+    // Add all online actuators with known UIDs
+    for (uint8_t addr = ACTUATOR_ADDR_MIN; addr <= ACTUATOR_ADDR_MAX; addr++) {
+        ActuatorStatus* status = canbus_get_actuator(addr);
+        if (status && status->online && status->uid_known) {
+            actuators[header->actuatorCount].address = addr;
+            memcpy(actuators[header->actuatorCount].uid, status->uid, 8);
+            actuators[header->actuatorCount].state = status->status_flags;
+            actuators[header->actuatorCount].flags = 0;
+            header->actuatorCount++;
+            
+            // Limit to fit in LoRa packet (max ~15 actuators per packet)
+            if (header->actuatorCount >= 15) break;
+        }
+    }
+    
+    size_t payloadLen = sizeof(AgsysValveDiscoveryHeader) + 
+                        (header->actuatorCount * sizeof(AgsysDiscoveredActuator));
+    
+    if (agsys_lora_send(AGSYS_MSG_VALVE_DISCOVERY_RESP, buffer, payloadLen)) {
+        DEBUG_PRINTF("Discovery response sent: %d actuators\n", header->actuatorCount);
+    } else {
+        DEBUG_PRINTLN("ERROR: Failed to send discovery response");
+    }
+}
+
 void getDeviceUid(uint8_t* uid) {
     // Read device ID from nRF52 FICR registers
     uint32_t deviceId0 = NRF_FICR->DEVICEID[0];
@@ -550,18 +630,83 @@ void enterPairingMode(void) {
     pairingModeActive = true;
     pairingModeStartTime = millis();
     
-    // Initialize BLE
-    Bluefruit.begin();
-    Bluefruit.setName(BLE_DEVICE_NAME);
-    Bluefruit.Advertising.start();
+    // Start BLE advertising (service already initialized in setup)
+    agsys_ble_start_advertising();
 }
 
 void exitPairingMode(void) {
     DEBUG_PRINTLN("Exiting BLE pairing mode");
     pairingModeActive = false;
+    agsys_ble_clear_auth();
+    agsys_ble_stop_advertising();
+}
+
+// BLE callback: Valve command received from mobile app
+void onBleValveCommand(AgsysBleValveCmd_t* cmd) {
+    DEBUG_PRINTF("BLE valve cmd: op=%d addr=%d dur=%d\n", cmd->command, cmd->address, cmd->durationSec);
     
-    Bluefruit.Advertising.stop();
-    // Optionally disable BLE to save power
+    bool success = false;
+    uint8_t resultState = 0;
+    
+    switch (cmd->command) {
+        case AGSYS_VALVE_CMD_OPEN:
+            success = canbus_open_valve(cmd->address);
+            resultState = success ? 0x02 : 0xFF;
+            break;
+        case AGSYS_VALVE_CMD_CLOSE:
+            success = canbus_close_valve(cmd->address);
+            resultState = success ? 0x04 : 0xFF;
+            break;
+        case AGSYS_VALVE_CMD_STOP:
+            success = canbus_stop_valve(cmd->address);
+            resultState = 0x00;
+            break;
+        case AGSYS_VALVE_CMD_QUERY:
+            resultState = canbus_get_valve_state(cmd->address);
+            success = (resultState != 0xFF);
+            break;
+        case AGSYS_VALVE_CMD_EMERGENCY_CLOSE:
+            canbus_emergency_close_all();
+            success = true;
+            resultState = 0x04;
+            break;
+    }
+    
+    // Update BLE status
+    AgsysBleValveStatus_t status;
+    status.address = cmd->address;
+    status.state = resultState;
+    status.currentMa = canbus_get_motor_current(cmd->address);
+    status.flags = 0;
+    agsys_ble_update_valve_status(&status);
+}
+
+// BLE callback: CAN discovery requested from mobile app
+void onBleDiscoveryRequest(void) {
+    DEBUG_PRINTLN("BLE: CAN discovery requested");
+    
+    // Run discovery
+    canbus_discover_all();
+    delay(500);
+    canbus_process();
+    
+    // Build actuator list for BLE
+    uint8_t count = 0;
+    AgsysBleActuatorInfo_t actuators[18];  // Max 18 per BLE packet
+    
+    for (uint8_t addr = ACTUATOR_ADDR_MIN; addr <= ACTUATOR_ADDR_MAX && count < 18; addr++) {
+        ActuatorStatus* as = canbus_get_actuator(addr);
+        if (as && as->online && as->uid_known) {
+            actuators[count].address = addr;
+            memcpy(actuators[count].uid, as->uid, 8);
+            actuators[count].state = as->status_flags;
+            actuators[count].flags = 0;
+            count++;
+        }
+    }
+    
+    agsys_ble_set_discovery_results(count, actuators);
+    DEBUG_PRINTF("BLE: Discovery complete, %d actuators\n", count);
 }
 
 /* ==========================================================================
@@ -584,6 +729,8 @@ void logEvent(uint8_t eventType, uint8_t valveId, uint16_t duration, uint16_t vo
     entry.reserved = 0;
     
     // Write to FRAM event log
+    // TODO: Implement FRAM write - nvram.logAppend(&entry);
+    (void)entry;  // Suppress unused warning until FRAM logging implemented
     DEBUG_PRINTF("Event logged: type=%d, valve=%d\n", eventType, valveId);
 }
 

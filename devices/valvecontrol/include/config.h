@@ -27,6 +27,16 @@
  * ========================================================================== */
 
 // SPI Bus (shared by LoRa, CAN, FRAM, Flash)
+// Undefine Adafruit defaults before redefining for our hardware
+#ifdef PIN_SPI_SCK
+#undef PIN_SPI_SCK
+#endif
+#ifdef PIN_SPI_MISO
+#undef PIN_SPI_MISO
+#endif
+#ifdef PIN_SPI_MOSI
+#undef PIN_SPI_MOSI
+#endif
 #define PIN_SPI_SCK                 (14)        // P0.14
 #define PIN_SPI_MISO                (13)        // P0.13
 #define PIN_SPI_MOSI                (12)        // P0.12
@@ -85,8 +95,11 @@
 #define CAN_ID_VALVE_CLOSE          0x101       // Controller -> Actuator: Close valve
 #define CAN_ID_VALVE_STOP           0x102       // Controller -> Actuator: Stop motor
 #define CAN_ID_VALVE_QUERY          0x103       // Controller -> Actuator: Query status
+#define CAN_ID_UID_QUERY            0x104       // Controller -> Actuator: Query UID
+#define CAN_ID_DISCOVER_ALL         0x105       // Controller -> All: Discovery broadcast
 #define CAN_ID_EMERGENCY_CLOSE      0x1FF       // Controller -> All: Emergency close
 #define CAN_ID_STATUS_BASE          0x200       // Actuator -> Controller: Status (0x200 + addr)
+#define CAN_ID_UID_RESPONSE_BASE    0x280       // Actuator -> Controller: UID response (0x280 + addr)
 
 // CAN Timing
 #define CAN_RESPONSE_TIMEOUT_MS     500         // Max wait for actuator response

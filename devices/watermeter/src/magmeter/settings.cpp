@@ -81,6 +81,20 @@ void settings_reset(void) {
     currentSettings.maxFlowLPM = DEFAULT_MAX_FLOW_MM_S;  // Will be updated based on tier
     currentSettings.backlightOn = DEFAULT_BACKLIGHT_ON;
     
+    // Menu lock defaults
+    currentSettings.menuPin = DEFAULT_MENU_PIN;
+    currentSettings.menuLockEnabled = DEFAULT_MENU_LOCK_ENABLED;
+    currentSettings.menuAutoLockMin = DEFAULT_MENU_AUTO_LOCK_MIN;
+    
+    // LoRa defaults
+    currentSettings.loraReportIntervalSec = DEFAULT_LORA_REPORT_SEC;
+    currentSettings.loraSpreadingFactor = DEFAULT_LORA_SF;
+    
+    // Alarm defaults
+    currentSettings.alarmLeakThresholdLPM10 = DEFAULT_ALARM_LEAK_THRESH;
+    currentSettings.alarmLeakDurationMin = DEFAULT_ALARM_LEAK_DURATION;
+    currentSettings.alarmHighFlowLPM = DEFAULT_ALARM_HIGH_FLOW;
+    
     // Clear reserved bytes
     memset(currentSettings.reserved, 0, sizeof(currentSettings.reserved));
     

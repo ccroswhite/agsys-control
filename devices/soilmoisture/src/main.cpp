@@ -25,7 +25,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
-#include <bluefruit.h>
+#include <Adafruit_FRAM_SPI.h>
 
 #include "config.h"
 #include "protocol.h"
@@ -37,12 +37,11 @@
 #include "security.h"
 #include "firmware_backup.h"
 #include "debug_log.h"
-
-// BLE DFU Service
-BLEDfu bleDfu;
+#include "agsys_ble.h"
 
 // Global objects
 NVRAM nvram(PIN_NVRAM_CS);
+Adafruit_FRAM_SPI fram = Adafruit_FRAM_SPI(PIN_NVRAM_CS);  // For shared BLE library
 Protocol protocol;
 
 // Device state
@@ -91,8 +90,7 @@ void ledSpiOn();
 void ledSpiOff();
 
 // BLE callbacks
-void bleConnectCallback(uint16_t conn_handle);
-void bleDisconnectCallback(uint16_t conn_handle, uint8_t reason);
+void onBleCalCommand(AgsysBleCalCmd_t* cmd);
 bool isButtonHeld(uint32_t holdTimeMs);
 void buttonWakeISR();
 
@@ -385,69 +383,17 @@ void systemInit() {
     DEBUG_PRINTLN("System initialized");
 }
 
-/**
- * @brief BLE security callbacks
- */
-bool blePairingPasskeyCallback(uint16_t conn_handle, uint8_t const passkey[6], bool match_request) {
-    DEBUG_PRINTF("BLE: Passkey displayed: %c%c%c%c%c%c\n", 
-                 passkey[0], passkey[1], passkey[2], 
-                 passkey[3], passkey[4], passkey[5]);
-    
-    // For passkey display, always return true
-    // User must enter this passkey on the central device
-    return true;
-}
-
-void bleSecurityCallback(uint16_t conn_handle, ble_gap_sec_params_t* params) {
-    DEBUG_PRINTLN("BLE: Security request received");
-}
-
-void bleSecuredCallback(uint16_t conn_handle) {
-    DEBUG_PRINTLN("BLE: Connection secured (encrypted)");
-}
-
-void blePairingCompleteCallback(uint16_t conn_handle, uint8_t auth_status) {
-    if (auth_status == BLE_GAP_SEC_STATUS_SUCCESS) {
-        DEBUG_PRINTLN("BLE: Pairing successful");
-    } else {
-        DEBUG_PRINTF("BLE: Pairing failed, status=0x%02X\n", auth_status);
-    }
-}
 
 /**
- * @brief Initialize BLE for OTA DFU with LESC security
+ * @brief Initialize BLE using shared agsys_ble library
  */
 void initBLE() {
-    Bluefruit.begin();
-    Bluefruit.setTxPower(4);  // Max power for reliable OTA
-    Bluefruit.setName(BLE_DEVICE_NAME);
+    // Initialize unified BLE service
+    agsys_ble_init(AGSYS_BLE_DEVICE_NAME, AGSYS_DEVICE_TYPE_SOIL_MOISTURE, AGSYS_BLE_FRAM_PIN_ADDR,
+                   FIRMWARE_VERSION_MAJOR, FIRMWARE_VERSION_MINOR, FIRMWARE_VERSION_PATCH);
+    agsys_ble_set_cal_callback(onBleCalCommand);
     
-    // Configure BLE Security (LESC with passkey display)
-    // This provides strong encryption with MITM protection
-    Bluefruit.Security.setIOCaps(true, false, false);  // Display only (show passkey)
-    Bluefruit.Security.setMITM(true);                  // Require MITM protection
-    Bluefruit.Security.setPairPasskeyCallback(blePairingPasskeyCallback);
-    Bluefruit.Security.setSecuredCallback(bleSecuredCallback);
-    Bluefruit.Security.setPairCompleteCallback(blePairingCompleteCallback);
-    
-    // Set connection callbacks
-    Bluefruit.Periph.setConnectCallback(bleConnectCallback);
-    Bluefruit.Periph.setDisconnectCallback(bleDisconnectCallback);
-    
-    // Add DFU service for OTA updates
-    bleDfu.begin();
-    
-    // Configure advertising (but don't start yet)
-    Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
-    Bluefruit.Advertising.addTxPower();
-    Bluefruit.Advertising.addName();
-    Bluefruit.Advertising.addService(bleDfu);
-    
-    Bluefruit.Advertising.restartOnDisconnect(true);
-    Bluefruit.Advertising.setInterval(160, 160);  // 100ms interval
-    Bluefruit.Advertising.setFastTimeout(30);
-    
-    DEBUG_PRINTLN("BLE: Initialized with LESC security (OTA ready)");
+    DEBUG_PRINTLN("BLE: Initialized with shared agsys_ble library");
 }
 
 /**
@@ -523,8 +469,8 @@ void enterPairingMode() {
     }
     digitalWrite(PIN_LED_STATUS, HIGH);
         
-    // Start BLE advertising
-    Bluefruit.Advertising.start(0);  // Advertise indefinitely until connected
+    // Start BLE advertising using shared library
+    agsys_ble_start_advertising();
         
     DEBUG_PRINTLN("Pairing: BLE advertising started");
     DEBUG_PRINT("Pairing: Window open for ");
@@ -539,12 +485,7 @@ void exitPairingMode() {
     pairingModeActive = false;
     
     if (bleInitialized) {
-        // Disconnect any active connection
-        if (Bluefruit.connected()) {
-            Bluefruit.disconnect(Bluefruit.connHandle());
-            delay(100);  // Give time for disconnect
-        }
-        Bluefruit.Advertising.stop();
+        agsys_ble_stop_advertising();
     }
     
     digitalWrite(PIN_LED_STATUS, LOW);
@@ -554,30 +495,46 @@ void exitPairingMode() {
 }
 
 /**
- * @brief BLE connect callback
+ * @brief BLE calibration command callback
  */
-void bleConnectCallback(uint16_t conn_handle) {
-    DEBUG_PRINTLN("BLE: Connected");
-    // Keep LED on solid during connection
-    digitalWrite(PIN_LED_STATUS, HIGH);
+void onBleCalCommand(AgsysBleCalCmd_t* cmd) {
+    DEBUG_PRINTF("BLE: Cal command %d, probe %d\n", cmd->command, cmd->probeIndex);
     
-    // Reset pairing timeout when connected
-    pairingModeStartTime = millis();
-}
-
-/**
- * @brief BLE disconnect callback
- */
-void bleDisconnectCallback(uint16_t conn_handle, uint8_t reason) {
-    DEBUG_PRINT("BLE: Disconnected, reason: ");
-    DEBUG_PRINTLN(reason);
+    // Get current reading for the specified probe (500ms measurement)
+    uint32_t freq = moistureProbe_measureFrequency(cmd->probeIndex, 500);
     
-    // If still in pairing mode, keep advertising
-    if (pairingModeActive) {
-        digitalWrite(PIN_LED_STATUS, HIGH);
-    } else {
-        digitalWrite(PIN_LED_STATUS, LOW);
+    switch (cmd->command) {
+        case AGSYS_CAL_CMD_CAPTURE_AIR:
+            // Capture air reading (probe in air)
+            if (moistureCal_setAir(cmd->probeIndex, freq)) {
+                DEBUG_PRINTF("Calibration: Air captured f_air=%lu Hz\n", freq);
+            }
+            break;
+            
+        case AGSYS_CAL_CMD_CAPTURE_DRY:
+            // Capture dry soil reading
+            if (moistureCal_setDry(cmd->probeIndex, freq)) {
+                DEBUG_PRINTF("Calibration: Dry captured f_dry=%lu Hz\n", freq);
+            }
+            break;
+            
+        case AGSYS_CAL_CMD_CAPTURE_WET:
+            // Capture wet soil reading
+            if (moistureCal_setWet(cmd->probeIndex, freq)) {
+                DEBUG_PRINTF("Calibration: Wet captured f_wet=%lu Hz\n", freq);
+            }
+            break;
+            
+        case AGSYS_CAL_CMD_RESET:
+            // Reset calibration for this probe
+            if (moistureCal_clear(cmd->probeIndex)) {
+                DEBUG_PRINTLN("Calibration: Probe calibration cleared");
+            }
+            break;
     }
+    
+    // Reset pairing timeout on activity
+    pairingModeStartTime = millis();
 }
 
 /**

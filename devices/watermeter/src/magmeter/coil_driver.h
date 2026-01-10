@@ -1,9 +1,9 @@
 /**
  * @file coil_driver.h
- * @brief Coil excitation driver with hardware-synced ADC triggering
+ * @brief Coil excitation driver with software-timed ADC triggering
  * 
- * Uses nRF52840 hardware timers to generate precise square wave excitation
- * and trigger ADC sampling at optimal points within each half-cycle.
+ * Uses Arduino timer functions for coil excitation timing.
+ * Call coil_update() from main loop for timing.
  */
 
 #ifndef COIL_DRIVER_H
@@ -23,6 +23,9 @@ void coil_start(void);
 
 // Stop coil excitation
 void coil_stop(void);
+
+// Update coil timing - call from main loop
+void coil_update(void);
 
 // Get current polarity state
 bool coil_getPolarity(void);

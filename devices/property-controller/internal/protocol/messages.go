@@ -18,30 +18,53 @@ const (
 )
 
 // Message types for LoRa communication
+// Organized by device/function:
+// - 0x00-0x0F: Common messages (all devices)
+// - 0x10-0x1F: Common controller->device messages
+// - 0x20-0x2F: Soil moisture sensor
+// - 0x30-0x3F: Water meter
+// - 0x40-0x4F: Valve controller
+// - 0x50-0xDF: Reserved for future devices
+// - 0xE0-0xEF: OTA firmware updates
 const (
-	// Device -> Controller messages (0x01 - 0x0F)
-	MsgTypeSensorReport     uint8 = 0x01 // Soil moisture sensor data
-	MsgTypeWaterMeterReport uint8 = 0x02 // Water meter reading
-	MsgTypeValveStatus      uint8 = 0x03 // Valve controller status
-	MsgTypeValveAck         uint8 = 0x04 // Valve command acknowledgment
-	MsgTypeScheduleRequest  uint8 = 0x05 // Request schedule from controller
-	MsgTypeHeartbeat        uint8 = 0x06 // Device heartbeat/keepalive
-	MsgTypeLogBatch         uint8 = 0x07 // Batch of stored log entries
+	// Common messages - All devices (0x00 - 0x0F)
+	MsgTypeHeartbeat     uint8 = 0x01 // Device keepalive (optional)
+	MsgTypeLogBatch      uint8 = 0x02 // Batch of stored readings
+	MsgTypeConfigRequest uint8 = 0x03 // Request configuration
+	MsgTypeAck           uint8 = 0x0E // Generic acknowledgment
+	MsgTypeNack          uint8 = 0x0F // Negative acknowledgment
 
-	// Controller -> Device messages (0x10 - 0x1F)
-	MsgTypeValveCommand   uint8 = 0x10 // Immediate valve open/close
-	MsgTypeScheduleUpdate uint8 = 0x11 // Schedule data for valve controller
-	MsgTypeConfigUpdate   uint8 = 0x12 // Configuration update
-	MsgTypeTimeSync       uint8 = 0x13 // Time synchronization
+	// Common controller -> device messages (0x10 - 0x1F)
+	MsgTypeConfigUpdate uint8 = 0x10 // Configuration update
+	MsgTypeTimeSync     uint8 = 0x11 // Time synchronization
 
-	// OTA messages (0x20 - 0x2F)
-	MsgTypeOTAAnnounce uint8 = 0x20 // OTA firmware announcement
-	MsgTypeOTAChunk    uint8 = 0x21 // OTA firmware chunk
-	MsgTypeOTAStatus   uint8 = 0x22 // OTA status response
+	// Soil moisture sensor messages (0x20 - 0x2F)
+	MsgTypeSoilReport       uint8 = 0x20 // Moisture/temp/battery reading
+	MsgTypeSoilCalibrateReq uint8 = 0x21 // Request calibration data
 
-	// Bidirectional (0xF0 - 0xFF)
-	MsgTypeAck  uint8 = 0xF0 // Generic acknowledgment
-	MsgTypeNack uint8 = 0xF1 // Negative acknowledgment
+	// Water meter messages (0x30 - 0x3F)
+	MsgTypeMeterReport       uint8 = 0x30 // Flow/total/battery reading
+	MsgTypeMeterAlarm        uint8 = 0x31 // Leak/reverse flow/tamper alert
+	MsgTypeMeterCalibrateReq uint8 = 0x32 // Request calibration data
+	MsgTypeMeterResetTotal   uint8 = 0x33 // Reset totalizer (ctrl->device)
+
+	// Valve controller messages (0x40 - 0x4F)
+	MsgTypeValveStatus      uint8 = 0x40 // State change notification
+	MsgTypeValveAck         uint8 = 0x41 // Command acknowledgment
+	MsgTypeValveScheduleReq uint8 = 0x42 // Request schedule
+	MsgTypeValveCommand     uint8 = 0x43 // Open/close/stop/query (ctrl->device)
+	MsgTypeValveSchedule    uint8 = 0x44 // Schedule update (ctrl->device)
+
+	// OTA firmware messages (0xE0 - 0xEF)
+	MsgTypeOTAAnnounce uint8 = 0xE0 // Firmware available
+	MsgTypeOTAChunk    uint8 = 0xE1 // Firmware data chunk
+	MsgTypeOTAStatus   uint8 = 0xE2 // OTA progress/result
+
+	// Legacy aliases (for backward compatibility)
+	MsgTypeSensorReport     = MsgTypeSoilReport
+	MsgTypeWaterMeterReport = MsgTypeMeterReport
+	MsgTypeScheduleRequest  = MsgTypeValveScheduleReq
+	MsgTypeScheduleUpdate   = MsgTypeValveSchedule
 )
 
 // Device types
@@ -252,6 +275,160 @@ func DecodeWaterMeter(data []byte) (*WaterMeterPayload, error) {
 		TotalLiters: binary.LittleEndian.Uint32(data[0:4]),
 		FlowRateLPM: binary.LittleEndian.Uint16(data[4:6]),
 		BatteryMV:   binary.LittleEndian.Uint16(data[6:8]),
+	}, nil
+}
+
+// MeterAlarmPayload represents a water meter alarm
+type MeterAlarmPayload struct {
+	Timestamp   uint32 // Device uptime in seconds
+	AlarmType   uint8  // Type of alarm (see MeterAlarm* constants)
+	FlowRateLPM uint16 // Current flow rate in liters/min * 10
+	DurationSec uint32 // Duration of alarm condition in seconds
+	TotalLiters uint32 // Total liters at alarm time
+	Flags       uint8  // Additional flags
+}
+
+// Meter alarm types
+const (
+	MeterAlarmCleared  uint8 = 0x00 // Alarm condition cleared
+	MeterAlarmLeak     uint8 = 0x01 // Continuous flow exceeds threshold
+	MeterAlarmReverse  uint8 = 0x02 // Reverse flow detected
+	MeterAlarmTamper   uint8 = 0x03 // Tamper detected
+	MeterAlarmHighFlow uint8 = 0x04 // Flow rate exceeds maximum
+)
+
+// DecodeMeterAlarm parses meter alarm data from payload
+func DecodeMeterAlarm(data []byte) (*MeterAlarmPayload, error) {
+	if len(data) < 16 {
+		return nil, fmt.Errorf("meter alarm data too short: %d bytes", len(data))
+	}
+	return &MeterAlarmPayload{
+		Timestamp:   binary.LittleEndian.Uint32(data[0:4]),
+		AlarmType:   data[4],
+		FlowRateLPM: binary.LittleEndian.Uint16(data[5:7]),
+		DurationSec: binary.LittleEndian.Uint32(data[7:11]),
+		TotalLiters: binary.LittleEndian.Uint32(data[11:15]),
+		Flags:       data[15],
+	}, nil
+}
+
+// MeterAlarmTypeString returns a human-readable alarm type
+func MeterAlarmTypeString(alarmType uint8) string {
+	switch alarmType {
+	case MeterAlarmCleared:
+		return "CLEARED"
+	case MeterAlarmLeak:
+		return "LEAK"
+	case MeterAlarmReverse:
+		return "REVERSE_FLOW"
+	case MeterAlarmTamper:
+		return "TAMPER"
+	case MeterAlarmHighFlow:
+		return "HIGH_FLOW"
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", alarmType)
+	}
+}
+
+// MeterConfigPayload represents water meter configuration
+type MeterConfigPayload struct {
+	ConfigVersion     uint16 // Configuration version
+	ReportIntervalSec uint16 // Report interval in seconds
+	PulsesPerLiter    uint16 // Calibration: pulses per liter * 100
+	LeakThresholdMin  uint16 // Minutes of continuous flow = leak
+	MaxFlowRateLPM    uint16 // Max expected flow rate * 10
+	Flags             uint8  // Configuration flags
+}
+
+// Meter config flags
+const (
+	MeterCfgLeakDetectEn  uint8 = 1 << 0 // Enable leak detection
+	MeterCfgReverseDetect uint8 = 1 << 1 // Enable reverse flow detection
+	MeterCfgTamperDetect  uint8 = 1 << 2 // Enable tamper detection
+)
+
+// Encode serializes meter config payload
+func (p *MeterConfigPayload) Encode() []byte {
+	buf := make([]byte, 11)
+	binary.LittleEndian.PutUint16(buf[0:2], p.ConfigVersion)
+	binary.LittleEndian.PutUint16(buf[2:4], p.ReportIntervalSec)
+	binary.LittleEndian.PutUint16(buf[4:6], p.PulsesPerLiter)
+	binary.LittleEndian.PutUint16(buf[6:8], p.LeakThresholdMin)
+	binary.LittleEndian.PutUint16(buf[8:10], p.MaxFlowRateLPM)
+	buf[10] = p.Flags
+	return buf
+}
+
+// MeterResetTotalPayload represents a meter reset command
+type MeterResetTotalPayload struct {
+	CommandID      uint16 // Command ID for acknowledgment
+	ResetType      uint8  // 0 = reset to zero, 1 = set to value
+	NewTotalLiters uint32 // New total (only used if ResetType == 1)
+}
+
+// Encode serializes meter reset payload
+func (p *MeterResetTotalPayload) Encode() []byte {
+	buf := make([]byte, 7)
+	binary.LittleEndian.PutUint16(buf[0:2], p.CommandID)
+	buf[2] = p.ResetType
+	binary.LittleEndian.PutUint32(buf[3:7], p.NewTotalLiters)
+	return buf
+}
+
+// MeterResetAckPayload represents the response to a meter reset
+type MeterResetAckPayload struct {
+	AckedSequence  uint16 // Sequence number being acknowledged
+	Status         uint8  // 0 = OK, non-zero = error
+	OldTotalLiters uint32 // Previous total before reset
+	NewTotalLiters uint32 // New total after reset
+}
+
+// DecodeMeterResetAck parses meter reset ack from payload
+func DecodeMeterResetAck(data []byte) (*MeterResetAckPayload, error) {
+	if len(data) < 11 {
+		return nil, fmt.Errorf("meter reset ack too short: %d bytes", len(data))
+	}
+	return &MeterResetAckPayload{
+		AckedSequence:  binary.LittleEndian.Uint16(data[0:2]),
+		Status:         data[2],
+		OldTotalLiters: binary.LittleEndian.Uint32(data[3:7]),
+		NewTotalLiters: binary.LittleEndian.Uint32(data[7:11]),
+	}, nil
+}
+
+// AckPayload represents a generic acknowledgment
+type AckPayload struct {
+	AckedSequence uint16 // Sequence number being acknowledged
+	Status        uint8  // 0 = OK, non-zero = error code
+	Flags         uint8  // Response flags
+}
+
+// ACK flags
+const (
+	AckFlagSendLogs       uint8 = 1 << 0 // Request pending logs
+	AckFlagConfigAvail    uint8 = 1 << 1 // New config available
+	AckFlagTimeSync       uint8 = 1 << 2 // Time sync follows
+	AckFlagScheduleUpdate uint8 = 1 << 3 // Schedule update follows
+)
+
+// Encode serializes ack payload
+func (p *AckPayload) Encode() []byte {
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint16(buf[0:2], p.AckedSequence)
+	buf[2] = p.Status
+	buf[3] = p.Flags
+	return buf
+}
+
+// DecodeAck parses ack from payload
+func DecodeAck(data []byte) (*AckPayload, error) {
+	if len(data) < 4 {
+		return nil, fmt.Errorf("ack too short: %d bytes", len(data))
+	}
+	return &AckPayload{
+		AckedSequence: binary.LittleEndian.Uint16(data[0:2]),
+		Status:        data[2],
+		Flags:         data[3],
 	}, nil
 }
 

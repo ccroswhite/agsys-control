@@ -111,10 +111,19 @@
  * ========================================================================== */
 // FM25V02: 256Kbit = 32KB
 #define FRAM_ADDR_CONFIG            0x0000      // Device configuration (256 bytes)
+#define FRAM_ADDR_METER_CONFIG      0x0010      // Meter-specific config (32 bytes)
 #define FRAM_ADDR_COUNTERS          0x0100      // Pulse/liter counters (64 bytes)
 #define FRAM_ADDR_NONCE             0x0140      // Crypto nonce (4 bytes)
+#define FRAM_ADDR_ALARM_STATE       0x0150      // Current alarm state (16 bytes)
 #define FRAM_ADDR_LOG               0x0200      // Event log (30KB)
 #define FRAM_ADDR_END               0x8000      // End of FRAM
+
+/* ==========================================================================
+ * DEFAULT CONFIGURATION VALUES
+ * ========================================================================== */
+#define DEFAULT_REPORT_INTERVAL_SEC     60      // 60 seconds default
+#define DEFAULT_LEAK_THRESHOLD_MIN      60      // 60 minutes continuous flow
+#define DEFAULT_MAX_FLOW_RATE_LPM10     1000    // 100 L/min max
 
 /* ==========================================================================
  * BLE CONFIGURATION

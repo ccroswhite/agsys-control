@@ -190,6 +190,9 @@ func (e *Engine) handleLoRaMessage(msg *protocol.LoRaMessage) {
 	case protocol.MsgTypeWaterMeterReport:
 		e.handleWaterMeterData(deviceUID, msg)
 
+	case protocol.MsgTypeMeterAlarm:
+		e.handleMeterAlarm(deviceUID, msg)
+
 	case protocol.MsgTypeValveStatus:
 		e.handleValveStatus(deviceUID, msg)
 
@@ -269,6 +272,126 @@ func (e *Engine) handleWaterMeterData(deviceUID string, msg *protocol.LoRaMessag
 
 	// Queue for cloud sync
 	e.queueForCloudSync("meter", id, reading)
+}
+
+// handleMeterAlarm processes water meter alarm messages
+func (e *Engine) handleMeterAlarm(deviceUID string, msg *protocol.LoRaMessage) {
+	alarm, err := protocol.DecodeMeterAlarm(msg.Payload)
+	if err != nil {
+		log.Printf("Failed to decode meter alarm from %s: %v", deviceUID, err)
+		return
+	}
+
+	alarmTypeStr := protocol.MeterAlarmTypeString(alarm.AlarmType)
+	log.Printf("ALARM from water meter %s: %s, flow: %.1f L/min, duration: %ds",
+		deviceUID, alarmTypeStr, float32(alarm.FlowRateLPM)/10.0, alarm.DurationSec)
+
+	// Store alarm in database
+	meterAlarm := &storage.MeterAlarm{
+		DeviceUID:   deviceUID,
+		AlarmType:   alarm.AlarmType,
+		FlowRateLPM: float32(alarm.FlowRateLPM) / 10.0,
+		DurationSec: alarm.DurationSec,
+		TotalLiters: alarm.TotalLiters,
+		RSSI:        msg.RSSI,
+		Timestamp:   time.Now(),
+	}
+
+	id, err := e.db.InsertMeterAlarm(meterAlarm)
+	if err != nil {
+		log.Printf("Failed to store meter alarm: %v", err)
+		return
+	}
+
+	// Queue for immediate cloud sync (high priority)
+	e.queueForCloudSync("meter_alarm", id, meterAlarm)
+
+	// If alarm is active (not cleared), send to cloud immediately
+	if alarm.AlarmType != protocol.MeterAlarmCleared {
+		go e.sendAlarmToCloud(deviceUID, meterAlarm)
+	}
+}
+
+// sendAlarmToCloud sends an alarm to the cloud immediately
+func (e *Engine) sendAlarmToCloud(deviceUID string, alarm *storage.MeterAlarm) {
+	if !e.cloud.IsConnected() {
+		log.Printf("Cannot send alarm to cloud: not connected")
+		return
+	}
+
+	// Convert storage.MeterAlarm to cloud.MeterAlarmData
+	alarmData := &cloud.MeterAlarmData{
+		AlarmType:   alarm.AlarmType,
+		FlowRateLPM: alarm.FlowRateLPM,
+		DurationSec: alarm.DurationSec,
+		TotalLiters: alarm.TotalLiters,
+		RSSI:        alarm.RSSI,
+		Timestamp:   alarm.Timestamp,
+	}
+
+	if err := e.cloud.SendMeterAlarm(deviceUID, alarmData); err != nil {
+		log.Printf("Failed to send alarm to cloud: %v", err)
+	} else {
+		log.Printf("Alarm sent to cloud for device %s", deviceUID)
+	}
+}
+
+// SendAck sends an acknowledgment to a device
+func (e *Engine) SendAck(deviceUID string, sequence uint16, status uint8, flags uint8) error {
+	uid, err := lora.ParseDeviceUID(deviceUID)
+	if err != nil {
+		return fmt.Errorf("invalid device UID: %w", err)
+	}
+
+	ack := &protocol.AckPayload{
+		AckedSequence: sequence,
+		Status:        status,
+		Flags:         flags,
+	}
+
+	payload := ack.Encode()
+	return e.lora.SendToDevice(uid, protocol.MsgTypeAck, payload)
+}
+
+// SendMeterConfig sends a configuration update to a water meter device
+func (e *Engine) SendMeterConfig(deviceUID string, config *protocol.MeterConfigPayload) error {
+	uid, err := lora.ParseDeviceUID(deviceUID)
+	if err != nil {
+		return fmt.Errorf("invalid device UID: %w", err)
+	}
+
+	payload := config.Encode()
+	return e.lora.SendToDevice(uid, protocol.MsgTypeConfigUpdate, payload)
+}
+
+// SendMeterReset sends a totalizer reset command to a water meter
+func (e *Engine) SendMeterReset(deviceUID string, resetToZero bool, newTotal uint32) error {
+	uid, err := lora.ParseDeviceUID(deviceUID)
+	if err != nil {
+		return fmt.Errorf("invalid device UID: %w", err)
+	}
+
+	// Generate command ID
+	cmdID := uint16(atomic.AddUint32(&e.commandID, 1))
+
+	resetType := uint8(0)
+	if !resetToZero {
+		resetType = 1
+	}
+
+	reset := &protocol.MeterResetTotalPayload{
+		CommandID:      cmdID,
+		ResetType:      resetType,
+		NewTotalLiters: newTotal,
+	}
+
+	payload := reset.Encode()
+	if err := e.lora.SendToDevice(uid, protocol.MsgTypeMeterResetTotal, payload); err != nil {
+		return err
+	}
+
+	log.Printf("Sent meter reset to %s: cmdID=%d, resetType=%d", deviceUID, cmdID, resetType)
+	return nil
 }
 
 // handleValveStatus processes valve status reports

@@ -11,7 +11,7 @@
 #include <LoRa.h>
 #include <Adafruit_FRAM_SPI.h>
 #include "magmeter_config.h"
-#include "ADS131M02.h"
+#include "ads131m02.h"
 #include "agsys_protocol.h"
 #include "agsys_lora.h"
 #include "agsys_crypto.h"
@@ -23,7 +23,8 @@
 #include "buttons.h"
 #include "settings.h"
 #include "calibration.h"
-#include "ble_service.h"
+#include "agsys_ble.h"
+#include "ui_types.h"
 
 /* ==========================================================================
  * GLOBAL STATE
@@ -31,7 +32,9 @@
 
 // Hardware instances
 Adafruit_FRAM_SPI fram = Adafruit_FRAM_SPI(PIN_FRAM_CS);
-ADS131M02 adc;
+
+// ADC calibration data (stored in FRAM)
+ADCCalibration_t calibration;
 
 // Tier configuration (detected at startup)
 uint8_t currentTier = TIER_MM_S;
@@ -50,6 +53,17 @@ uint32_t lastCalibrationSave = 0;
 // Device state
 uint8_t deviceUid[8];
 uint8_t statusFlags = 0;
+
+// BLE pairing mode state
+static bool pairingModeActive = false;
+static uint32_t pairingModeStartTime = 0;
+
+// LoRa statistics
+static uint32_t loraPacketsSent = 0;
+static uint32_t loraPacketsReceived = 0;
+static uint32_t loraErrorCount = 0;
+static int16_t loraLastRssi = 0;
+static float loraLastSnr = 0.0f;
 
 // Last ADC reading (for calibration capture)
 static int32_t lastElectrodeReading = 0;
@@ -72,11 +86,19 @@ void initSPI(void);
 void initADC(void);
 void initLoRa(void);
 void initFRAM(void);
-void initDisplay(void);
 
 void detectTier(void);
 void updateTrendAndAvg(void);
 void handleButtons(void);
+void handleTotalizerReset(void);
+void resetTotalizer(void);
+
+// Diagnostics data getters
+void getLoRaStats(LoRaStats_t* stats);
+void getADCValues(ADCValues_t* values);
+
+// LoRa ping function
+bool sendLoRaPing(void);
 
 // Hardware-synced ADC callbacks
 void onAdcTrigger(bool polarity);
@@ -85,9 +107,14 @@ void calculateFlow(void);
 
 void sendReport(void);
 void processLoRa(void);
+void checkPairingMode(void);
 void updateDisplay(void);
 
 void getDeviceUid(uint8_t* uid);
+
+// BLE callbacks
+void onBleSettingsChange(AgsysBleSettings_t* settings);
+void onBleCalCommand(AgsysBleCalCmd_t* cmd);
 
 /* ==========================================================================
  * TIER CONFIGURATIONS
@@ -157,7 +184,7 @@ void setup() {
     buttons_init();
     
     // Initialize display
-    initDisplay();
+    display_init();
     display_setSettings(settings);
     display_showSplash();
     
@@ -184,9 +211,12 @@ void setup() {
     coil_setAdcTriggerCallback(onAdcTrigger);
     coil_start();
     
-    // Initialize BLE
-    ble_init();
-    ble_startAdvertising();
+    // Initialize unified BLE service
+    agsys_ble_init(AGSYS_BLE_DEVICE_NAME, AGSYS_DEVICE_TYPE_WATER_METER, AGSYS_BLE_FRAM_PIN_ADDR,
+                   FIRMWARE_VERSION_MAJOR, FIRMWARE_VERSION_MINOR, FIRMWARE_VERSION_PATCH);
+    agsys_ble_set_settings_callback(onBleSettingsChange);
+    agsys_ble_set_cal_callback(onBleCalCommand);
+    agsys_ble_start_advertising();
     
     DEBUG_PRINTLN("Mag Meter Ready");
     
@@ -231,10 +261,18 @@ void loop() {
     // Handle button input
     handleButtons();
     
-    // Update display
-    if (now - lastDisplayUpdate >= DISPLAY_UPDATE_MS) {
-        updateDisplay();
-        lastDisplayUpdate = now;
+    // Check for BLE pairing mode (UP+DOWN combo)
+    checkPairingMode();
+    
+    // Update display power state (dim/sleep timeouts)
+    display_updatePowerState();
+    
+    // Update display (only if not sleeping)
+    if (display_getPowerState() != DISPLAY_SLEEP) {
+        if (now - lastDisplayUpdate >= DISPLAY_UPDATE_MS) {
+            updateDisplay();
+            lastDisplayUpdate = now;
+        }
     }
     
     // Process incoming LoRa messages
@@ -247,12 +285,26 @@ void loop() {
     }
     
     // Process BLE and send live data updates
-    ble_process();
+    agsys_ble_process();
     static uint32_t lastBleUpdate = 0;
-    if (ble_isConnected() && (now - lastBleUpdate >= 1000)) {
+    if (agsys_ble_is_connected() && (now - lastBleUpdate >= 1000)) {
         bool reverseFlow = (currentFlowRate_LPM < 0);
-        ble_updateLiveData(currentFlowRate_LPM, totalVolume_L, trendVolume_L, avgVolume_L, reverseFlow);
-        ble_updateDiagnostics(lastElectrodeReading, 0, tierConfig.frequency_hz, tierConfig.current_ma);
+        AgsysBleLiveData_t liveData;
+        liveData.flowRate = currentFlowRate_LPM;
+        liveData.totalVolume = totalVolume_L;
+        liveData.trendVolume = trendVolume_L;
+        liveData.avgVolume = avgVolume_L;
+        liveData.direction = reverseFlow ? 2 : (currentFlowRate_LPM > 0.1f ? 1 : 0);
+        liveData.flags = statusFlags;
+        agsys_ble_update_live_data(&liveData);
+        
+        AgsysBleDiagnostics_t diag;
+        diag.bootCount = 0;  // TODO: track boot count
+        diag.uptime = now / 1000;
+        diag.batteryMv = 0;  // Mains powered
+        diag.errorCode = 0;
+        diag.flags = statusFlags;
+        agsys_ble_update_diagnostics(&diag);
         lastBleUpdate = now;
     }
     
@@ -300,7 +352,16 @@ void initSPI(void) {
 void initADC(void) {
     DEBUG_PRINTLN("Initializing ADC...");
     
-    if (!adc.begin(PIN_ADC_CS, PIN_ADC_DRDY, PIN_ADC_SYNC_RST)) {
+    ads131m02_pins_t adcPins = {
+        .pin_cs = PIN_ADC_CS,
+        .pin_drdy = PIN_ADC_DRDY,
+        .pin_sync_rst = PIN_ADC_SYNC_RST,
+        .pin_sclk = PIN_ADC_SCLK,
+        .pin_mosi = PIN_ADC_MOSI,
+        .pin_miso = PIN_ADC_MISO
+    };
+    
+    if (!ads131m02_init(&adcPins)) {
         DEBUG_PRINTLN("ERROR: ADS131M02 not found!");
         while (1) {
             digitalWrite(PIN_LED_STATUS, !digitalRead(PIN_LED_STATUS));
@@ -309,15 +370,15 @@ void initADC(void) {
     }
     
     // Configure ADC
-    adc.setGain(ADC_CH_ELECTRODE, (ads131m02_gain_t)ADC_GAIN_ELECTRODE);
-    adc.setGain(ADC_CH_CURRENT, (ads131m02_gain_t)ADC_GAIN_CURRENT);
-    adc.setOSR(ADS131M02_OSR_4096);  // 1 kSPS
+    ads131m02_set_gain(ADC_CH_ELECTRODE, (ads131m02_gain_t)ADC_GAIN_ELECTRODE);
+    ads131m02_set_gain(ADC_CH_CURRENT, (ads131m02_gain_t)ADC_GAIN_CURRENT);
+    ads131m02_set_osr(ADS131M02_OSR_4096);  // 1 kSPS
     
     // Load calibration into ADC
-    adc.setOffsetCal(0, calibration.offset_ch0);
-    adc.setOffsetCal(1, calibration.offset_ch1);
-    adc.setGainCal(0, calibration.gain_ch0);
-    adc.setGainCal(1, calibration.gain_ch1);
+    ads131m02_set_offset_cal(0, calibration.offset_ch0);
+    ads131m02_set_offset_cal(1, calibration.offset_ch1);
+    ads131m02_set_gain_cal(0, calibration.gain_ch0);
+    ads131m02_set_gain_cal(1, calibration.gain_ch1);
     
     DEBUG_PRINTLN("ADC initialized");
 }
@@ -431,7 +492,7 @@ void getDeviceUid(uint8_t* uid) {
 void onAdcTrigger(bool polarity) {
     ads131m02_data_t data;
     
-    if (adc.readData(&data)) {
+    if (ads131m02_read_data(&data)) {
         // Store last reading for calibration/diagnostics
         lastElectrodeReading = data.ch0;
         
@@ -452,14 +513,14 @@ void calculateFlow(void) {
     float coilCurrentRaw = signal_computeCoilCurrent();
     
     // Convert ADC counts to voltage (microvolts)
-    float signal_uV = ADS131M02::toMicrovolts((int32_t)signalAmplitude, 
-                                               (ads131m02_gain_t)ADC_GAIN_ELECTRODE);
+    float signal_uV = (float)ads131m02_to_microvolts((int32_t)signalAmplitude, 
+                                                      (ads131m02_gain_t)ADC_GAIN_ELECTRODE);
     
     // Convert coil current ADC counts to milliamps
     // Current sense: shunt voltage / shunt resistance
     // Assuming 0.1Ω shunt, ADC gain = 1
-    float coilCurrent_uV = ADS131M02::toMicrovolts((int32_t)coilCurrentRaw,
-                                                    (ads131m02_gain_t)ADC_GAIN_CURRENT);
+    float coilCurrent_uV = (float)ads131m02_to_microvolts((int32_t)coilCurrentRaw,
+                                                           (ads131m02_gain_t)ADC_GAIN_CURRENT);
     float coilCurrent_mA = (coilCurrent_uV / 1000.0f) / CURRENT_SENSE_SHUNT_OHMS;
     
     // Get calibration data
@@ -538,11 +599,13 @@ void sendReport(void) {
     report.flags = statusFlags;
     
     if (agsys_lora_send(AGSYS_MSG_WATER_METER_REPORT, (uint8_t*)&report, sizeof(report))) {
+        loraPacketsSent++;
         DEBUG_PRINTLN("Report sent");
         digitalWrite(PIN_LED_STATUS, HIGH);
         delay(50);
         digitalWrite(PIN_LED_STATUS, LOW);
     } else {
+        loraErrorCount++;
         DEBUG_PRINTLN("ERROR: Failed to send report");
     }
 }
@@ -554,6 +617,9 @@ void processLoRa(void) {
     int16_t rssi;
     
     if (agsys_lora_receive(&header, payload, &payloadLen, &rssi)) {
+        loraPacketsReceived++;
+        loraLastRssi = rssi;
+        loraLastSnr = LoRa.packetSnr();
         DEBUG_PRINTF("Received message type 0x%02X, RSSI=%d\n", header.msgType, rssi);
         
         switch (header.msgType) {
@@ -594,6 +660,123 @@ void handleButtons(void) {
     if (event != BTN_NONE) {
         display_handleButton(event);
     }
+    
+    // Handle 3-second hold for totalizer reset
+    handleTotalizerReset();
+}
+
+// Handle 3-second hold detection for totalizer reset
+#define TOTALIZER_RESET_HOLD_MS 3000
+static uint32_t lastResetProgress = 0;
+
+void handleTotalizerReset(void) {
+    // Only active on totalizer reset screen
+    if (display_getCurrentScreen() != SCREEN_TOTALIZER_RESET) {
+        lastResetProgress = 0;
+        return;
+    }
+    
+    if (buttons_isSelectHeld()) {
+        uint32_t holdTime = buttons_getSelectHoldTime();
+        uint8_t progress = (uint8_t)((holdTime * 100) / TOTALIZER_RESET_HOLD_MS);
+        if (progress > 100) progress = 100;
+        
+        // Update progress bar (throttle updates to avoid flicker)
+        if (progress != lastResetProgress) {
+            display_updateResetProgress(progress);
+            lastResetProgress = progress;
+        }
+        
+        // Reset triggered
+        if (holdTime >= TOTALIZER_RESET_HOLD_MS) {
+            resetTotalizer();
+            display_showTotalizer(0.0f);
+            lastResetProgress = 0;
+        }
+    } else {
+        // Button released before 3 seconds - reset progress
+        if (lastResetProgress > 0) {
+            display_updateResetProgress(0);
+            lastResetProgress = 0;
+        }
+    }
+}
+
+void resetTotalizer(void) {
+    totalVolume_L = 0.0f;
+    trendVolume_L = 0.0f;
+    avgVolume_L = 0.0f;
+    volumeAtTrendStart = 0.0f;
+    trendStartTime = millis();
+    
+    // Clear volume history
+    for (int i = 0; i < 120; i++) {
+        volumeHistory[i] = 0.0f;
+    }
+    volumeHistoryIndex = 0;
+    volumeHistoryCount = 0;
+    
+    // Save to FRAM
+    settings_save();
+    
+    DEBUG_PRINTLN("Totalizer reset to zero");
+}
+
+// Callback from display when alarm is acknowledged via UI
+void onAlarmAcknowledged(void) {
+    // Clear alarm state in firmware
+    // TODO: Send alarm acknowledgment to property controller via LoRa
+    DEBUG_PRINTLN("Alarm acknowledged via UI");
+}
+
+/* ==========================================================================
+ * DIAGNOSTICS DATA GETTERS
+ * ========================================================================== */
+
+void getLoRaStats(LoRaStats_t* stats) {
+    if (stats == NULL) return;
+    
+    uint32_t now = millis() / 1000;
+    stats->connected = (loraPacketsSent > 0 || loraPacketsReceived > 0);
+    stats->lastTxSec = (lastReportTime > 0) ? (now - (lastReportTime / 1000)) : 0;
+    stats->lastRxSec = 0;  // TODO: Track last RX time
+    stats->txCount = loraPacketsSent;
+    stats->rxCount = loraPacketsReceived;
+    stats->errorCount = loraErrorCount;
+    stats->rssi = loraLastRssi;
+    stats->snr = loraLastSnr;
+}
+
+void getADCValues(ADCValues_t* values) {
+    if (values == NULL) return;
+    
+    CalibrationData_t* cal = calibration_get();
+    
+    values->ch1Raw = lastElectrodeReading;
+    values->ch2Raw = 0;  // Not used in current design
+    values->diffRaw = lastElectrodeReading;  // Differential reading
+    values->temperatureC = 25.0f;  // TODO: Read from temperature sensor
+    values->zeroOffset = cal ? cal->zeroOffset : 0;
+    values->spanFactor = cal ? cal->spanFactor : 1.0f;
+    values->flowRaw = currentVelocity_MPS;
+    values->flowCal = currentFlowRate_LPM;
+}
+
+bool sendLoRaPing(void) {
+    DEBUG_PRINTLN("Sending LoRa ping...");
+    
+    // Send a heartbeat message as ping
+    uint8_t pingData[4] = {0x50, 0x49, 0x4E, 0x47};  // "PING"
+    
+    if (agsys_lora_send(AGSYS_MSG_HEARTBEAT, pingData, sizeof(pingData))) {
+        loraPacketsSent++;
+        DEBUG_PRINTLN("Ping sent successfully");
+        return true;
+    } else {
+        loraErrorCount++;
+        DEBUG_PRINTLN("ERROR: Ping failed");
+        return false;
+    }
 }
 
 /* ==========================================================================
@@ -632,10 +815,109 @@ void updateTrendAndAvg(void) {
 }
 
 /* ==========================================================================
+ * BLE CALLBACKS
+ * ========================================================================== */
+
+void onBleSettingsChange(AgsysBleSettings_t* bleSettings) {
+    DEBUG_PRINTLN("BLE: Settings changed");
+    
+    UserSettings_t* settings = settings_get();
+    settings->unitSystem = (UnitSystem_t)bleSettings->unitSystem;
+    settings->trendPeriodMin = bleSettings->trendPeriodMin;
+    settings->avgPeriodMin = bleSettings->avgPeriodMin;
+    settings->maxFlowLPM = (float)bleSettings->maxFlowLPM;
+    settings->backlightOn = bleSettings->backlightOn;
+    
+    settings_save();
+    display_setSettings(settings);
+    digitalWrite(PIN_DISP_BL_EN, settings->backlightOn ? HIGH : LOW);
+}
+
+void onBleCalCommand(AgsysBleCalCmd_t* cmd) {
+    DEBUG_PRINTF("BLE: Cal command %d, value=%.3f\n", cmd->command, cmd->value);
+    
+    switch (cmd->command) {
+        case AGSYS_CAL_CMD_CAPTURE_ZERO:
+            // Capture current electrode reading as zero offset
+            calibration_captureZero();
+            DEBUG_PRINTF("Zero captured: %ld\n", calibration.offset_ch0);
+            break;
+            
+        case AGSYS_CAL_CMD_SET_SPAN:
+            if (cmd->value > 0.1f && cmd->value < 10.0f) {
+                calibration_setSpan(cmd->value);
+                DEBUG_PRINTF("K-factor set: %.4f\n", cmd->value);
+            }
+            break;
+            
+        case AGSYS_CAL_CMD_RESET:
+            calibration_reset();
+            DEBUG_PRINTLN("Calibration reset to defaults");
+            break;
+    }
+    
+    // Update BLE with calibration data (map to BLE structure)
+    AgsysBleCalMeter_t calData;
+    calData.zeroOffset = calibration.offset_ch0;
+    calData.spanFactor = 1.0f;  // Not directly mapped
+    calData.kFactor = calibration.k_factor;
+    calData.calDate = 0;  // No date tracking in current structure
+    agsys_ble_update_calibration_meter(&calData);
+}
+
+/* ==========================================================================
  * CALIBRATION INTERFACE (called from display)
  * ========================================================================== */
 
 // Provide last electrode reading for calibration
 int32_t adc_getLastElectrodeReading(void) {
     return lastElectrodeReading;
+}
+
+/* ==========================================================================
+ * BLE PAIRING MODE (UP+DOWN combo)
+ * ========================================================================== */
+
+void checkPairingMode(void) {
+    // Check for UP+DOWN combo to enter pairing mode
+    if (buttons_checkPairingCombo()) {
+        if (!pairingModeActive) {
+            pairingModeActive = true;
+            pairingModeStartTime = millis();
+            agsys_ble_start_advertising();
+            buttons_resetPairingCombo();
+            
+            DEBUG_PRINTLN("BLE: Pairing mode activated (UP+DOWN combo)");
+            
+            // Visual feedback - blink LED 5 times
+            for (int i = 0; i < 5; i++) {
+                digitalWrite(PIN_LED_STATUS, HIGH);
+                delay(100);
+                digitalWrite(PIN_LED_STATUS, LOW);
+                delay(100);
+            }
+            
+            // Show pairing mode on display (use error screen temporarily)
+            display_showError("BLE Pairing Mode");
+        }
+    }
+    
+    // Handle pairing mode timeout
+    if (pairingModeActive) {
+        // Slow blink LED while in pairing mode
+        static uint32_t lastBlink = 0;
+        if (millis() - lastBlink > 500) {
+            digitalWrite(PIN_LED_STATUS, !digitalRead(PIN_LED_STATUS));
+            lastBlink = millis();
+        }
+        
+        // Check timeout
+        if (millis() - pairingModeStartTime > BLE_PAIRING_TIMEOUT_MS) {
+            pairingModeActive = false;
+            agsys_ble_stop_advertising();
+            digitalWrite(PIN_LED_STATUS, LOW);
+            DEBUG_PRINTLN("BLE: Pairing mode timeout");
+            display_showMain();
+        }
+    }
 }

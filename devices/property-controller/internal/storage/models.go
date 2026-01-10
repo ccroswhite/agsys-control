@@ -139,3 +139,29 @@ type CloudSyncQueue struct {
 	Attempts  int       `json:"attempts"`
 	LastError string    `json:"last_error,omitempty"`
 }
+
+// MeterAlarm represents a water meter alarm event
+type MeterAlarm struct {
+	ID            int64     `json:"id"`
+	DeviceUID     string    `json:"device_uid"`
+	AlarmType     uint8     `json:"alarm_type"`    // 0=cleared, 1=leak, 2=reverse, 3=tamper, 4=high_flow
+	FlowRateLPM   float32   `json:"flow_rate_lpm"` // Flow rate at alarm time
+	DurationSec   uint32    `json:"duration_sec"`  // Duration of alarm condition
+	TotalLiters   uint32    `json:"total_liters"`  // Total liters at alarm time
+	RSSI          int16     `json:"rssi"`
+	Timestamp     time.Time `json:"timestamp"`
+	SyncedToCloud bool      `json:"synced_to_cloud"`
+}
+
+// MeterConfig represents water meter configuration stored locally
+type MeterConfig struct {
+	ID                int64     `json:"id"`
+	DeviceUID         string    `json:"device_uid"`
+	ConfigVersion     uint16    `json:"config_version"`
+	ReportIntervalSec uint16    `json:"report_interval_sec"`
+	PulsesPerLiter    uint16    `json:"pulses_per_liter"` // * 100
+	LeakThresholdMin  uint16    `json:"leak_threshold_min"`
+	MaxFlowRateLPM    uint16    `json:"max_flow_rate_lpm"` // * 10
+	Flags             uint8     `json:"flags"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}

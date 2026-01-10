@@ -42,35 +42,56 @@ extern "C" {
 /* ==========================================================================
  * MESSAGE TYPES
  * 
- * Device -> Controller: 0x01 - 0x0F
- * Controller -> Device: 0x10 - 0x1F
- * OTA Messages:         0x20 - 0x2F
- * Bidirectional:        0xF0 - 0xFF
+ * Organized by device/function:
+ * - 0x00-0x0F: Common messages (all devices)
+ * - 0x10-0x1F: Common controller->device messages
+ * - 0x20-0x2F: Soil moisture sensor
+ * - 0x30-0x3F: Water meter
+ * - 0x40-0x4F: Valve controller
+ * - 0x50-0xDF: Reserved for future devices
+ * - 0xE0-0xEF: OTA firmware updates
  * ========================================================================== */
 
-// Device -> Controller messages
-#define AGSYS_MSG_SENSOR_REPORT         0x01    // Soil moisture sensor data
-#define AGSYS_MSG_WATER_METER_REPORT    0x02    // Water meter reading
-#define AGSYS_MSG_VALVE_STATUS          0x03    // Valve controller status
-#define AGSYS_MSG_VALVE_ACK             0x04    // Valve command acknowledgment
-#define AGSYS_MSG_SCHEDULE_REQUEST      0x05    // Request schedule from controller
-#define AGSYS_MSG_HEARTBEAT             0x06    // Device heartbeat/keepalive
-#define AGSYS_MSG_LOG_BATCH             0x07    // Batch of stored log entries
+// Common messages - All devices (0x00 - 0x0F)
+#define AGSYS_MSG_HEARTBEAT             0x01    // Device keepalive (optional)
+#define AGSYS_MSG_LOG_BATCH             0x02    // Batch of stored readings
+#define AGSYS_MSG_CONFIG_REQUEST        0x03    // Request configuration
+#define AGSYS_MSG_ACK                   0x0E    // Generic acknowledgment
+#define AGSYS_MSG_NACK                  0x0F    // Negative acknowledgment
 
-// Controller -> Device messages
-#define AGSYS_MSG_VALVE_COMMAND         0x10    // Immediate valve open/close
-#define AGSYS_MSG_SCHEDULE_UPDATE       0x11    // Schedule data for valve controller
-#define AGSYS_MSG_CONFIG_UPDATE         0x12    // Configuration update
-#define AGSYS_MSG_TIME_SYNC             0x13    // Time synchronization
+// Common controller -> device messages (0x10 - 0x1F)
+#define AGSYS_MSG_CONFIG_UPDATE         0x10    // Configuration update
+#define AGSYS_MSG_TIME_SYNC             0x11    // Time synchronization
 
-// OTA messages
-#define AGSYS_MSG_OTA_ANNOUNCE          0x20    // OTA firmware announcement
-#define AGSYS_MSG_OTA_CHUNK             0x21    // OTA firmware chunk
-#define AGSYS_MSG_OTA_STATUS            0x22    // OTA status response
+// Soil moisture sensor messages (0x20 - 0x2F)
+#define AGSYS_MSG_SOIL_REPORT           0x20    // Moisture/temp/battery reading
+#define AGSYS_MSG_SOIL_CALIBRATE_REQ    0x21    // Request calibration data
 
-// Bidirectional messages
-#define AGSYS_MSG_ACK                   0xF0    // Generic acknowledgment
-#define AGSYS_MSG_NACK                  0xF1    // Negative acknowledgment
+// Water meter messages (0x30 - 0x3F)
+#define AGSYS_MSG_METER_REPORT          0x30    // Flow/total/battery reading
+#define AGSYS_MSG_METER_ALARM           0x31    // Leak/reverse flow/tamper alert
+#define AGSYS_MSG_METER_CALIBRATE_REQ   0x32    // Request calibration data
+#define AGSYS_MSG_METER_RESET_TOTAL     0x33    // Reset totalizer (ctrl->device)
+
+// Valve controller messages (0x40 - 0x4F)
+#define AGSYS_MSG_VALVE_STATUS          0x40    // State change notification
+#define AGSYS_MSG_VALVE_ACK             0x41    // Command acknowledgment
+#define AGSYS_MSG_VALVE_SCHEDULE_REQ    0x42    // Request schedule
+#define AGSYS_MSG_VALVE_COMMAND         0x43    // Open/close/stop/query (ctrl->device)
+#define AGSYS_MSG_VALVE_SCHEDULE        0x44    // Schedule update (ctrl->device)
+#define AGSYS_MSG_VALVE_DISCOVER        0x45    // Trigger CAN bus discovery (ctrl->device)
+#define AGSYS_MSG_VALVE_DISCOVERY_RESP  0x46    // Discovery results (device->ctrl)
+
+// OTA firmware messages (0xE0 - 0xEF)
+#define AGSYS_MSG_OTA_ANNOUNCE          0xE0    // Firmware available
+#define AGSYS_MSG_OTA_CHUNK             0xE1    // Firmware data chunk
+#define AGSYS_MSG_OTA_STATUS            0xE2    // OTA progress/result
+
+// Legacy aliases (for backward compatibility during transition)
+#define AGSYS_MSG_SENSOR_REPORT         AGSYS_MSG_SOIL_REPORT
+#define AGSYS_MSG_WATER_METER_REPORT    AGSYS_MSG_METER_REPORT
+#define AGSYS_MSG_SCHEDULE_REQUEST      AGSYS_MSG_VALVE_SCHEDULE_REQ
+#define AGSYS_MSG_SCHEDULE_UPDATE       AGSYS_MSG_VALVE_SCHEDULE
 
 /* ==========================================================================
  * PACKET HEADER
@@ -169,7 +190,71 @@ typedef struct __attribute__((packed)) {
 } AgsysWaterMeterReport;
 
 /* ==========================================================================
- * PAYLOAD STRUCTURES - VALVE STATUS (0x03)
+ * PAYLOAD STRUCTURES - WATER METER ALARM (0x31)
+ * 
+ * Sent immediately when leak, reverse flow, or tamper is detected.
+ * ========================================================================== */
+
+// Alarm types
+#define AGSYS_METER_ALARM_LEAK          0x01    // Continuous flow exceeds threshold
+#define AGSYS_METER_ALARM_REVERSE       0x02    // Reverse flow detected
+#define AGSYS_METER_ALARM_TAMPER        0x03    // Tamper detected
+#define AGSYS_METER_ALARM_HIGH_FLOW     0x04    // Flow rate exceeds maximum
+#define AGSYS_METER_ALARM_CLEARED       0x00    // Alarm condition cleared
+
+typedef struct __attribute__((packed)) {
+    uint32_t timestamp;         // Device uptime in seconds
+    uint8_t  alarmType;         // Type of alarm (see AGSYS_METER_ALARM_*)
+    uint16_t flowRateLPM;       // Current flow rate in liters/min * 10
+    uint32_t durationSec;       // Duration of alarm condition in seconds
+    uint32_t totalLiters;       // Total liters at alarm time
+    uint8_t  flags;             // Additional flags
+} AgsysMeterAlarm;
+
+/* ==========================================================================
+ * PAYLOAD STRUCTURES - WATER METER CONFIG (via CONFIG_UPDATE 0x10)
+ * 
+ * Water meter specific configuration. Sent as CONFIG_UPDATE payload
+ * when deviceType == AGSYS_DEVICE_TYPE_WATER_METER.
+ * ========================================================================== */
+
+typedef struct __attribute__((packed)) {
+    uint16_t configVersion;     // Configuration version
+    uint16_t reportIntervalSec; // Report interval in seconds (default 60)
+    uint16_t pulsesPerLiter;    // Calibration: pulses per liter * 100
+    uint16_t leakThresholdMin;  // Minutes of continuous flow = leak
+    uint16_t maxFlowRateLPM;    // Max expected flow rate * 10 (alarm if exceeded)
+    uint8_t  flags;             // Configuration flags
+} AgsysMeterConfig;
+
+// Meter config flags
+#define AGSYS_METER_CFG_LEAK_DETECT_EN  (1 << 0)    // Enable leak detection
+#define AGSYS_METER_CFG_REVERSE_DETECT  (1 << 1)    // Enable reverse flow detection
+#define AGSYS_METER_CFG_TAMPER_DETECT   (1 << 2)    // Enable tamper detection
+
+/* ==========================================================================
+ * PAYLOAD STRUCTURES - WATER METER RESET TOTAL (0x33)
+ * 
+ * Sent by property controller to reset the totalizer.
+ * Device responds with ACK containing new totals.
+ * ========================================================================== */
+
+typedef struct __attribute__((packed)) {
+    uint16_t commandId;         // Command ID for acknowledgment
+    uint8_t  resetType;         // 0 = reset to zero, 1 = set to value
+    uint32_t newTotalLiters;    // New total (only used if resetType == 1)
+} AgsysMeterResetTotal;
+
+// Response to reset (sent as ACK payload extension)
+typedef struct __attribute__((packed)) {
+    uint16_t ackedSequence;     // Sequence number being acknowledged
+    uint8_t  status;            // 0 = OK, non-zero = error
+    uint32_t oldTotalLiters;    // Previous total before reset
+    uint32_t newTotalLiters;    // New total after reset
+} AgsysMeterResetAck;
+
+/* ==========================================================================
+ * PAYLOAD STRUCTURES - VALVE STATUS (0x40)
  * 
  * Sent by valve controller periodically and after state changes.
  * ========================================================================== */
@@ -220,6 +305,32 @@ typedef struct __attribute__((packed)) {
 #define AGSYS_VALVE_ERR_OVERCURRENT     0x02
 #define AGSYS_VALVE_ERR_ACTUATOR_OFFLINE 0x03
 #define AGSYS_VALVE_ERR_POWER_FAIL      0x04
+
+/* ==========================================================================
+ * PAYLOAD STRUCTURES - VALVE DISCOVERY (0x45, 0x46)
+ * 
+ * Sent by property controller to trigger CAN bus discovery.
+ * Valve controller responds with list of discovered actuators and their UIDs.
+ * ========================================================================== */
+
+// Discovery command (0x45) - no payload needed, or optional flags
+typedef struct __attribute__((packed)) {
+    uint8_t  flags;             // Discovery flags (reserved, set to 0)
+} AgsysValveDiscoverCmd;
+
+// Discovery response header (0x46)
+typedef struct __attribute__((packed)) {
+    uint8_t  actuatorCount;     // Number of discovered actuators
+    // Followed by actuatorCount instances of AgsysDiscoveredActuator
+} AgsysValveDiscoveryHeader;
+
+// Discovered actuator info
+typedef struct __attribute__((packed)) {
+    uint8_t  address;           // CAN bus address (1-64)
+    uint8_t  uid[8];            // Actuator unique ID (from nRF52 FICR)
+    uint8_t  state;             // Current valve state
+    uint8_t  flags;             // Status flags
+} AgsysDiscoveredActuator;
 
 /* ==========================================================================
  * PAYLOAD STRUCTURES - VALVE COMMAND (0x10)

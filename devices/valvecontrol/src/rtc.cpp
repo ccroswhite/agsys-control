@@ -50,6 +50,7 @@ static uint8_t bcdToDec(uint8_t bcd) {
     return ((bcd >> 4) * 10) + (bcd & 0x0F);
 }
 
+__attribute__((unused))
 static uint8_t decToBcd(uint8_t dec) {
     return ((dec / 10) << 4) | (dec % 10);
 }

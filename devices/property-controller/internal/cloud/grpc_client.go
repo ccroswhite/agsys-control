@@ -70,10 +70,11 @@ type GRPCClient struct {
 	firmwareVersion string
 
 	// Callbacks for messages from backend
-	onValveCommand func(*controllerv1.ValveCommand)
-	onSchedule     func(*controllerv1.ScheduleUpdate)
-	onDeviceAdded  func(*controllerv1.DeviceApproved)
-	onConfigUpdate func(*controllerv1.ConfigUpdate)
+	onValveCommand    func(*controllerv1.ValveCommand)
+	onSchedule        func(*controllerv1.ScheduleUpdate)
+	onDeviceAdded     func(*controllerv1.DeviceApproved)
+	onConfigUpdate    func(*controllerv1.ConfigUpdate)
+	onMeterPinCommand func(*controllerv1.MeterPinCommand)
 }
 
 // NewGRPCClient creates a new gRPC cloud client
@@ -386,6 +387,61 @@ func (c *GRPCClient) SendMeterData(deviceUID string, readings []*controllerv1.Me
 			},
 		},
 	}
+
+	select {
+	case c.sendChan <- msg:
+		return nil
+	default:
+		return fmt.Errorf("send buffer full")
+	}
+}
+
+// MeterAlarmData holds meter alarm information for cloud transmission
+type MeterAlarmData struct {
+	AlarmType   uint8
+	FlowRateLPM float32
+	DurationSec uint32
+	TotalLiters uint32
+	RSSI        int16
+	Timestamp   time.Time
+}
+
+// mapAlarmType converts internal alarm type to protobuf enum
+func mapAlarmType(alarmType uint8) controllerv1.MeterAlarmType {
+	switch alarmType {
+	case 0:
+		return controllerv1.MeterAlarmType_METER_ALARM_TYPE_CLEARED
+	case 1:
+		return controllerv1.MeterAlarmType_METER_ALARM_TYPE_LEAK
+	case 2:
+		return controllerv1.MeterAlarmType_METER_ALARM_TYPE_REVERSE_FLOW
+	case 3:
+		return controllerv1.MeterAlarmType_METER_ALARM_TYPE_TAMPER
+	case 4:
+		return controllerv1.MeterAlarmType_METER_ALARM_TYPE_HIGH_FLOW
+	default:
+		return controllerv1.MeterAlarmType_METER_ALARM_TYPE_UNSPECIFIED
+	}
+}
+
+// SendMeterAlarm sends a water meter alarm to the backend (high priority)
+func (c *GRPCClient) SendMeterAlarm(deviceUID string, alarm *MeterAlarmData) error {
+	msg := &controllerv1.ControllerMessage{
+		Payload: &controllerv1.ControllerMessage_MeterAlarm{
+			MeterAlarm: &controllerv1.MeterAlarm{
+				DeviceUid:       deviceUID,
+				AlarmType:       mapAlarmType(alarm.AlarmType),
+				FlowRateLpm:     alarm.FlowRateLPM,
+				DurationSeconds: int64(alarm.DurationSec),
+				TotalLiters:     float64(alarm.TotalLiters),
+				Timestamp:       timestamppb.New(alarm.Timestamp),
+				SignalRssi:      int32(alarm.RSSI),
+			},
+		},
+	}
+
+	log.Printf("Sending meter alarm to cloud: device=%s type=%s flow=%.1f duration=%ds",
+		deviceUID, mapAlarmType(alarm.AlarmType).String(), alarm.FlowRateLPM, alarm.DurationSec)
 
 	select {
 	case c.sendChan <- msg:

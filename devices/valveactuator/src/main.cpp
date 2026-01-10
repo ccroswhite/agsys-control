@@ -9,9 +9,11 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <mcp2515.h>
+#include <Adafruit_FRAM_SPI.h>
 #include "config.h"
 #include "hbridge.h"
 #include "valve.h"
+#include "agsys_ble.h"
 
 /* ==========================================================================
  * GLOBAL STATE
@@ -20,6 +22,13 @@
 // CAN bus
 MCP2515 canBus(PIN_CAN_CS);
 volatile bool canInterruptFlag = false;
+
+// FRAM for PIN storage and diagnostics
+Adafruit_FRAM_SPI fram = Adafruit_FRAM_SPI(PIN_FRAM_CS);
+
+// BLE pairing mode state
+static bool pairingModeActive = false;
+static unsigned long pairingModeStartTime = 0;
 
 // Device address (read from DIP switches)
 uint8_t deviceAddress = 0;
@@ -31,12 +40,17 @@ uint8_t deviceAddress = 0;
 void initPins(void);
 void initSPI(void);
 void initCAN(void);
+void initFRAM(void);
+void initBLE(void);
 uint8_t readAddress(void);
 bool isTerminationEnabled(void);
 void canISR(void);
 void processCAN(void);
 void sendStatus(void);
+void sendUID(void);
+void getDeviceUID(uint8_t* uid);
 void updateLEDs(void);
+void checkPairingMode(void);
 
 /* ==========================================================================
  * SETUP
@@ -51,6 +65,7 @@ void setup() {
 
     initPins();
     initSPI();
+    initFRAM();
     
     // Read device address from DIP switches
     deviceAddress = readAddress();
@@ -64,6 +79,9 @@ void setup() {
     
     // Initialize valve control module
     valve_init();
+    
+    // Initialize BLE for DFU updates
+    initBLE();
     
     DEBUG_PRINTLN("Valve Actuator Ready");
 }
@@ -81,6 +99,10 @@ void loop() {
     
     // Update valve state machine
     valve_update();
+    
+    // Process BLE (handles pairing timeout)
+    agsys_ble_process();
+    checkPairingMode();
     
     // Update LED indicators
     updateLEDs();
@@ -120,6 +142,13 @@ void initPins(void) {
     
     // CAN interrupt
     pinMode(PIN_CAN_INT, INPUT_PULLUP);
+    
+    // FRAM chip select
+    pinMode(PIN_FRAM_CS, OUTPUT);
+    digitalWrite(PIN_FRAM_CS, HIGH);
+    
+    // Pairing button (active LOW, external 10K pullup)
+    pinMode(PIN_PAIRING_BUTTON, INPUT);
 }
 
 void initSPI(void) {
@@ -208,6 +237,21 @@ void processCAN(void) {
                 valve_emergency_close();
                 sendStatus();
                 break;
+                
+            case CAN_ID_UID_QUERY:
+                if (frame.can_dlc >= 1 && frame.data[0] == deviceAddress) {
+                    DEBUG_PRINTLN("Command: UID QUERY");
+                    sendUID();
+                }
+                break;
+                
+            case CAN_ID_DISCOVER_ALL:
+                // Broadcast discovery - all actuators respond with UID
+                DEBUG_PRINTLN("Command: DISCOVER ALL");
+                // Stagger response by address to avoid collisions
+                delay(deviceAddress * 5);
+                sendUID();
+                break;
         }
     }
 }
@@ -224,6 +268,39 @@ void sendStatus(void) {
     if (canBus.sendMessage(&frame) != MCP2515::ERROR_OK) {
         DEBUG_PRINTLN("ERROR: Failed to send status");
     }
+}
+
+void sendUID(void) {
+    uint8_t uid[8];
+    getDeviceUID(uid);
+    
+    struct can_frame frame;
+    frame.can_id = CAN_ID_UID_RESPONSE_BASE + deviceAddress;
+    frame.can_dlc = 8;
+    memcpy(frame.data, uid, 8);
+    
+    DEBUG_PRINTF("Sending UID: %02X%02X%02X%02X%02X%02X%02X%02X\n",
+                 uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6], uid[7]);
+    
+    if (canBus.sendMessage(&frame) != MCP2515::ERROR_OK) {
+        DEBUG_PRINTLN("ERROR: Failed to send UID");
+    }
+}
+
+void getDeviceUID(uint8_t* uid) {
+    // Read nRF52 device ID from FICR registers
+    // DEVICEID[0] and DEVICEID[1] provide 64-bit unique ID
+    uint32_t deviceId0 = NRF_FICR->DEVICEID[0];
+    uint32_t deviceId1 = NRF_FICR->DEVICEID[1];
+    
+    uid[0] = (deviceId0 >> 0) & 0xFF;
+    uid[1] = (deviceId0 >> 8) & 0xFF;
+    uid[2] = (deviceId0 >> 16) & 0xFF;
+    uid[3] = (deviceId0 >> 24) & 0xFF;
+    uid[4] = (deviceId1 >> 0) & 0xFF;
+    uid[5] = (deviceId1 >> 8) & 0xFF;
+    uid[6] = (deviceId1 >> 16) & 0xFF;
+    uid[7] = (deviceId1 >> 24) & 0xFF;
 }
 
 /* ==========================================================================
@@ -255,5 +332,77 @@ void updateLEDs(void) {
         }
     } else {
         digitalWrite(PIN_LED_STATUS, LOW);
+    }
+}
+
+/* ==========================================================================
+ * FRAM AND BLE INITIALIZATION
+ * ========================================================================== */
+
+void initFRAM(void) {
+    DEBUG_PRINTLN("Initializing FRAM...");
+    if (!fram.begin()) {
+        DEBUG_PRINTLN("WARNING: FRAM init failed");
+    } else {
+        DEBUG_PRINTLN("FRAM initialized");
+    }
+}
+
+void initBLE(void) {
+    DEBUG_PRINTLN("Initializing BLE...");
+    agsys_ble_init(AGSYS_BLE_DEVICE_NAME, AGSYS_DEVICE_TYPE_VALVE_ACTUATOR, AGSYS_BLE_FRAM_PIN_ADDR,
+                   FIRMWARE_VERSION_MAJOR, FIRMWARE_VERSION_MINOR, FIRMWARE_VERSION_PATCH);
+    DEBUG_PRINTLN("BLE initialized (DFU ready)");
+}
+
+void checkPairingMode(void) {
+    static uint32_t buttonPressStart = 0;
+    static bool buttonWasPressed = false;
+    
+    bool buttonPressed = (digitalRead(PIN_PAIRING_BUTTON) == LOW);
+    
+    if (buttonPressed && !buttonWasPressed) {
+        // Button just pressed
+        buttonPressStart = millis();
+        buttonWasPressed = true;
+    } else if (!buttonPressed && buttonWasPressed) {
+        // Button released
+        buttonWasPressed = false;
+    } else if (buttonPressed && buttonWasPressed) {
+        // Button held
+        uint32_t holdTime = millis() - buttonPressStart;
+        
+        if (!pairingModeActive && holdTime >= PAIRING_BUTTON_HOLD_MS) {
+            // Enter pairing mode
+            pairingModeActive = true;
+            pairingModeStartTime = millis();
+            agsys_ble_start_advertising();
+            DEBUG_PRINTLN("Pairing mode activated");
+            
+            // Blink LED to indicate pairing mode
+            for (int i = 0; i < 5; i++) {
+                digitalWrite(PIN_LED_STATUS, HIGH);
+                delay(100);
+                digitalWrite(PIN_LED_STATUS, LOW);
+                delay(100);
+            }
+        }
+    }
+    
+    if (pairingModeActive) {
+        // Slow blink while in pairing mode
+        static uint32_t lastBlink = 0;
+        if (millis() - lastBlink > 500) {
+            digitalWrite(PIN_LED_STATUS, !digitalRead(PIN_LED_STATUS));
+            lastBlink = millis();
+        }
+        
+        // Check timeout
+        if (millis() - pairingModeStartTime > BLE_PAIRING_TIMEOUT_MS) {
+            pairingModeActive = false;
+            agsys_ble_stop_advertising();
+            digitalWrite(PIN_LED_STATUS, LOW);
+            DEBUG_PRINTLN("Pairing mode timeout");
+        }
     }
 }

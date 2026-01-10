@@ -34,6 +34,9 @@
 #define PIN_CAN_CS                  (11)        // P0.11
 #define PIN_CAN_INT                 (8)         // P0.08 - Interrupt
 
+// FRAM (FM25V02-G) - For PIN storage, diagnostics, valve cycle count
+#define PIN_FRAM_CS                 (7)         // P0.07 - TODO: Verify pin assignment in schematic
+
 // H-Bridge Control
 #define PIN_HBRIDGE_A               (3)         // P0.03 - High-side A (open direction)
 #define PIN_HBRIDGE_B               (4)         // P0.04 - High-side B (close direction)
@@ -69,6 +72,11 @@
 // 24V Sense (for LED, optional ADC)
 #define PIN_24V_SENSE               (29)        // P0.29/AIN5 - Voltage divider from 24V
 
+// BLE Pairing Button (active LOW with 10K pullup)
+#define PIN_PAIRING_BUTTON          (30)        // P0.30 - Hold 2s for pairing
+#define PAIRING_BUTTON_HOLD_MS      2000        // Hold time to enter pairing mode (consistent across all devices)
+#define BLE_PAIRING_TIMEOUT_MS      300000      // 5 minutes pairing window
+
 /* ==========================================================================
  * CAN BUS CONFIGURATION
  * ========================================================================== */
@@ -80,8 +88,11 @@
 #define CAN_ID_VALVE_CLOSE          0x101       // Controller -> Actuator: Close valve
 #define CAN_ID_VALVE_STOP           0x102       // Controller -> Actuator: Stop motor
 #define CAN_ID_VALVE_QUERY          0x103       // Controller -> Actuator: Query status
+#define CAN_ID_UID_QUERY            0x104       // Controller -> Actuator: Query UID
+#define CAN_ID_DISCOVER_ALL         0x105       // Controller -> All: Discovery broadcast
 #define CAN_ID_EMERGENCY_CLOSE      0x1FF       // Controller -> All: Emergency close
 #define CAN_ID_STATUS_BASE          0x200       // Actuator -> Controller: Status
+#define CAN_ID_UID_RESPONSE_BASE    0x280       // Actuator -> Controller: UID response (0x280 + addr)
 
 /* ==========================================================================
  * H-BRIDGE CONFIGURATION
@@ -91,9 +102,9 @@
 #define MOTOR_RUN_DUTY              200         // Reduced power after moving
 
 // Current sensing
-#define CURRENT_SENSE_RESISTOR      0.1f        // 0.1 ohm shunt
-#define CURRENT_OVERCURRENT_MA      3000        // 3A overcurrent threshold
-#define CURRENT_STALL_MA            2500        // Stall detection threshold
+#define CURRENT_SENSE_RESISTOR      0.05f       // 0.05 ohm shunt (1/2W, handles up to 3.2A)
+#define CURRENT_OVERCURRENT_MA      2000        // 2A overcurrent threshold (below PTC trip)
+#define CURRENT_STALL_MA            1500        // Stall detection threshold
 #define CURRENT_SAMPLE_INTERVAL_MS  10          // Sample every 10ms
 
 // Timing

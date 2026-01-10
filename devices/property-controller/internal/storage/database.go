@@ -196,6 +196,37 @@ func (db *DB) migrate() error {
 		last_error TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_sync_queue_priority ON cloud_sync_queue(priority DESC, created_at);
+
+	-- Water meter alarms
+	CREATE TABLE IF NOT EXISTS meter_alarms (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		device_uid TEXT NOT NULL,
+		alarm_type INTEGER NOT NULL,
+		flow_rate_lpm REAL,
+		duration_sec INTEGER,
+		total_liters INTEGER,
+		rssi INTEGER,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		synced_to_cloud INTEGER DEFAULT 0,
+		FOREIGN KEY (device_uid) REFERENCES devices(uid)
+	);
+	CREATE INDEX IF NOT EXISTS idx_meter_alarms_device ON meter_alarms(device_uid);
+	CREATE INDEX IF NOT EXISTS idx_meter_alarms_timestamp ON meter_alarms(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_meter_alarms_synced ON meter_alarms(synced_to_cloud);
+
+	-- Water meter configuration
+	CREATE TABLE IF NOT EXISTS meter_configs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		device_uid TEXT UNIQUE NOT NULL,
+		config_version INTEGER NOT NULL,
+		report_interval_sec INTEGER NOT NULL,
+		pulses_per_liter INTEGER NOT NULL,
+		leak_threshold_min INTEGER NOT NULL,
+		max_flow_rate_lpm INTEGER NOT NULL,
+		flags INTEGER NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (device_uid) REFERENCES devices(uid)
+	);
 	`
 
 	_, err := db.conn.Exec(schema)
@@ -393,6 +424,52 @@ func (db *DB) GetUnsyncedWaterMeterReadings(limit int) ([]*WaterMeterReading, er
 // MarkWaterMeterReadingSynced marks a reading as synced
 func (db *DB) MarkWaterMeterReadingSynced(id int64) error {
 	_, err := db.conn.Exec("UPDATE water_meter_readings SET synced_to_cloud = 1 WHERE id = ?", id)
+	return err
+}
+
+// --- Meter Alarm Operations ---
+
+// InsertMeterAlarm inserts a new meter alarm
+func (db *DB) InsertMeterAlarm(a *MeterAlarm) (int64, error) {
+	query := `INSERT INTO meter_alarms 
+		(device_uid, alarm_type, flow_rate_lpm, duration_sec, total_liters, rssi, timestamp)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
+
+	result, err := db.conn.Exec(query, a.DeviceUID, a.AlarmType, a.FlowRateLPM,
+		a.DurationSec, a.TotalLiters, a.RSSI, a.Timestamp)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// GetUnsyncedMeterAlarms retrieves alarms not yet synced to cloud
+func (db *DB) GetUnsyncedMeterAlarms(limit int) ([]*MeterAlarm, error) {
+	query := `SELECT id, device_uid, alarm_type, flow_rate_lpm, duration_sec, total_liters, rssi, timestamp, synced_to_cloud
+		FROM meter_alarms WHERE synced_to_cloud = 0
+		ORDER BY timestamp LIMIT ?`
+
+	rows, err := db.conn.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var alarms []*MeterAlarm
+	for rows.Next() {
+		a := &MeterAlarm{}
+		if err := rows.Scan(&a.ID, &a.DeviceUID, &a.AlarmType, &a.FlowRateLPM,
+			&a.DurationSec, &a.TotalLiters, &a.RSSI, &a.Timestamp, &a.SyncedToCloud); err != nil {
+			return nil, err
+		}
+		alarms = append(alarms, a)
+	}
+	return alarms, rows.Err()
+}
+
+// MarkMeterAlarmSynced marks an alarm as synced
+func (db *DB) MarkMeterAlarmSynced(id int64) error {
+	_, err := db.conn.Exec("UPDATE meter_alarms SET synced_to_cloud = 1 WHERE id = ?", id)
 	return err
 }
 
