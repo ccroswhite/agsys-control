@@ -132,7 +132,8 @@ Tactile switch for entering BLE pairing/DFU mode.
 **Operation:**
 - Hold for 3 seconds during power-up → Enter pairing mode
 - Hold for 5 seconds while running → Enter DFU mode
-- LED3 (Red) blinks rapidly during pairing mode
+- LED3 (Red) blinks rapidly (100ms) during pairing mode
+- Pairing mode auto-exits after 2 minutes (120 seconds)
 
 **Connections:**
 

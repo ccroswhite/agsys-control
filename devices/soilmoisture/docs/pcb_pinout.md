@@ -70,7 +70,7 @@ This document defines the complete pinout for the soil moisture sensor custom PC
 
 | nRF52 Pin | GPIO | Function | Notes |
 |-----------|------|----------|-------|
-| P0.07 | 7 | OTA_BUTTON | Active LOW with internal pull-up |
+| P0.07 | 7 | PAIRING_BUTTON | Active LOW with internal pull-up, 2s hold for pairing |
 
 ### Crystal Oscillator (32.768 kHz)
 
@@ -191,6 +191,30 @@ VCC (2.5V)
 LED ON  = GPIO LOW
 LED OFF = GPIO HIGH
 ```
+
+**LED Status Patterns:**
+
+| Pattern | Meaning |
+|---------|---------|
+| Green fast blink (100ms) | Pairing mode active |
+| Green SOS pattern | Critical battery |
+| Green off | Normal sleep mode |
+
+### 5. Pairing Button
+
+```
+VCC (2.5V)
+    │
+    └── Internal Pull-up ──┬── P0.07 (PAIRING_BUTTON)
+                           │
+                           └── SW1 ── GND
+```
+
+**Operation:**
+- Hold for 2 seconds during power-up → Enter pairing mode
+- Hold for 2 seconds during sleep wake → Enter pairing mode
+- LED (Green) blinks rapidly (100ms) during pairing mode
+- Pairing mode auto-exits after 2 minutes (120 seconds)
 
 ---
 
