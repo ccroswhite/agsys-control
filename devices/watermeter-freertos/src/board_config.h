@@ -7,67 +7,95 @@
 #define BOARD_CONFIG_H
 
 /* ==========================================================================
- * SPI PINS (ADS131M02 ADC, RFM95C LoRa, ST7789 Display, FM25V02 FRAM)
+ * SPI BUS 0 - ADC (ADS131M02) - Dedicated for high-speed sampling
  * ========================================================================== */
 
-#define SPI_SCK_PIN             26
-#define SPI_MOSI_PIN            27
-#define SPI_MISO_PIN            28
+#define SPI0_SCK_PIN            NRF_GPIO_PIN_MAP(0, 25)  /* P0.25 */
+#define SPI0_MOSI_PIN           NRF_GPIO_PIN_MAP(0, 24)  /* P0.24 */
+#define SPI0_MISO_PIN           NRF_GPIO_PIN_MAP(0, 23)  /* P0.23 */
+#define SPI_CS_ADC_PIN          NRF_GPIO_PIN_MAP(0, 22)  /* P0.22 */
 
-/* Chip selects */
-#define SPI_CS_ADC_PIN          29  /* ADS131M02 */
-#define SPI_CS_LORA_PIN         30  /* RFM95C */
-#define SPI_CS_DISPLAY_PIN      31  /* ST7789 */
-#define SPI_CS_FRAM_PIN         32  /* FM25V02 */
-#define SPI_CS_FLASH_PIN        4   /* W25Q16 SPI Flash */
+/* ==========================================================================
+ * SPI BUS 1 - Display (ST7789)
+ * ========================================================================== */
+
+#define SPI1_SCK_PIN            NRF_GPIO_PIN_MAP(0, 19)  /* P0.19 */
+#define SPI1_MOSI_PIN           NRF_GPIO_PIN_MAP(0, 18)  /* P0.18 */
+#define SPI1_MISO_PIN           NRF_GPIO_PIN_MAP(0, 31)  /* Not used, placeholder */
+#define SPI_CS_DISPLAY_PIN      NRF_GPIO_PIN_MAP(0, 17)  /* P0.17 */
+
+/* ==========================================================================
+ * SPI BUS 2 - LoRa (dedicated)
+ * ========================================================================== */
+
+#define SPI2_SCK_PIN            NRF_GPIO_PIN_MAP(0, 13)  /* P0.13 */
+#define SPI2_MOSI_PIN           NRF_GPIO_PIN_MAP(0, 12)  /* P0.12 */
+#define SPI2_MISO_PIN           NRF_GPIO_PIN_MAP(0, 11)  /* P0.11 */
+#define SPI_CS_LORA_PIN         NRF_GPIO_PIN_MAP(0, 10)  /* P0.10 */
+
+/* ==========================================================================
+ * SPI BUS 3 - FRAM + Flash (shared)
+ * Note: P0.07 not available on 48-pin QFAA, using P0.29 for SCLK
+ * ========================================================================== */
+
+#define SPI3_SCK_PIN            NRF_GPIO_PIN_MAP(0, 29)  /* P0.29 */
+#define SPI3_MOSI_PIN           NRF_GPIO_PIN_MAP(0, 6)   /* P0.06 */
+#define SPI3_MISO_PIN           NRF_GPIO_PIN_MAP(0, 5)   /* P0.05 */
+#define SPI_CS_FRAM_PIN         NRF_GPIO_PIN_MAP(0, 4)   /* P0.04 */
+#define SPI_CS_FLASH_PIN        NRF_GPIO_PIN_MAP(0, 3)   /* P0.03 */
 
 /* ==========================================================================
  * ADC (ADS131M02)
+ * Note: P0.21 not available on 48-pin QFAA, using P0.31 for DRDY
  * ========================================================================== */
 
-#define ADC_DRDY_PIN            33  /* Data ready interrupt */
-#define ADC_SYNC_PIN            34  /* Sync/reset */
+#define ADC_DRDY_PIN            NRF_GPIO_PIN_MAP(0, 31)  /* P0.31 - Data ready interrupt */
+#define ADC_SYNC_PIN            NRF_GPIO_PIN_MAP(0, 20)  /* P0.20 - Sync/reset */
 
 /* ==========================================================================
  * LORA (RFM95C)
  * ========================================================================== */
 
-#define LORA_DIO0_PIN           35  /* TX/RX done interrupt */
-#define LORA_DIO1_PIN           36  /* CAD done */
-#define LORA_RESET_PIN          37
+#define LORA_DIO0_PIN           NRF_GPIO_PIN_MAP(0, 8)   /* P0.08 - TX/RX done interrupt */
+#define LORA_RESET_PIN          NRF_GPIO_PIN_MAP(0, 9)   /* P0.09 */
 
 /* ==========================================================================
  * DISPLAY (ST7789 2.8" TFT)
+ * Note: P0.16 not available on 48-pin QFAA, using P0.30 for DC
  * ========================================================================== */
 
-#define DISPLAY_DC_PIN          38  /* Data/Command */
-#define DISPLAY_RESET_PIN       39
-#define DISPLAY_BACKLIGHT_PIN   40
+#define DISPLAY_DC_PIN          NRF_GPIO_PIN_MAP(0, 30)  /* P0.30 - Data/Command */
+#define DISPLAY_RESET_PIN       NRF_GPIO_PIN_MAP(0, 15)  /* P0.15 */
+#define DISPLAY_BACKLIGHT_PIN   NRF_GPIO_PIN_MAP(0, 14)  /* P0.14 */
 
 /* ==========================================================================
- * COIL DRIVER (H-Bridge for magnetic field excitation)
+ * COIL DRIVER (PWM to power board MOSFET)
  * ========================================================================== */
 
-#define COIL_A_PIN              41  /* Coil driver A */
-#define COIL_B_PIN              42  /* Coil driver B */
-#define COIL_EN_PIN             43  /* Enable */
+#define COIL_GATE_PIN           NRF_GPIO_PIN_MAP(1, 0)   /* P1.00 - PWM to MOSFET */
 
 /* ==========================================================================
- * BUTTONS
+ * BUTTONS (Active LOW with internal pullup)
  * ========================================================================== */
 
-#define BUTTON_UP_PIN           11
-#define BUTTON_DOWN_PIN         12
-#define BUTTON_SELECT_PIN       13
-#define BUTTON_BACK_PIN         14
+#define BUTTON_UP_PIN           NRF_GPIO_PIN_MAP(1, 2)   /* P1.02 */
+#define BUTTON_DOWN_PIN         NRF_GPIO_PIN_MAP(1, 3)   /* P1.03 */
+#define BUTTON_LEFT_PIN         NRF_GPIO_PIN_MAP(1, 4)   /* P1.04 */
+#define BUTTON_RIGHT_PIN        NRF_GPIO_PIN_MAP(1, 5)   /* P1.05 */
+#define BUTTON_SELECT_PIN       NRF_GPIO_PIN_MAP(1, 6)   /* P1.06 */
 
 /* ==========================================================================
- * STATUS LEDS
+ * TIER ID (Analog input for power board tier detection)
  * ========================================================================== */
 
-#define LED_POWER_PIN           15
-#define LED_STATUS_PIN          16
-#define LED_LORA_PIN            17
+#define TIER_ID_PIN             NRF_GPIO_PIN_MAP(1, 1)   /* P1.01 - ADC input */
+
+/* ==========================================================================
+ * STATUS LEDS (Optional - DNP for production)
+ * ========================================================================== */
+
+#define LED_BLE_PIN             NRF_GPIO_PIN_MAP(1, 7)   /* P1.07 - BLE status (green) */
+#define LED_LORA_PIN            NRF_GPIO_PIN_MAP(1, 8)   /* P1.08 - LoRa status (blue) */
 
 /* ==========================================================================
  * TASK CONFIGURATION
@@ -93,8 +121,15 @@
  * ADC CONFIGURATION
  * ========================================================================== */
 
-#define ADC_SAMPLE_RATE_HZ      1000  /* 1 kHz sampling */
-#define ADC_QUEUE_SIZE          1024  /* Sample queue depth */
+#define ADC_SAMPLE_RATE_HZ      4000  /* 4 kSPS - 2x margin for 2 kHz coil */
+#define ADC_QUEUE_SIZE          256   /* Sample queue depth */
+
+/* ==========================================================================
+ * COIL EXCITATION CONFIGURATION
+ * ========================================================================== */
+
+#define COIL_FREQ_SMALL_HZ      1000  /* 1 kHz for 1.5" - 3" pipes */
+#define COIL_FREQ_LARGE_HZ      2000  /* 2 kHz for 4" - 6" pipes */
 
 /* ==========================================================================
  * LORA CONFIGURATION

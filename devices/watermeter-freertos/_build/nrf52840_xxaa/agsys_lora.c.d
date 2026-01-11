@@ -1,6 +1,6 @@
 _build/nrf52840_xxaa/agsys_lora.c.o: ../freertos-common/src/agsys_lora.c \
- ../freertos-common/include/agsys_lora.h \
- ../freertos-common/include/agsys_common.h \
+ ../freertos-common/src/agsys_lora.h \
+ ../freertos-common/include/agsys_device.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stdint.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/stdint.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/machine/_default_types.h \
@@ -9,6 +9,8 @@ _build/nrf52840_xxaa/agsys_lora.c.o: ../freertos-common/src/agsys_lora.c \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/_intsup.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/_stdint.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stdbool.h \
+ ../freertos-common/include/agsys_ble.h \
+ ../freertos-common/include/agsys_common.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/string.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/_ansi.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/newlib.h \
@@ -89,13 +91,11 @@ _build/nrf52840_xxaa/agsys_lora.c.o: ../freertos-common/src/agsys_lora.c \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf_soc.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/nrfx_errors.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/delay/nrf_delay.h \
- config/agsys_config.h ../freertos-common/include/agsys_spi.h \
+ config/agsys_config.h ../freertos-common/include/agsys_ble_auth.h \
+ ../freertos-common/include/agsys_fram.h \
+ ../freertos-common/include/agsys_spi.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/include/nrfx_spim.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_spim.h \
- ../freertos-common/include/agsys_device.h \
- ../freertos-common/include/agsys_ble.h \
- ../freertos-common/include/agsys_ble_auth.h \
- ../freertos-common/include/agsys_fram.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_err.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gap.h \
@@ -115,8 +115,8 @@ _build/nrf52840_xxaa/agsys_lora.c.o: ../freertos-common/src/agsys_lora.c \
  ../freertos-common/include/agsys_flash_backup.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/segger_rtt/SEGGER_RTT.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/segger_rtt/SEGGER_RTT_Conf.h
-../freertos-common/include/agsys_lora.h:
-../freertos-common/include/agsys_common.h:
+../freertos-common/src/agsys_lora.h:
+../freertos-common/include/agsys_device.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stdint.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/stdint.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/machine/_default_types.h:
@@ -125,6 +125,8 @@ _build/nrf52840_xxaa/agsys_lora.c.o: ../freertos-common/src/agsys_lora.c \
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/_intsup.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/_stdint.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stdbool.h:
+../freertos-common/include/agsys_ble.h:
+../freertos-common/include/agsys_common.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/string.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/_ansi.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/newlib.h:
@@ -206,13 +208,11 @@ config/sdk_config.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/nrfx_errors.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/delay/nrf_delay.h:
 config/agsys_config.h:
+../freertos-common/include/agsys_ble_auth.h:
+../freertos-common/include/agsys_fram.h:
 ../freertos-common/include/agsys_spi.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/include/nrfx_spim.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_spim.h:
-../freertos-common/include/agsys_device.h:
-../freertos-common/include/agsys_ble.h:
-../freertos-common/include/agsys_ble_auth.h:
-../freertos-common/include/agsys_fram.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_err.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gap.h:

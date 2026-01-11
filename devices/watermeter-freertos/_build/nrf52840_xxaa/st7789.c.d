@@ -1,6 +1,4 @@
-_build/nrf52840_xxaa/main.c.o: src/main.c config/sdk_config.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/FreeRTOS.h \
- /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stddef.h \
+_build/nrf52840_xxaa/st7789.c.o: src/st7789.c src/st7789.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stdint.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/stdint.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/machine/_default_types.h \
@@ -8,16 +6,14 @@ _build/nrf52840_xxaa/main.c.o: src/main.c config/sdk_config.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/_newlib_version.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/_intsup.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/_stdint.h \
- ../freertos-common/include/FreeRTOSConfig.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/projdefs.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/portable.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/deprecated_definitions.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/portable/GCC/nrf52/portmacro.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/portable/CMSIS/nrf52/portmacro_cmsis.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/app_util.h \
  /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stdbool.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/compiler_abstraction.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/nordic_common.h \
+ src/board_config.h \
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_gpio.h \
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/nrfx.h \
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/integration/nrfx/nrfx_config.h \
+ config/sdk_config.h \
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/nrfx_common.h \
+ /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stddef.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf52840.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/toolchain/cmsis/include/core_cm4.h \
@@ -30,20 +26,6 @@ _build/nrf52840_xxaa/main.c.o: src/main.c config/sdk_config.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf51_to_nrf52840.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf52_to_nrf52840.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/compiler_abstraction.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf52/nrf_mbr.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf_svc.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/mpu_wrappers.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/task.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/list.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/semphr.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/queue.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/timers.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/task.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/queue.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_gpio.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/nrfx.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/integration/nrfx/nrfx_config.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/nrfx_common.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf_peripherals.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf52840_peripherals.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/integration/nrfx/nrfx_glue.h \
@@ -51,6 +33,11 @@ _build/nrf52840_xxaa/main.c.o: src/main.c config/sdk_config.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/soc/nrfx_irqs.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/soc/nrfx_irqs_nrf52840.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/nrf_assert.h \
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/app_util.h \
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/compiler_abstraction.h \
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/nordic_common.h \
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf52/nrf_mbr.h \
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf_svc.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/nordic_common.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/app_util_platform.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf_soc.h \
@@ -84,51 +71,9 @@ _build/nrf52840_xxaa/main.c.o: src/main.c config/sdk_config.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf_soc.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/nrfx_errors.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/delay/nrf_delay.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/integration/nrfx/legacy/nrf_drv_clock.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/include/nrfx_clock.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_clock.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/include/nrfx_power_clock.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/pwr_mgmt/nrf_pwr_mgmt.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/experimental_section_vars/nrf_section_iter.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/experimental_section_vars/nrf_section.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/common/nrf_sdh.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/common/nrf_sdh_ble.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_err.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gap.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_hci.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_ranges.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_types.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_l2cap.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gatt.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gattc.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gatts.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/common/nrf_sdh_freertos.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/segger_rtt/SEGGER_RTT.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/segger_rtt/SEGGER_RTT_Conf.h \
- config/agsys_config.h ../freertos-common/include/agsys_device.h \
- ../freertos-common/include/agsys_ble.h \
- ../freertos-common/include/agsys_common.h \
- /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/string.h \
- /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/string.h \
- ../freertos-common/include/agsys_ble_auth.h \
- ../freertos-common/include/agsys_fram.h \
- ../freertos-common/include/agsys_spi.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/include/nrfx_spim.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_spim.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/ble/common/ble_srv_common.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_types.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gap.h \
- /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gatt.h \
- ../freertos-common/include/agsys_flash.h \
- ../freertos-common/include/agsys_flash_log.h \
- ../freertos-common/include/agsys_flash_backup.h \
- ../freertos-common/include/agsys_protocol.h \
- ../../../agsys-api/gen/c/lora/v1/agsys_lora_protocol.h \
- ../freertos-common/include/agsys_approtect.h src/board_config.h
-config/sdk_config.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/FreeRTOS.h:
-/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stddef.h:
+ /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_spim.h
+src/st7789.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stdint.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/stdint.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/machine/_default_types.h:
@@ -136,16 +81,14 @@ config/sdk_config.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/_newlib_version.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/_intsup.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/_stdint.h:
-../freertos-common/include/FreeRTOSConfig.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/projdefs.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/portable.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/deprecated_definitions.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/portable/GCC/nrf52/portmacro.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/portable/CMSIS/nrf52/portmacro_cmsis.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/app_util.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stdbool.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/compiler_abstraction.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/nordic_common.h:
+src/board_config.h:
+/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_gpio.h:
+/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/nrfx.h:
+/Users/chrisc/nordic/nRF5_SDK_17.1.0/integration/nrfx/nrfx_config.h:
+config/sdk_config.h:
+/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/nrfx_common.h:
+/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stddef.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf52840.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/toolchain/cmsis/include/core_cm4.h:
@@ -158,20 +101,6 @@ config/sdk_config.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf51_to_nrf52840.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf52_to_nrf52840.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/compiler_abstraction.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf52/nrf_mbr.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf_svc.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/mpu_wrappers.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/task.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/list.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/semphr.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/queue.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/timers.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/task.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/queue.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_gpio.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/nrfx.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/integration/nrfx/nrfx_config.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/nrfx_common.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf_peripherals.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/nrf52840_peripherals.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/integration/nrfx/nrfx_glue.h:
@@ -179,6 +108,11 @@ config/sdk_config.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/soc/nrfx_irqs.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/soc/nrfx_irqs_nrf52840.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/nrf_assert.h:
+/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/app_util.h:
+/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/mdk/compiler_abstraction.h:
+/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/nordic_common.h:
+/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf52/nrf_mbr.h:
+/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf_svc.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/nordic_common.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/util/app_util_platform.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf_soc.h:
@@ -212,47 +146,5 @@ config/sdk_config.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/nrf_soc.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/nrfx_errors.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/delay/nrf_delay.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/integration/nrfx/legacy/nrf_drv_clock.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/include/nrfx_clock.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_clock.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/include/nrfx_power_clock.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/pwr_mgmt/nrf_pwr_mgmt.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/experimental_section_vars/nrf_section_iter.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/libraries/experimental_section_vars/nrf_section.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/common/nrf_sdh.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/common/nrf_sdh_ble.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_err.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gap.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_hci.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_ranges.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_types.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_l2cap.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gatt.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gattc.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gatts.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/common/nrf_sdh_freertos.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/segger_rtt/SEGGER_RTT.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/external/segger_rtt/SEGGER_RTT_Conf.h:
-config/agsys_config.h:
-../freertos-common/include/agsys_device.h:
-../freertos-common/include/agsys_ble.h:
-../freertos-common/include/agsys_common.h:
-/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/string.h:
-/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/arm-none-eabi/include/sys/string.h:
-../freertos-common/include/agsys_ble_auth.h:
-../freertos-common/include/agsys_fram.h:
-../freertos-common/include/agsys_spi.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/drivers/include/nrfx_spim.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/modules/nrfx/hal/nrf_spim.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/ble/common/ble_srv_common.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_types.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gap.h:
-/Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s140/headers/ble_gatt.h:
-../freertos-common/include/agsys_flash.h:
-../freertos-common/include/agsys_flash_log.h:
-../freertos-common/include/agsys_flash_backup.h:
-../freertos-common/include/agsys_protocol.h:
-../../../agsys-api/gen/c/lora/v1/agsys_lora_protocol.h:
-../freertos-common/include/agsys_approtect.h:
-src/board_config.h:

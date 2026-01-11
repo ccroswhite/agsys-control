@@ -16,7 +16,13 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+const (
+	// authTokenMetadataKey is the metadata key for the session token
+	authTokenMetadataKey = "x-controller-token"
 )
 
 // GRPCConfig holds gRPC client configuration
@@ -68,6 +74,9 @@ type GRPCClient struct {
 
 	// Firmware version for heartbeats
 	firmwareVersion string
+
+	// Session token from authentication
+	sessionToken string
 
 	// Callbacks for messages from backend
 	onValveCommand    func(*controllerv1.ValveCommand)
@@ -161,8 +170,12 @@ func (c *GRPCClient) Connect(ctx context.Context) error {
 		return fmt.Errorf("authentication rejected: %s", authResp.ErrorMessage)
 	}
 
-	// Establish bidirectional stream
-	stream, err := c.client.Connect(ctx)
+	// Store session token for subsequent requests
+	c.sessionToken = authResp.SessionToken
+
+	// Establish bidirectional stream with session token in metadata
+	streamCtx := c.contextWithAuth(ctx)
+	stream, err := c.client.Connect(streamCtx)
 	if err != nil {
 		conn.Close()
 		return fmt.Errorf("failed to establish stream: %w", err)
@@ -511,6 +524,15 @@ func (c *GRPCClient) SendCommandAck(commandID string, success bool, errorMessage
 	default:
 		return fmt.Errorf("send buffer full")
 	}
+}
+
+// contextWithAuth returns a context with the session token in metadata
+func (c *GRPCClient) contextWithAuth(ctx context.Context) context.Context {
+	if c.sessionToken == "" {
+		return ctx
+	}
+	md := metadata.Pairs(authTokenMetadataKey, c.sessionToken)
+	return metadata.NewOutgoingContext(ctx, md)
 }
 
 // Helper to convert legacy JSON payloads (for backwards compatibility during migration)

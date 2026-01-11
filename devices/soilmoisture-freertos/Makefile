@@ -73,17 +73,17 @@ SRC_FILES += \
   $(COMMON_DIR)/src/agsys_flash_log.c \
   $(COMMON_DIR)/src/agsys_flash_backup.c \
   $(COMMON_DIR)/src/agsys_fram.c \
-  $(COMMON_DIR)/src/agsys_lora.c \
-  $(COMMON_DIR)/src/agsys_ota.c \
-  $(COMMON_DIR)/src/agsys_ble_ota.c \
-  $(COMMON_DIR)/src/agsys_lora_ota.c \
   $(COMMON_DIR)/src/agsys_spi.c \
+
+# Shared API definitions (canonical protocol)
+AGSYS_API_DIR := ../../../agsys-api
 
 # Include folders
 INC_FOLDERS += \
   $(PROJ_DIR)/config \
   $(PROJ_DIR)/src \
   $(COMMON_DIR)/include \
+  $(AGSYS_API_DIR)/gen/c/lora/v1 \
   $(SDK_ROOT)/components \
   $(SDK_ROOT)/components/boards \
   $(SDK_ROOT)/components/libraries/util \

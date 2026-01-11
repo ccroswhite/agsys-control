@@ -62,6 +62,9 @@ SRC_FILES += \
   $(SDK_ROOT)/components/ble/common/ble_advdata.c \
   $(SDK_ROOT)/components/ble/common/ble_srv_common.c \
   $(PROJ_DIR)/src/main.c \
+  $(PROJ_DIR)/src/ads131m02.c \
+  $(PROJ_DIR)/src/st7789.c \
+  $(PROJ_DIR)/src/display.c \
   $(COMMON_DIR)/src/agsys_ble.c \
   $(COMMON_DIR)/src/agsys_ble_auth.c \
   $(COMMON_DIR)/src/agsys_device.c \
@@ -69,17 +72,17 @@ SRC_FILES += \
   $(COMMON_DIR)/src/agsys_flash_log.c \
   $(COMMON_DIR)/src/agsys_flash_backup.c \
   $(COMMON_DIR)/src/agsys_fram.c \
-  $(COMMON_DIR)/src/agsys_lora.c \
-  $(COMMON_DIR)/src/agsys_ota.c \
-  $(COMMON_DIR)/src/agsys_ble_ota.c \
-  $(COMMON_DIR)/src/agsys_lora_ota.c \
   $(COMMON_DIR)/src/agsys_spi.c \
+
+# Shared API definitions (canonical protocol)
+AGSYS_API_DIR := ../../../agsys-api
 
 # Include folders
 INC_FOLDERS += \
   $(PROJ_DIR)/config \
   $(PROJ_DIR)/src \
   $(COMMON_DIR)/include \
+  $(AGSYS_API_DIR)/gen/c/lora/v1 \
   $(SDK_ROOT)/components \
   $(SDK_ROOT)/components/boards \
   $(SDK_ROOT)/components/libraries/util \
@@ -123,6 +126,7 @@ OPT = -O3 -g3
 
 # C flags common to all targets
 CFLAGS += $(OPT)
+CFLAGS += -DLVGL_STUB_ONLY
 CFLAGS += -DBOARD_CUSTOM
 CFLAGS += -DCONFIG_GPIO_AS_PINRESET
 CFLAGS += -DFLOAT_ABI_HARD

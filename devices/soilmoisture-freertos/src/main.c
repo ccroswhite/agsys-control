@@ -36,6 +36,7 @@
 #include "freq_counter.h"
 #include "sleep_manager.h"
 #include "agsys_device.h"
+#include "agsys_protocol.h"
 #include "agsys_approtect.h"
 
 /* ==========================================================================

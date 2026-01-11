@@ -124,6 +124,8 @@ _build/nrf52832_xxaa/main.c.o: src/main.c config/sdk_config.h \
  ../freertos-common/include/agsys_flash.h \
  ../freertos-common/include/agsys_flash_log.h \
  ../freertos-common/include/agsys_flash_backup.h \
+ ../freertos-common/include/agsys_protocol.h \
+ ../../../agsys-api/gen/c/lora/v1/agsys_lora_protocol.h \
  ../freertos-common/include/agsys_approtect.h
 config/sdk_config.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/FreeRTOS.h:
@@ -256,4 +258,6 @@ config/agsys_config.h:
 ../freertos-common/include/agsys_flash.h:
 ../freertos-common/include/agsys_flash_log.h:
 ../freertos-common/include/agsys_flash_backup.h:
+../freertos-common/include/agsys_protocol.h:
+../../../agsys-api/gen/c/lora/v1/agsys_lora_protocol.h:
 ../freertos-common/include/agsys_approtect.h:

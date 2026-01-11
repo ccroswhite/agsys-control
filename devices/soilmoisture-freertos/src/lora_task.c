@@ -3,6 +3,7 @@
  * @brief LoRa task implementation for Soil Moisture Sensor
  * 
  * Handles RFM95C communication with property controller using AgSys protocol.
+ * Uses the common freertos-common library for protocol and encryption.
  * Implements channel hopping and exponential backoff for collision avoidance.
  */
 
@@ -18,6 +19,7 @@
 #include "spi_driver.h"
 #include "board_config.h"
 #include "agsys_device.h"
+#include "agsys_protocol.h"
 
 #include <string.h>
 
@@ -67,16 +69,13 @@ extern agsys_device_ctx_t m_device_ctx;
 #define IRQ_RX_DONE             0x40
 #define IRQ_PAYLOAD_CRC_ERROR   0x20
 
-/* AgSys message types */
-#define AGSYS_MSG_SENSOR_REPORT     0x01
-#define AGSYS_MSG_ACK               0x02
-
 /* ==========================================================================
  * PRIVATE DATA
  * ========================================================================== */
 
 static TaskHandle_t m_task_handle = NULL;
 static bool m_initialized = false;
+static uint16_t m_sequence = 0;
 
 /* ==========================================================================
  * RFM95C LOW-LEVEL FUNCTIONS
@@ -271,20 +270,8 @@ static int rfm_receive(uint8_t *data, uint8_t max_len, int16_t *rssi, uint32_t t
 }
 
 /* ==========================================================================
- * AGSYS PROTOCOL
+ * AGSYS PROTOCOL - Uses common freertos-common types
  * ========================================================================== */
-
-typedef struct __attribute__((packed)) {
-    uint8_t magic[2];       /* 'A', 'G' */
-    uint8_t version;
-    uint8_t msg_type;
-    uint8_t device_type;
-    uint8_t uid[8];
-    uint8_t sequence;
-    uint8_t payload_len;
-} agsys_header_t;
-
-static uint8_t m_sequence = 0;
 
 static uint8_t build_sensor_report(uint8_t *buffer, size_t max_len,
                                     const uint8_t *device_uid,
@@ -293,41 +280,42 @@ static uint8_t build_sensor_report(uint8_t *buffer, size_t max_len,
                                     uint16_t battery_mv,
                                     uint8_t flags)
 {
-    if (max_len < sizeof(agsys_header_t) + 20) return 0;
+    size_t total_len = sizeof(agsys_header_t) + sizeof(agsys_soil_report_t);
+    if (max_len < total_len) return 0;
     
+    /* Build header using common protocol format */
     agsys_header_t *hdr = (agsys_header_t *)buffer;
-    hdr->magic[0] = 'A';
-    hdr->magic[1] = 'G';
-    hdr->version = 1;
-    hdr->msg_type = AGSYS_MSG_SENSOR_REPORT;
-    hdr->device_type = DEVICE_TYPE_SOIL_MOISTURE;
-    memcpy(hdr->uid, device_uid, 8);
+    hdr->magic[0] = AGSYS_MAGIC_BYTE1;
+    hdr->magic[1] = AGSYS_MAGIC_BYTE2;
+    hdr->version = AGSYS_PROTOCOL_VERSION;
+    hdr->msg_type = AGSYS_MSG_SOIL_REPORT;
+    hdr->device_type = AGSYS_DEVICE_TYPE_SOIL_MOISTURE;
+    memcpy(hdr->device_uid, device_uid, AGSYS_DEVICE_UID_SIZE);
     hdr->sequence = m_sequence++;
     
-    uint8_t *payload = buffer + sizeof(agsys_header_t);
-    uint8_t idx = 0;
+    /* Build payload using common protocol format */
+    agsys_soil_report_t *report = (agsys_soil_report_t *)(buffer + sizeof(agsys_header_t));
+    report->timestamp = 0;  /* TODO: Add uptime tracking */
+    report->probe_count = NUM_MOISTURE_PROBES;
+    report->battery_mv = battery_mv;
+    report->temperature = 0;  /* TODO: Add temperature sensor */
+    report->pending_logs = (uint8_t)agsys_device_log_pending_count(&m_device_ctx);
+    report->flags = flags;
     
-    /* Battery voltage (2 bytes) */
-    payload[idx++] = (battery_mv >> 8) & 0xFF;
-    payload[idx++] = battery_mv & 0xFF;
-    
-    /* Flags (1 byte) */
-    payload[idx++] = flags;
-    
-    /* Number of probes (1 byte) */
-    payload[idx++] = NUM_MOISTURE_PROBES;
-    
-    /* Probe data: frequency (3 bytes) + moisture % (1 byte) per probe */
-    for (int i = 0; i < NUM_MOISTURE_PROBES; i++) {
-        payload[idx++] = (probe_freqs[i] >> 16) & 0xFF;
-        payload[idx++] = (probe_freqs[i] >> 8) & 0xFF;
-        payload[idx++] = probe_freqs[i] & 0xFF;
-        payload[idx++] = probe_moisture[i];
+    /* Fill probe readings */
+    for (int i = 0; i < AGSYS_MAX_PROBES; i++) {
+        if (i < NUM_MOISTURE_PROBES) {
+            report->probes[i].probe_index = i;
+            report->probes[i].frequency_hz = (uint16_t)(probe_freqs[i] / 100);  /* Scale to 16-bit */
+            report->probes[i].moisture_percent = probe_moisture[i];
+        } else {
+            report->probes[i].probe_index = i;
+            report->probes[i].frequency_hz = 0;
+            report->probes[i].moisture_percent = 0;
+        }
     }
     
-    hdr->payload_len = idx;
-    
-    return sizeof(agsys_header_t) + idx;
+    return (uint8_t)total_len;
 }
 
 /* ==========================================================================
@@ -412,7 +400,7 @@ bool lora_send_sensor_report(const uint8_t *device_uid,
             
             if (rx_len > 0) {
                 agsys_header_t *hdr = (agsys_header_t *)rx_buf;
-                if (hdr->magic[0] == 'A' && hdr->magic[1] == 'G' &&
+                if (hdr->magic[0] == AGSYS_MAGIC_BYTE1 && hdr->magic[1] == AGSYS_MAGIC_BYTE2 &&
                     hdr->msg_type == AGSYS_MSG_ACK) {
                     SEGGER_RTT_printf(0, "LoRa: ACK received (RSSI=%d)\n", rssi);
                     

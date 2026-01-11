@@ -31,11 +31,10 @@
 
 /* ==========================================================================
  * DEVICE TYPES
+ * 
+ * Canonical definitions are in agsys_lora_protocol.h (from agsys-api).
+ * Include that header for AGSYS_DEVICE_TYPE_* definitions.
  * ========================================================================== */
-#define AGSYS_DEVICE_TYPE_SOIL_MOISTURE     0x01
-#define AGSYS_DEVICE_TYPE_VALVE_CONTROLLER  0x02
-#define AGSYS_DEVICE_TYPE_VALVE_ACTUATOR    0x03
-#define AGSYS_DEVICE_TYPE_WATER_METER       0x04
 
 /* ==========================================================================
  * ERROR CODES

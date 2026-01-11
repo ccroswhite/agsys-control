@@ -32,6 +32,7 @@
 
 #include "agsys_config.h"
 #include "agsys_device.h"
+#include "agsys_protocol.h"
 #include "agsys_approtect.h"
 #include "board_config.h"
 

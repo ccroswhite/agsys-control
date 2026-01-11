@@ -113,7 +113,9 @@ _build/nrf52832_xxaa/lora_task.c.o: src/lora_task.c config/sdk_config.h \
  /Users/chrisc/nordic/nRF5_SDK_17.1.0/components/softdevice/s132/headers/ble_gatt.h \
  ../freertos-common/include/agsys_flash.h \
  ../freertos-common/include/agsys_flash_log.h \
- ../freertos-common/include/agsys_flash_backup.h
+ ../freertos-common/include/agsys_flash_backup.h \
+ ../freertos-common/include/agsys_protocol.h \
+ ../../../agsys-api/gen/c/lora/v1/agsys_lora_protocol.h
 config/sdk_config.h:
 /Users/chrisc/nordic/nRF5_SDK_17.1.0/external/freertos/source/include/FreeRTOS.h:
 /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/lib/gcc/arm-none-eabi/15.2.1/include/stddef.h:
@@ -233,3 +235,5 @@ config/agsys_config.h:
 ../freertos-common/include/agsys_flash.h:
 ../freertos-common/include/agsys_flash_log.h:
 ../freertos-common/include/agsys_flash_backup.h:
+../freertos-common/include/agsys_protocol.h:
+../../../agsys-api/gen/c/lora/v1/agsys_lora_protocol.h:
