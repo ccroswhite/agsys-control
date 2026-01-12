@@ -2,11 +2,14 @@
  * @file agsys_protocol.h
  * @brief AgSys LoRa protocol - FreeRTOS wrapper
  * 
- * This file includes the canonical protocol definition from agsys-api
- * and provides any FreeRTOS-specific additions.
+ * This file includes the canonical protocol definition and provides
+ * any FreeRTOS-specific additions.
  * 
- * The canonical definition is in:
- *   agsys-api/gen/c/lora/v1/agsys_lora_protocol.h
+ * The canonical definition is:
+ *   freertos-common/include/agsys_lora_protocol.h
+ * 
+ * This file is copied from agsys-api/gen/c/lora/v1/agsys_lora_protocol.h
+ * When the protocol changes, update the source in agsys-api and copy here.
  * 
  * DO NOT define protocol constants or structures here.
  * All definitions should be in the canonical header.
@@ -15,7 +18,7 @@
 #ifndef AGSYS_PROTOCOL_H
 #define AGSYS_PROTOCOL_H
 
-/* Include the canonical protocol definition from agsys-api */
+/* Include the canonical protocol definition (local copy) */
 #include "agsys_lora_protocol.h"
 
 /* ==========================================================================

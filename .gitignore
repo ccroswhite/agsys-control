@@ -51,3 +51,10 @@ coverage/
 *.gcov
 *.gcda
 *.gcno
+
+# FreeRTOS/nRF SDK build artifacts
+_build/
+*.d
+*.in
+*.out
+*.jlink

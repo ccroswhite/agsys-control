@@ -227,4 +227,32 @@ void display_showDiagLoRa(const LoRaStats_t *stats);
  */
 void display_showDiagADC(const ADCValues_t *values);
 
+/**
+ * @brief Update BLE status icon
+ * 
+ * Shows/hides the BLE icon in lower-right corner based on state.
+ * Icon flashes at different rates to match LED patterns:
+ * - IDLE: hidden
+ * - ADVERTISING: slow blink (1Hz)
+ * - CONNECTED: fast blink (2Hz)
+ * - AUTHENTICATED: solid on
+ * - DISCONNECTED: triple flash then hide
+ * 
+ * @param state Current BLE UI state
+ */
+void display_updateBleStatus(BleUiState_t state);
+
+/**
+ * @brief Get current BLE UI state
+ * @return Current BLE state
+ */
+BleUiState_t display_getBleStatus(void);
+
+/**
+ * @brief Tick handler for BLE icon flashing
+ * 
+ * Call periodically (e.g., from display task) to update flash state.
+ */
+void display_tickBleIcon(void);
+
 #endif /* DISPLAY_H */

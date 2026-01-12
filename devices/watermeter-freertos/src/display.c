@@ -41,6 +41,7 @@ static UserSettings_t *m_userSettings = NULL;
 #define COLOR_PANEL_BG      lv_color_hex(0xF0F0F0)
 #define COLOR_ALARM_CRITICAL lv_color_hex(0xCC0000)
 #define COLOR_ALARM_WARNING  lv_color_hex(0xCC6600)
+#define COLOR_BLE_ACTIVE     lv_color_hex(0x0082FC)  /* Bluetooth blue */
 
 /* Main screen UI elements */
 static lv_obj_t *m_screen_main = NULL;
@@ -60,6 +61,13 @@ static lv_obj_t *m_alarm_title_label = NULL;
 static lv_obj_t *m_alarm_detail_label = NULL;
 static bool m_alarmOverlayActive = false;
 static AlarmType_t m_currentAlarmType = ALARM_CLEARED;
+
+/* BLE icon elements */
+static lv_obj_t *m_ble_icon = NULL;
+static BleUiState_t m_bleUiState = BLE_UI_STATE_IDLE;
+static bool m_bleIconVisible = true;
+static uint32_t m_bleFlashLastMs = 0;
+static uint8_t m_bleFlashCount = 0;  /* For triple flash on disconnect */
 
 /* Menu lock state */
 static MenuLockState_t m_menuLockState = MENU_LOCKED;
@@ -575,6 +583,30 @@ void display_showMain(void)
     lv_obj_align(m_alarm_detail_label, LV_ALIGN_CENTER, 0, 2);
     
     m_alarmOverlayActive = false;
+    
+    /* BLE icon (lower-right corner, small square, hidden by default) */
+    #define BLE_ICON_SIZE 24
+    m_ble_icon = lv_obj_create(frame);
+    lv_obj_set_size(m_ble_icon, BLE_ICON_SIZE, BLE_ICON_SIZE);
+    lv_obj_align(m_ble_icon, LV_ALIGN_BOTTOM_RIGHT, -4, -4);
+    lv_obj_set_style_bg_color(m_ble_icon, COLOR_BLE_ACTIVE, 0);
+    lv_obj_set_style_bg_opa(m_ble_icon, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(m_ble_icon, 0, 0);
+    lv_obj_set_style_radius(m_ble_icon, 4, 0);
+    lv_obj_set_style_pad_all(m_ble_icon, 0, 0);
+    lv_obj_clear_flag(m_ble_icon, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(m_ble_icon, LV_OBJ_FLAG_HIDDEN);  /* Hidden until BLE active */
+    
+    /* Bluetooth "B" symbol inside icon */
+    lv_obj_t *ble_label = lv_label_create(m_ble_icon);
+    lv_label_set_text(ble_label, LV_SYMBOL_BLUETOOTH);
+    lv_obj_set_style_text_color(ble_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(ble_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(ble_label, LV_ALIGN_CENTER, 0, 0);
+    
+    m_bleUiState = BLE_UI_STATE_IDLE;
+    m_bleIconVisible = true;
+    m_bleFlashLastMs = get_tick_ms();
     
     lv_scr_load(m_screen_main);
 }
@@ -1690,4 +1722,79 @@ void display_updateStatusBar(bool loraConnected, bool hasAlarm,
     (void)hasAlarm;
     (void)alarmType;
     (void)lastReportSec;
+}
+
+/* ==========================================================================
+ * BLE ICON UPDATE
+ * ========================================================================== */
+
+void display_updateBleStatus(BleUiState_t state)
+{
+    m_bleUiState = state;
+    
+    if (m_ble_icon == NULL) return;
+    
+    /* Show/hide based on state */
+    if (state == BLE_UI_STATE_IDLE) {
+        lv_obj_add_flag(m_ble_icon, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(m_ble_icon, LV_OBJ_FLAG_HIDDEN);
+        m_bleIconVisible = true;
+        m_bleFlashLastMs = get_tick_ms();
+        m_bleFlashCount = 0;  /* Reset flash counter */
+    }
+}
+
+BleUiState_t display_getBleStatus(void)
+{
+    return m_bleUiState;
+}
+
+void display_tickBleIcon(void)
+{
+    if (m_ble_icon == NULL || m_bleUiState == BLE_UI_STATE_IDLE) return;
+    
+    uint32_t now = get_tick_ms();
+    uint32_t elapsed = now - m_bleFlashLastMs;
+    uint32_t flash_period_ms;
+    
+    /* Flash rate depends on state (matches LED patterns) */
+    switch (m_bleUiState) {
+        case BLE_UI_STATE_ADVERTISING:
+            flash_period_ms = 500;  /* Slow blink: 1Hz */
+            break;
+        case BLE_UI_STATE_CONNECTED:
+            flash_period_ms = 250;  /* Fast blink: 2Hz */
+            break;
+        case BLE_UI_STATE_AUTHENTICATED:
+            /* Solid on - no flashing */
+            if (lv_obj_has_flag(m_ble_icon, LV_OBJ_FLAG_HIDDEN)) {
+                lv_obj_clear_flag(m_ble_icon, LV_OBJ_FLAG_HIDDEN);
+            }
+            return;
+        case BLE_UI_STATE_DISCONNECTED:
+            /* Triple flash (3 on/off cycles) then return to idle */
+            flash_period_ms = 100;
+            if (m_bleFlashCount >= 6) {  /* 3 on + 3 off = 6 toggles */
+                m_bleUiState = BLE_UI_STATE_IDLE;
+                lv_obj_add_flag(m_ble_icon, LV_OBJ_FLAG_HIDDEN);
+                return;
+            }
+            break;
+        default:
+            return;
+    }
+    
+    /* Toggle visibility on flash period */
+    if (elapsed >= flash_period_ms) {
+        m_bleFlashLastMs = now;
+        m_bleIconVisible = !m_bleIconVisible;
+        m_bleFlashCount++;
+        
+        if (m_bleIconVisible) {
+            lv_obj_clear_flag(m_ble_icon, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(m_ble_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }

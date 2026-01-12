@@ -224,4 +224,25 @@ typedef struct {
     bool reverseFlow;
 } FlowData_t;
 
+/* ==========================================================================
+ * BLE UI STATE
+ * ========================================================================== */
+
+typedef enum {
+    BLE_UI_STATE_IDLE = 0,       /* BLE off, not advertising */
+    BLE_UI_STATE_ADVERTISING,    /* Pairing mode, discoverable */
+    BLE_UI_STATE_CONNECTED,      /* Connected, not authenticated */
+    BLE_UI_STATE_AUTHENTICATED,  /* Connected and PIN verified */
+    BLE_UI_STATE_DISCONNECTED    /* Was connected, now lost */
+} BleUiState_t;
+
+/* BLE pairing timeout defaults */
+#define BLE_PAIRING_TIMEOUT_SEC     120     /* 2 minutes default */
+#define BLE_PAIRING_MAX_SEC         600     /* 10 minutes max */
+#define BLE_PAIRING_EXTEND_SEC      120     /* 2 minute extension */
+
+/* BLE auth lockout */
+#define BLE_AUTH_MAX_ATTEMPTS       5
+#define BLE_AUTH_LOCKOUT_SEC        300     /* 5 minutes */
+
 #endif /* UI_TYPES_H */

@@ -35,6 +35,8 @@
 #include "agsys_protocol.h"
 #include "agsys_approtect.h"
 #include "board_config.h"
+#include "lora_task.h"
+#include "display.h"
 
 /* ==========================================================================
  * SHARED RESOURCES
@@ -61,6 +63,11 @@ typedef struct {
 } flow_state_t;
 
 static flow_state_t m_flow_state = {0};
+
+/* Global flow data for LoRa task access */
+volatile float g_flow_rate_lpm = 0.0f;
+volatile float g_total_volume_l = 0.0f;
+volatile uint8_t g_alarm_flags = 0;
 
 /* ==========================================================================
  * ALARM STATE
@@ -112,7 +119,6 @@ static TickType_t m_pairing_start_tick = 0;
 
 static TaskHandle_t m_adc_task_handle = NULL;
 static TaskHandle_t m_display_task_handle = NULL;
-static TaskHandle_t m_lora_task_handle = NULL;
 static TaskHandle_t m_button_task_handle = NULL;
 
 /* ==========================================================================
@@ -141,7 +147,6 @@ static QueueHandle_t m_button_queue = NULL;
 
 static void adc_task(void *pvParameters);
 static void display_task(void *pvParameters);
-static void lora_task(void *pvParameters);
 static void button_task(void *pvParameters);
 
 static void softdevice_init(void);
@@ -182,6 +187,9 @@ static void enter_pairing_mode(void)
     
     /* Start BLE advertising */
     agsys_device_start_advertising(&m_device_ctx);
+    
+    /* Update display icon */
+    display_updateBleStatus(BLE_UI_STATE_ADVERTISING);
 }
 
 static void exit_pairing_mode(void)
@@ -191,8 +199,60 @@ static void exit_pairing_mode(void)
     
     /* Stop BLE advertising */
     agsys_device_stop_advertising(&m_device_ctx);
+    
+    /* Update display icon */
+    display_updateBleStatus(BLE_UI_STATE_IDLE);
 }
 
+/* ==========================================================================
+ * BLE EVENT HANDLER
+ * ========================================================================== */
+
+static void ble_event_handler(const agsys_ble_evt_t *evt)
+{
+    if (evt == NULL) return;
+    
+    switch (evt->type) {
+        case AGSYS_BLE_EVT_CONNECTED:
+            SEGGER_RTT_printf(0, "BLE: Connected\n");
+            display_updateBleStatus(BLE_UI_STATE_CONNECTED);
+            break;
+            
+        case AGSYS_BLE_EVT_DISCONNECTED:
+            SEGGER_RTT_printf(0, "BLE: Disconnected\n");
+            display_updateBleStatus(BLE_UI_STATE_DISCONNECTED);
+            /* Return to idle after brief flash (handled by display tick) */
+            break;
+            
+        case AGSYS_BLE_EVT_AUTHENTICATED:
+            SEGGER_RTT_printf(0, "BLE: Authenticated\n");
+            display_updateBleStatus(BLE_UI_STATE_AUTHENTICATED);
+            break;
+            
+        case AGSYS_BLE_EVT_AUTH_FAILED:
+            SEGGER_RTT_printf(0, "BLE: Auth failed\n");
+            /* Stay in connected state, icon keeps flashing */
+            break;
+            
+        case AGSYS_BLE_EVT_AUTH_TIMEOUT:
+            SEGGER_RTT_printf(0, "BLE: Auth timeout\n");
+            /* Connection will be dropped, disconnected event will follow */
+            break;
+            
+        case AGSYS_BLE_EVT_CONFIG_CHANGED:
+            SEGGER_RTT_printf(0, "BLE: Config changed\n");
+            /* TODO: Handle config update from app */
+            break;
+            
+        case AGSYS_BLE_EVT_COMMAND_RECEIVED:
+            SEGGER_RTT_printf(0, "BLE: Command received (cmd=%d)\n", evt->command.cmd_id);
+            /* TODO: Handle commands from app */
+            break;
+            
+        default:
+            break;
+    }
+}
 
 /* ==========================================================================
  * SOFTDEVICE INITIALIZATION
@@ -242,7 +302,7 @@ static bool create_shared_resources(void)
         .device_type = AGSYS_DEVICE_TYPE_WATER_METER,
         .fram_cs_pin = AGSYS_FRAM_CS_PIN,
         .flash_cs_pin = SPI_CS_FLASH_PIN,
-        .evt_handler = NULL
+        .evt_handler = ble_event_handler
     };
     if (!agsys_device_init(&m_device_ctx, &dev_init)) {
         SEGGER_RTT_printf(0, "WARNING: Device init failed\n");
@@ -282,6 +342,11 @@ static void adc_task(void *pvParameters)
         /* For now, simulate flow data */
         m_flow_state.flow_rate_lpm = 0.0f;
         m_flow_state.reverse_flow = false;
+        
+        /* Update global flow data for LoRa task */
+        g_flow_rate_lpm = m_flow_state.flow_rate_lpm;
+        g_total_volume_l = m_flow_state.total_volume_l;
+        g_alarm_flags = m_flow_state.reverse_flow ? 0x01 : 0x00;
         
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(1));
     }
@@ -337,65 +402,10 @@ static void display_task(void *pvParameters)
         /* TODO: Call lv_timer_handler() for LVGL */
         /* TODO: Update main screen with flow data */
         
+        /* Update BLE icon flash animation */
+        display_tickBleIcon();
+        
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(20));  /* 50 Hz refresh */
-    }
-}
-
-/* ==========================================================================
- * LORA TASK - Communication with property controller
- * ========================================================================== */
-
-static void lora_task(void *pvParameters)
-{
-    (void)pvParameters;
-    
-    SEGGER_RTT_printf(0, "LoRa task started\n");
-    
-    /* TODO: Initialize RFM95C LoRa module */
-    
-    uint32_t report_interval_ms = 60000;  /* Default 60 seconds */
-    TickType_t last_report = xTaskGetTickCount();
-    
-    for (;;) {
-        TickType_t now = xTaskGetTickCount();
-        
-        /* Send periodic reports */
-        if ((now - last_report) >= pdMS_TO_TICKS(report_interval_ms)) {
-            last_report = now;
-            
-            /* TODO: Build and send meter report packet */
-            /* TODO: Include flow rate, total volume, alarms */
-            
-            SEGGER_RTT_printf(0, "LoRa: Sending report (flow=%.1f L/min, total=%.1f L)\n",
-                              m_flow_state.flow_rate_lpm, m_flow_state.total_volume_l);
-            
-            /* TODO: Implement actual LoRa TX with retry */
-            bool tx_success = false;  /* Placeholder - will be set by actual TX code */
-            
-            if (!tx_success) {
-                /* Log meter reading to flash for later sync */
-                uint32_t flow_mlpm = (uint32_t)(m_flow_state.flow_rate_lpm * 1000);
-                uint32_t total_ml = (uint32_t)(m_flow_state.total_volume_l * 1000);
-                uint8_t alarm_flags = m_flow_state.reverse_flow ? 0x01 : 0x00;
-                
-                if (agsys_device_log_meter(&m_device_ctx, flow_mlpm, total_ml, alarm_flags)) {
-                    SEGGER_RTT_printf(0, "LoRa: Reading logged to flash (%lu pending)\n",
-                                      agsys_device_log_pending_count(&m_device_ctx));
-                }
-            } else {
-                /* Check for pending logs to sync */
-                uint32_t pending = agsys_device_log_pending_count(&m_device_ctx);
-                if (pending > 0) {
-                    SEGGER_RTT_printf(0, "LoRa: %lu pending logs to sync\n", pending);
-                    /* TODO: Send pending logs to property controller */
-                }
-            }
-        }
-        
-        /* TODO: Check for incoming commands */
-        /* TODO: Handle CONFIG_UPDATE, METER_RESET_TOTAL, etc. */
-        
-        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -559,8 +569,9 @@ int main(void)
     xTaskCreate(display_task, "Display", AGSYS_TASK_STACK_DISPLAY,
                 NULL, AGSYS_TASK_PRIORITY_NORMAL, &m_display_task_handle);
     
-    xTaskCreate(lora_task, "LoRa", AGSYS_TASK_STACK_LORA,
-                NULL, AGSYS_TASK_PRIORITY_HIGH, &m_lora_task_handle);
+    /* LoRa task is started via lora_task module */
+    lora_task_init();
+    lora_task_start();
     
     xTaskCreate(button_task, "Button", AGSYS_TASK_STACK_BUTTON,
                 NULL, AGSYS_TASK_PRIORITY_HIGH, &m_button_task_handle);

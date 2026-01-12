@@ -65,6 +65,7 @@ SRC_FILES += \
   $(PROJ_DIR)/src/ads131m02.c \
   $(PROJ_DIR)/src/st7789.c \
   $(PROJ_DIR)/src/display.c \
+  $(PROJ_DIR)/src/lora_task.c \
   $(COMMON_DIR)/src/agsys_ble.c \
   $(COMMON_DIR)/src/agsys_ble_auth.c \
   $(COMMON_DIR)/src/agsys_device.c \
@@ -74,15 +75,11 @@ SRC_FILES += \
   $(COMMON_DIR)/src/agsys_fram.c \
   $(COMMON_DIR)/src/agsys_spi.c \
 
-# Shared API definitions (canonical protocol)
-AGSYS_API_DIR := ../../../agsys-api
-
 # Include folders
 INC_FOLDERS += \
   $(PROJ_DIR)/config \
   $(PROJ_DIR)/src \
   $(COMMON_DIR)/include \
-  $(AGSYS_API_DIR)/gen/c/lora/v1 \
   $(SDK_ROOT)/components \
   $(SDK_ROOT)/components/boards \
   $(SDK_ROOT)/components/libraries/util \

@@ -32,6 +32,7 @@
 #include "lora_task.h"
 #include "schedule_task.h"
 #include "agsys_device.h"
+#include "agsys_protocol.h"
 #include "agsys_approtect.h"
 
 /* ==========================================================================

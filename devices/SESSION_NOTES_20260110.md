@@ -1,8 +1,10 @@
-# AgSys Development Session Notes - January 10, 2026
+# AgSys Development Session Notes - January 10-11, 2026
 
 ## Session Summary
 
 This session focused on migrating the AgSys IoT devices from Arduino to FreeRTOS and establishing a single canonical LoRa protocol definition.
+
+**Update (Jan 11):** All LoRa protocol conformance work completed. All three FreeRTOS devices now build successfully with canonical protocol.
 
 ---
 
@@ -48,17 +50,17 @@ This session focused on migrating the AgSys IoT devices from Arduino to FreeRTOS
 
 ## Outstanding TODO Items
 
-### High Priority - LoRa Protocol Conformance
+### Completed (Jan 11, 2026)
 
-| # | Task | Device | Issue |
-|---|------|--------|-------|
-| 1 | Migrate from local `agsys_header_t` to canonical protocol | valvecontrol-freertos | Has LOCAL header definition at line 274, local message types 0x20-0x61 |
-| 2 | Use canonical message types from `agsys_lora_protocol.h` | valvecontrol-freertos | Currently defines own AGSYS_MSG_* constants |
-| 3 | Implement LoRa task (currently TODO stubs only) | watermeter-freertos | `lora_task()` in main.c is placeholder with no actual implementation |
-| 4 | Add `lora_task.c` with RFM95 driver | watermeter-freertos | No LoRa driver file exists |
-| 5 | Verify uses canonical protocol types | soilmoisture-freertos | Has direct RFM95 access, need to confirm using canonical types |
+| # | Task | Device | Status |
+|---|------|--------|--------|
+| 1 | Migrate from local `agsys_header_t` to canonical protocol | valvecontrol-freertos | ✅ Done |
+| 2 | Use canonical message types from `agsys_lora_protocol.h` | valvecontrol-freertos | ✅ Done |
+| 3 | Implement LoRa task (currently TODO stubs only) | watermeter-freertos | ✅ Done |
+| 4 | Add `lora_task.c` with RFM95 driver | watermeter-freertos | ✅ Done |
+| 5 | Verify uses canonical protocol types | soilmoisture-freertos | ✅ Confirmed |
 
-### Lower Priority
+### Remaining
 
 | # | Task | Notes |
 |---|------|-------|
@@ -70,9 +72,9 @@ This session focused on migrating the AgSys IoT devices from Arduino to FreeRTOS
 
 | Device | Uses Canonical Protocol | Notes |
 |--------|------------------------|-------|
-| soilmoisture-freertos | ⚠️ Partial | Includes `agsys_protocol.h`, has direct RFM95 register access |
-| valvecontrol-freertos | ❌ No | Has LOCAL `agsys_header_t` and message type definitions |
-| watermeter-freertos | ❌ No | LoRa task is TODO stubs only - no implementation |
+| soilmoisture-freertos | ✅ Yes | Uses `agsys_header_t`, `agsys_soil_report_t`, `AGSYS_MSG_*` from canonical header |
+| valvecontrol-freertos | ✅ Yes | Migrated to canonical protocol (Jan 11) |
+| watermeter-freertos | ✅ Yes | New `lora_task.c` with RFM95 driver and canonical protocol (Jan 11) |
 | valveactuator-freertos | N/A | CAN bus only, no LoRa |
 
 ---
@@ -92,14 +94,18 @@ This session focused on migrating the AgSys IoT devices from Arduino to FreeRTOS
 - `src/display.h` - Menu API
 - `src/ui_types.h` - Updated PIN to 6 digits
 - `src/lvgl.h` - Expanded LVGL stub for compilation
-- `src/main.c` - Added `agsys_protocol.h` include
-- `Makefile` - Added LVGL_STUB_ONLY, agsys-api include path, removed unused LoRa files
+- `src/main.c` - Added `agsys_protocol.h` include, global flow data for LoRa
+- `src/lora_task.c` - **NEW (Jan 11)** Full RFM95 driver with canonical protocol
+- `src/lora_task.h` - **NEW (Jan 11)** LoRa task API
+- `Makefile` - Added LVGL_STUB_ONLY, agsys-api include path, lora_task.c
 
 ### agsys-control/devices/soilmoisture-freertos
 - `Makefile` - Added agsys-api include path
 
 ### agsys-control/devices/valvecontrol-freertos
-- `Makefile` - Added agsys-api include path
+- `src/lora_task.c` - **UPDATED (Jan 11)** Migrated to canonical protocol, removed local header
+- `src/main.c` - Added `agsys_protocol.h` include
+- `Makefile` - Added agsys-api include path, removed agsys_lora.c and OTA files
 
 ### agsys-control/devices/valveactuator-freertos
 - `Makefile` - Added agsys-api include path

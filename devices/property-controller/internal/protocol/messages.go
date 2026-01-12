@@ -1,115 +1,86 @@
 // Package protocol defines the LoRa message formats and types for communication
 // between the property controller and field devices.
 //
-// This package implements the AgSys LoRa Protocol v1.0 as defined in
-// devices/common/PROTOCOL.md
+// This package imports the canonical protocol definitions from agsys-api/pkg/lora
+// and provides payload encoding/decoding functions specific to the property controller.
 package protocol
 
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/ccroswhite/agsys-api/pkg/lora"
 )
 
-// Protocol constants
+// Re-export protocol constants from shared package for backward compatibility
 const (
-	ProtocolVersion = 1
-	MagicByte1      = 0x41 // 'A'
-	MagicByte2      = 0x47 // 'G'
+	ProtocolVersion = lora.ProtocolVersion
+	MagicByte1      = lora.MagicByte1
+	MagicByte2      = lora.MagicByte2
+	HeaderSize      = lora.HeaderSize
+	DeviceUIDSize   = lora.DeviceUIDSize
 )
 
-// Message types for LoRa communication
-// Organized by device/function:
-// - 0x00-0x0F: Common messages (all devices)
-// - 0x10-0x1F: Common controller->device messages
-// - 0x20-0x2F: Soil moisture sensor
-// - 0x30-0x3F: Water meter
-// - 0x40-0x4F: Valve controller
-// - 0x50-0xDF: Reserved for future devices
-// - 0xE0-0xEF: OTA firmware updates
+// Re-export message types from shared package
 const (
-	// Common messages - All devices (0x00 - 0x0F)
-	MsgTypeHeartbeat     uint8 = 0x01 // Device keepalive (optional)
-	MsgTypeLogBatch      uint8 = 0x02 // Batch of stored readings
-	MsgTypeConfigRequest uint8 = 0x03 // Request configuration
-	MsgTypeAck           uint8 = 0x0E // Generic acknowledgment
-	MsgTypeNack          uint8 = 0x0F // Negative acknowledgment
+	MsgTypeHeartbeat         = lora.MsgTypeHeartbeat
+	MsgTypeLogBatch          = lora.MsgTypeLogBatch
+	MsgTypeConfigRequest     = lora.MsgTypeConfigRequest
+	MsgTypeAck               = lora.MsgTypeAck
+	MsgTypeNack              = lora.MsgTypeNack
+	MsgTypeConfigUpdate      = lora.MsgTypeConfigUpdate
+	MsgTypeTimeSync          = lora.MsgTypeTimeSync
+	MsgTypeSoilReport        = lora.MsgTypeSoilReport
+	MsgTypeSoilCalibrateReq  = lora.MsgTypeSoilCalibrateReq
+	MsgTypeMeterReport       = lora.MsgTypeMeterReport
+	MsgTypeMeterAlarm        = lora.MsgTypeMeterAlarm
+	MsgTypeMeterCalibrateReq = lora.MsgTypeMeterCalibrateReq
+	MsgTypeMeterResetTotal   = lora.MsgTypeMeterResetTotal
+	MsgTypeValveStatus       = lora.MsgTypeValveStatus
+	MsgTypeValveAck          = lora.MsgTypeValveAck
+	MsgTypeValveScheduleReq  = lora.MsgTypeValveScheduleReq
+	MsgTypeValveCommand      = lora.MsgTypeValveCommand
+	MsgTypeValveSchedule     = lora.MsgTypeValveSchedule
+	MsgTypeOTAAnnounce       = lora.MsgTypeOTAAnnounce
+	MsgTypeOTAChunk          = lora.MsgTypeOTAChunk
+	MsgTypeOTAStatus         = lora.MsgTypeOTAStatus
 
-	// Common controller -> device messages (0x10 - 0x1F)
-	MsgTypeConfigUpdate uint8 = 0x10 // Configuration update
-	MsgTypeTimeSync     uint8 = 0x11 // Time synchronization
-
-	// Soil moisture sensor messages (0x20 - 0x2F)
-	MsgTypeSoilReport       uint8 = 0x20 // Moisture/temp/battery reading
-	MsgTypeSoilCalibrateReq uint8 = 0x21 // Request calibration data
-
-	// Water meter messages (0x30 - 0x3F)
-	MsgTypeMeterReport       uint8 = 0x30 // Flow/total/battery reading
-	MsgTypeMeterAlarm        uint8 = 0x31 // Leak/reverse flow/tamper alert
-	MsgTypeMeterCalibrateReq uint8 = 0x32 // Request calibration data
-	MsgTypeMeterResetTotal   uint8 = 0x33 // Reset totalizer (ctrl->device)
-
-	// Valve controller messages (0x40 - 0x4F)
-	MsgTypeValveStatus      uint8 = 0x40 // State change notification
-	MsgTypeValveAck         uint8 = 0x41 // Command acknowledgment
-	MsgTypeValveScheduleReq uint8 = 0x42 // Request schedule
-	MsgTypeValveCommand     uint8 = 0x43 // Open/close/stop/query (ctrl->device)
-	MsgTypeValveSchedule    uint8 = 0x44 // Schedule update (ctrl->device)
-
-	// OTA firmware messages (0xE0 - 0xEF)
-	MsgTypeOTAAnnounce uint8 = 0xE0 // Firmware available
-	MsgTypeOTAChunk    uint8 = 0xE1 // Firmware data chunk
-	MsgTypeOTAStatus   uint8 = 0xE2 // OTA progress/result
-
-	// Legacy aliases (for backward compatibility)
-	MsgTypeSensorReport     = MsgTypeSoilReport
-	MsgTypeWaterMeterReport = MsgTypeMeterReport
-	MsgTypeScheduleRequest  = MsgTypeValveScheduleReq
-	MsgTypeScheduleUpdate   = MsgTypeValveSchedule
+	// Legacy aliases
+	MsgTypeSensorReport     = lora.MsgTypeSensorReport
+	MsgTypeWaterMeterReport = lora.MsgTypeWaterMeterReport
+	MsgTypeScheduleRequest  = lora.MsgTypeScheduleRequest
+	MsgTypeScheduleUpdate   = lora.MsgTypeScheduleUpdate
 )
 
-// Device types
+// Re-export device types from shared package
 const (
-	DeviceTypeSoilMoisture    uint8 = 0x01
-	DeviceTypeValveController uint8 = 0x02
-	DeviceTypeWaterMeter      uint8 = 0x03
-	DeviceTypeValveActuator   uint8 = 0x04 // CAN only, not LoRa
+	DeviceTypeSoilMoisture    = lora.DeviceTypeSoilMoisture
+	DeviceTypeValveController = lora.DeviceTypeValveController
+	DeviceTypeWaterMeter      = lora.DeviceTypeWaterMeter
+	DeviceTypeValveActuator   = lora.DeviceTypeValveActuator
 )
 
-// Valve states
+// Re-export valve states from shared package
 const (
-	ValveStateClosed  uint8 = 0x00
-	ValveStateOpen    uint8 = 0x01
-	ValveStateOpening uint8 = 0x02
-	ValveStateClosing uint8 = 0x03
-	ValveStateError   uint8 = 0xFF
+	ValveStateClosed  = lora.ValveStateClosed
+	ValveStateOpen    = lora.ValveStateOpen
+	ValveStateOpening = lora.ValveStateOpening
+	ValveStateClosing = lora.ValveStateClosing
+	ValveStateError   = lora.ValveStateError
 )
 
-// Valve commands
+// Re-export valve commands from shared package
 const (
-	ValveCmdClose uint8 = 0x00
-	ValveCmdOpen  uint8 = 0x01
-	ValveCmdStop  uint8 = 0x02
-	ValveCmdQuery uint8 = 0x03
+	ValveCmdClose = lora.ValveCmdClose
+	ValveCmdOpen  = lora.ValveCmdOpen
+	ValveCmdStop  = lora.ValveCmdStop
+	ValveCmdQuery = lora.ValveCmdQuery
 )
 
-// Header represents the AgSys protocol header (15 bytes)
-// Format: Magic(2) + Version(1) + MsgType(1) + DeviceType(1) + DeviceUID(8) + Sequence(2)
-type Header struct {
-	Magic      [2]byte
-	Version    uint8
-	MsgType    uint8
-	DeviceType uint8
-	DeviceUID  [8]byte
-	Sequence   uint16
-}
+// Type aliases for backward compatibility
+type Header = lora.Header
 
-// HeaderSize is the size of the protocol header in bytes
-const HeaderSize = 15
-
-// DeviceUIDSize is the size of the device UID in bytes
-const DeviceUIDSize = 8
-
-// LoRaMessage represents a decoded LoRa message
+// LoRaMessage represents a decoded LoRa message (extends lora.Message with controller-specific fields)
 type LoRaMessage struct {
 	Header     Header  // Protocol header
 	Payload    []byte  // Message-specific payload
@@ -118,53 +89,14 @@ type LoRaMessage struct {
 	ReceivedAt int64   // Unix timestamp when received
 }
 
-// EncodeHeader serializes the header for transmission
-func (h *Header) Encode() []byte {
-	buf := make([]byte, HeaderSize)
-	buf[0] = h.Magic[0]
-	buf[1] = h.Magic[1]
-	buf[2] = h.Version
-	buf[3] = h.MsgType
-	buf[4] = h.DeviceType
-	copy(buf[5:13], h.DeviceUID[:])
-	binary.LittleEndian.PutUint16(buf[13:15], h.Sequence)
-	return buf
+// NewHeader creates a new header with magic bytes and version set
+func NewHeader(msgType uint8, deviceType uint8, deviceUID [8]byte, sequence uint16) *Header {
+	return lora.NewHeader(msgType, deviceType, deviceUID, sequence)
 }
 
 // DecodeHeader parses a header from raw bytes
 func DecodeHeader(data []byte) (*Header, error) {
-	if len(data) < HeaderSize {
-		return nil, fmt.Errorf("header too short: %d bytes", len(data))
-	}
-
-	h := &Header{
-		Version:    data[2],
-		MsgType:    data[3],
-		DeviceType: data[4],
-		Sequence:   binary.LittleEndian.Uint16(data[13:15]),
-	}
-	h.Magic[0] = data[0]
-	h.Magic[1] = data[1]
-	copy(h.DeviceUID[:], data[5:13])
-
-	return h, nil
-}
-
-// IsValid checks if the header has valid magic bytes and version
-func (h *Header) IsValid() bool {
-	return h.Magic[0] == MagicByte1 && h.Magic[1] == MagicByte2 && h.Version == ProtocolVersion
-}
-
-// NewHeader creates a new header with magic bytes and version set
-func NewHeader(msgType uint8, deviceType uint8, deviceUID [8]byte, sequence uint16) *Header {
-	return &Header{
-		Magic:      [2]byte{MagicByte1, MagicByte2},
-		Version:    ProtocolVersion,
-		MsgType:    msgType,
-		DeviceType: deviceType,
-		DeviceUID:  deviceUID,
-		Sequence:   sequence,
-	}
+	return lora.DecodeHeader(data)
 }
 
 // Encode serializes the full message for transmission
@@ -202,13 +134,6 @@ func Decode(data []byte) (*LoRaMessage, error) {
 	}
 
 	return msg, nil
-}
-
-// DeviceUIDString returns the device UID as a hex string
-func (h *Header) DeviceUIDString() string {
-	return fmt.Sprintf("%02X%02X%02X%02X%02X%02X%02X%02X",
-		h.DeviceUID[0], h.DeviceUID[1], h.DeviceUID[2], h.DeviceUID[3],
-		h.DeviceUID[4], h.DeviceUID[5], h.DeviceUID[6], h.DeviceUID[7])
 }
 
 // DeviceUIDString returns the device UID as a hex string

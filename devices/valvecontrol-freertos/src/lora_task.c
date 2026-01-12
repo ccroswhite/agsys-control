@@ -19,6 +19,7 @@
 #include "spi_driver.h"
 #include "board_config.h"
 #include "agsys_device.h"
+#include "agsys_protocol.h"
 
 #include <string.h>
 
@@ -68,16 +69,12 @@ extern agsys_device_ctx_t m_device_ctx;
 #define IRQ_RX_DONE             0x40
 #define IRQ_PAYLOAD_CRC_ERROR   0x20
 
-/* AgSys message types */
-#define AGSYS_MSG_VALVE_COMMAND     0x20
-#define AGSYS_MSG_VALVE_ACK         0x21
-#define AGSYS_MSG_VALVE_STATUS      0x22
-#define AGSYS_MSG_SCHEDULE_UPDATE   0x30
-#define AGSYS_MSG_SCHEDULE_REQUEST  0x31
-#define AGSYS_MSG_TIME_SYNC         0x40
-#define AGSYS_MSG_CONFIG_UPDATE     0x50
-#define AGSYS_MSG_VALVE_DISCOVER    0x60
-#define AGSYS_MSG_VALVE_DISCOVERY_RESP 0x61
+/* AgSys message types - using canonical definitions from agsys_protocol.h
+ * Legacy aliases for backward compatibility during migration */
+#define AGSYS_MSG_SCHEDULE_UPDATE   AGSYS_MSG_VALVE_SCHEDULE
+#define AGSYS_MSG_SCHEDULE_REQUEST  AGSYS_MSG_VALVE_SCHEDULE_REQ
+#define AGSYS_MSG_VALVE_DISCOVER    0x60  /* TODO: Add to canonical protocol */
+#define AGSYS_MSG_VALVE_DISCOVERY_RESP 0x61  /* TODO: Add to canonical protocol */
 
 /* ==========================================================================
  * PRIVATE DATA
@@ -262,16 +259,8 @@ static void rfm_start_receive(void)
 }
 
 /* ==========================================================================
- * AGSYS PROTOCOL
+ * AGSYS PROTOCOL (using canonical agsys_header_t from agsys_protocol.h)
  * ========================================================================== */
-
-typedef struct __attribute__((packed)) {
-    uint8_t msg_type;
-    uint8_t device_type;
-    uint8_t uid[8];
-    uint8_t sequence;
-    uint8_t flags;
-} agsys_header_t;
 
 static void get_device_uid(void)
 {
@@ -290,11 +279,13 @@ static void get_device_uid(void)
 
 static void build_header(agsys_header_t *hdr, uint8_t msg_type)
 {
+    hdr->magic[0] = AGSYS_MAGIC_BYTE1;
+    hdr->magic[1] = AGSYS_MAGIC_BYTE2;
+    hdr->version = AGSYS_PROTOCOL_VERSION;
     hdr->msg_type = msg_type;
-    hdr->device_type = 0x02;  /* Valve Controller */
-    memcpy(hdr->uid, m_device_uid, 8);
+    hdr->device_type = AGSYS_DEVICE_TYPE_VALVE_CONTROLLER;
+    memcpy(hdr->device_uid, m_device_uid, 8);
     hdr->sequence = m_sequence++;
-    hdr->flags = g_on_battery_power ? 0x01 : 0x00;
 }
 
 static void process_valve_command(const uint8_t *payload, uint8_t len)
@@ -349,6 +340,13 @@ static void process_lora_message(const uint8_t *data, uint8_t len, int16_t rssi)
     if (len < sizeof(agsys_header_t)) return;
     
     agsys_header_t *hdr = (agsys_header_t *)data;
+    
+    /* Validate magic bytes */
+    if (hdr->magic[0] != AGSYS_MAGIC_BYTE1 || hdr->magic[1] != AGSYS_MAGIC_BYTE2) {
+        SEGGER_RTT_printf(0, "LoRa RX: Invalid magic bytes\n");
+        return;
+    }
+    
     const uint8_t *payload = data + sizeof(agsys_header_t);
     uint8_t payload_len = len - sizeof(agsys_header_t);
     
