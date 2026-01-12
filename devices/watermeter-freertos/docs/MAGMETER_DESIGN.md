@@ -100,7 +100,7 @@ Three board variants handle different pipe size ranges, each with optimized powe
 **Shared across all boards:**
 - MCU (nRF52840-QFAA) - 1MB Flash, 256KB RAM for LVGL
 - LoRa (RFM95C)
-- FRAM (FM25V02)
+- FRAM (MB85RS1MT - 128KB)
 - Display (Focus LCDs E28GA-T-CW250-N) - 2.8" transflective TFT, ST7789
 - Fully Differential Amp (THS4551)
 - Guard Driver (ADA4522)
@@ -367,7 +367,7 @@ For ≤1% accuracy, temperature compensation is required for:
 | Guard Driver | ADA4522-2ARMZ | Zero-drift chopper, 0.1µV offset, dual, MSOP-8 |
 | ADC | ADS131M02IPWR | 24-bit, 64 kSPS, 2-ch simultaneous, PGA 1-128×, TSSOP-20 |
 | LoRa | RFM95C | Existing platform, 915 MHz |
-| FRAM | FM25V02-G | 256Kbit, calibration storage |
+| FRAM | MB85RS1MTPNF | 1Mbit (128KB), calibration + runtime logs |
 | Display | E28GA-T-CW250-N | 2.8" transflective TFT, ST7789, 240x320 |
 | Backlight Buck | MP1584 or similar | 24V → 12V for LED backlight |
 | LDO (5V) | AP2112K-5.0 | 5V 600mA for analog section |

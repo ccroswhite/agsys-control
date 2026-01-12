@@ -14,7 +14,7 @@ This document provides the complete netlist and connection details for the valve
 | U2 | MCP2515-I/SO | CAN Controller, SPI interface | SOIC-18 | 1 |
 | U3 | SN65HVD230DR | CAN Transceiver, 3.3V | SOIC-8 | 1 |
 | U4 | TPS54202DDCR | Buck Converter, 24V→3.3V, 2A | SOT-23-6 | 1 |
-| U5 | FM25V02-G | 256Kbit FRAM, SPI | SOIC-8 | 1 |
+| U5 | MB85RS1MTPNF | 1Mbit FRAM, SPI (128KB) | SOIC-8 | 1 |
 
 ### Connectors
 
@@ -102,17 +102,21 @@ This document provides the complete netlist and connection details for the valve
 
 ## New Components for BLE Support
 
-### FRAM (U5 - FM25V02-G)
+### FRAM (U5 - MB85RS1MTPNF)
+
+Using MB85RS1MT (128KB) to accommodate extensive runtime logging in FRAM,
+extending external flash lifetime (FRAM: 10^14 cycles vs flash: 100K cycles).
 
 The FRAM stores:
-- BLE pairing PIN (6 bytes at address 0x0010)
-- Valve cycle count (4 bytes at address 0x0020)
-- Boot count (4 bytes at address 0x0024)
-- Last error code (2 bytes at address 0x0028)
+- Boot info (64 bytes at address 0x0000)
+- Bootloader info (32 bytes at address 0x0040)
+- Device config (160 bytes at address 0x0060)
+- Calibration data (256 bytes at address 0x0100)
+- Runtime log ring buffer (~127KB at address 0x0200)
 
 **Connections:**
 
-| FM25V02 Pin | Signal | nRF52810 Pin |
+| MB85RS1MT Pin | Signal | nRF52810 Pin |
 |-------------|--------|--------------|
 | 1 (CS#) | FRAM_CS | P0.07 |
 | 2 (SO) | SPI_MISO | P0.13 |
@@ -148,9 +152,9 @@ Tactile switch for entering BLE pairing/DFU mode.
 
 ## SPI Bus Sharing
 
-The SPI bus is shared between MCP2515 (CAN) and FM25V02 (FRAM):
+The SPI bus is shared between MCP2515 (CAN) and MB85RS1MT (FRAM):
 
-| Signal | nRF52810 | MCP2515 | FM25V02 |
+| Signal | nRF52810 | MCP2515 | MB85RS1MT |
 |--------|----------|---------|---------|
 | MOSI | P0.12 | SI (14) | SI (5) |
 | MISO | P0.13 | SO (15) | SO (2) |
@@ -159,7 +163,7 @@ The SPI bus is shared between MCP2515 (CAN) and FM25V02 (FRAM):
 | CS_FRAM | P0.07 | - | CS (1) |
 
 **SPI Mode:** Both devices use SPI Mode 0 (CPOL=0, CPHA=0).
-**Max Speed:** MCP2515: 10MHz, FM25V02: 40MHz. Use 8MHz for compatibility.
+**Max Speed:** MCP2515: 10MHz, MB85RS1MT: 40MHz. Use 8MHz for compatibility.
 
 ---
 
@@ -179,7 +183,7 @@ The SPI bus is shared between MCP2515 (CAN) and FM25V02 (FRAM):
                               ├──► U1 (nRF52810)
                               ├──► U2 (MCP2515)
                               ├──► U3 (SN65HVD230)
-                              ├──► U5 (FM25V02)
+                              ├──► U5 (MB85RS1MT)
                               └──► LEDs, pullups
 ```
 
@@ -209,5 +213,6 @@ The SPI bus is shared between MCP2515 (CAN) and FM25V02 (FRAM):
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2025-01 | Initial design |
-| 1.1 | 2026-01 | Added FM25V02 FRAM for BLE PIN storage |
+| 1.1 | 2026-01 | Added FRAM for BLE PIN storage |
+| 1.2 | 2026-01 | Upgraded FRAM to MB85RS1MT (128KB) for runtime logging |
 | 1.1 | 2026-01 | Added BLE pairing button (SW2) |

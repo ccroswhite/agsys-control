@@ -10,19 +10,24 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
+#include "agsys_pins.h"  /* Standard memory bus pins */
+
 /* ==========================================================================
- * SPI PINS (MCP2515 CAN, RFM95C LoRa, FM25V02 FRAM)
+ * SPI BUS 0 - CAN + LoRa (MCP2515, RFM95C)
  * ========================================================================== */
 
-#define SPI_SCK_PIN             26
-#define SPI_MOSI_PIN            27
-#define SPI_MISO_PIN            28
+#define SPI_PERIPH_SCK_PIN      27
+#define SPI_PERIPH_MOSI_PIN     28
+#define SPI_PERIPH_MISO_PIN     29
+#define SPI_CS_CAN_PIN          30
+#define SPI_CS_LORA_PIN         31
 
-/* Chip selects */
-#define SPI_CS_CAN_PIN          11
-#define SPI_CS_LORA_PIN         12
-#define SPI_CS_FRAM_PIN         13
-#define SPI_CS_FLASH_PIN        29  /* W25Q16 SPI Flash (optional) */
+/* ==========================================================================
+ * SPI BUS 1 - External Memory (FRAM + Flash) - STANDARD PINS
+ * Uses standard pins from agsys_pins.h:
+ *   SCK=P0.26, MOSI=P0.25, MISO=P0.24, FRAM_CS=P0.23, FLASH_CS=P0.22
+ * ========================================================================== */
+/* FRAM and Flash CS pins defined in agsys_pins.h */
 
 /* ==========================================================================
  * CAN (MCP2515)
@@ -39,10 +44,11 @@
 
 /* ==========================================================================
  * I2C (RV-3028 RTC)
+ * Note: Moved from P0.24/P0.25 to avoid conflict with standard memory bus
  * ========================================================================== */
 
-#define I2C_SDA_PIN             24
-#define I2C_SCL_PIN             25
+#define I2C_SDA_PIN             2
+#define I2C_SCL_PIN             3
 
 /* ==========================================================================
  * POWER MANAGEMENT
@@ -62,7 +68,7 @@
  * BUTTON
  * ========================================================================== */
 
-#define PAIRING_BUTTON_PIN      30
+#define PAIRING_BUTTON_PIN      11
 
 /* ==========================================================================
  * TASK CONFIGURATION

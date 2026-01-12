@@ -109,14 +109,44 @@ void display_showAbout(void);
  * @brief Show OTA progress screen
  * @param percent Progress 0-100
  * @param status Status message
+ * @param version Target version string (e.g., "1.2.3") or NULL
  */
-void display_showOTAProgress(uint8_t percent, const char *status);
+void display_showOTAProgress(uint8_t percent, const char *status, const char *version);
 
 /**
  * @brief Update OTA progress
  * @param percent Progress 0-100
  */
 void display_updateOTAProgress(uint8_t percent);
+
+/**
+ * @brief Update OTA status message
+ * @param status New status message
+ */
+void display_updateOTAStatus(const char *status);
+
+/**
+ * @brief Show OTA error screen with OK button
+ * 
+ * Displays error message with acknowledge button. If not acknowledged
+ * within 60 seconds, automatically returns to main screen.
+ * 
+ * @param error_msg Error description
+ */
+void display_showOTAError(const char *error_msg);
+
+/**
+ * @brief Check if OTA error screen is active
+ * @return true if error screen is displayed
+ */
+bool display_isOTAErrorActive(void);
+
+/**
+ * @brief Tick handler for OTA error timeout
+ * 
+ * Call periodically. Returns true if timeout expired and screen dismissed.
+ */
+bool display_tickOTAError(void);
 
 /**
  * @brief Show error message

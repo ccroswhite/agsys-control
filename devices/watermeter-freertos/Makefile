@@ -5,6 +5,7 @@ OUTPUT_DIRECTORY := _build
 SDK_ROOT := $(HOME)/nordic/nRF5_SDK_17.1.0
 PROJ_DIR := .
 COMMON_DIR := ../freertos-common
+LVGL_DIR := $(PROJ_DIR)/external/lvgl
 
 # Device name for build naming
 DEVICE_NAME := watermeter
@@ -43,6 +44,7 @@ SRC_FILES += \
   $(SDK_ROOT)/modules/nrfx/drivers/src/nrfx_timer.c \
   $(SDK_ROOT)/modules/nrfx/drivers/src/nrfx_pwm.c \
   $(SDK_ROOT)/modules/nrfx/drivers/src/prs/nrfx_prs.c \
+  $(SDK_ROOT)/modules/nrfx/hal/nrf_nvmc.c \
   $(SDK_ROOT)/external/freertos/source/croutine.c \
   $(SDK_ROOT)/external/freertos/source/event_groups.c \
   $(SDK_ROOT)/external/freertos/source/portable/MemMang/heap_4.c \
@@ -70,10 +72,42 @@ SRC_FILES += \
   $(COMMON_DIR)/src/agsys_ble_auth.c \
   $(COMMON_DIR)/src/agsys_device.c \
   $(COMMON_DIR)/src/agsys_flash.c \
-  $(COMMON_DIR)/src/agsys_flash_log.c \
+  $(COMMON_DIR)/src/agsys_fram_log.c \
   $(COMMON_DIR)/src/agsys_flash_backup.c \
   $(COMMON_DIR)/src/agsys_fram.c \
   $(COMMON_DIR)/src/agsys_spi.c \
+  $(wildcard $(LVGL_DIR)/src/*.c) \
+  $(wildcard $(LVGL_DIR)/src/core/*.c) \
+  $(wildcard $(LVGL_DIR)/src/display/*.c) \
+  $(wildcard $(LVGL_DIR)/src/draw/*.c) \
+  $(wildcard $(LVGL_DIR)/src/draw/sw/*.c) \
+  $(wildcard $(LVGL_DIR)/src/draw/sw/blend/*.c) \
+  $(wildcard $(LVGL_DIR)/src/font/*.c) \
+  $(wildcard $(LVGL_DIR)/src/indev/*.c) \
+  $(wildcard $(LVGL_DIR)/src/layouts/*.c) \
+  $(wildcard $(LVGL_DIR)/src/layouts/flex/*.c) \
+  $(wildcard $(LVGL_DIR)/src/libs/freetype/*.c) \
+  $(wildcard $(LVGL_DIR)/src/misc/*.c) \
+  $(wildcard $(LVGL_DIR)/src/misc/cache/*.c) \
+  $(wildcard $(LVGL_DIR)/src/osal/*.c) \
+  $(wildcard $(LVGL_DIR)/src/stdlib/*.c) \
+  $(wildcard $(LVGL_DIR)/src/stdlib/builtin/*.c) \
+  $(wildcard $(LVGL_DIR)/src/themes/*.c) \
+  $(wildcard $(LVGL_DIR)/src/themes/default/*.c) \
+  $(wildcard $(LVGL_DIR)/src/tick/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/arc/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/bar/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/button/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/buttonmatrix/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/image/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/label/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/line/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/menu/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/msgbox/*.c) \
+  $(wildcard $(LVGL_DIR)/src/widgets/spinner/*.c) \
+  $(COMMON_DIR)/src/agsys_ota.c \
+  $(COMMON_DIR)/src/agsys_ble_ota.c \
 
 # Include folders
 INC_FOLDERS += \
@@ -112,6 +146,9 @@ INC_FOLDERS += \
   $(SDK_ROOT)/external/freertos/portable/GCC/nrf52 \
   $(SDK_ROOT)/external/freertos/portable/CMSIS/nrf52 \
   $(SDK_ROOT)/external/segger_rtt \
+  $(PROJ_DIR)/external \
+  $(LVGL_DIR) \
+  $(LVGL_DIR)/src \
 
 # Libraries
 LIB_FILES += \
@@ -123,7 +160,7 @@ OPT = -O3 -g3
 
 # C flags common to all targets
 CFLAGS += $(OPT)
-CFLAGS += -DLVGL_STUB_ONLY
+CFLAGS += -DLV_CONF_INCLUDE_SIMPLE
 CFLAGS += -DBOARD_CUSTOM
 CFLAGS += -DCONFIG_GPIO_AS_PINRESET
 CFLAGS += -DFLOAT_ABI_HARD

@@ -5,13 +5,15 @@
  * Battery-powered sensor with:
  * - 4 capacitive moisture probes (oscillator frequency measurement)
  * - RFM95C LoRa module
- * - FM25V02 FRAM for logging/calibration
+ * - MB85RS1MT FRAM (128KB) for logging/calibration
  * - W25Q16 SPI Flash for firmware backup
  * - BLE for pairing/calibration mode
  */
 
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
+
+#include "agsys_pins.h"  /* Standard memory bus pins */
 
 /* ==========================================================================
  * LED PIN
@@ -20,16 +22,20 @@
 #define LED_STATUS_PIN              17      /* Green status LED (active LOW) */
 
 /* ==========================================================================
- * SPI PINS (LoRa, FRAM, Flash share bus)
+ * SPI BUS 0 - LoRa (RFM95C)
  * ========================================================================== */
 
-#define SPI_SCK_PIN                 25
-#define SPI_MOSI_PIN                24
-#define SPI_MISO_PIN                23
+#define SPI_LORA_SCK_PIN            14
+#define SPI_LORA_MOSI_PIN           13
+#define SPI_LORA_MISO_PIN           12
+#define SPI_CS_LORA_PIN             11
 
-#define SPI_CS_LORA_PIN             27      /* RFM95C LoRa */
-#define SPI_CS_FRAM_PIN             11      /* FM25V02 FRAM */
-#define SPI_CS_FLASH_PIN            12      /* W25Q16 SPI Flash */
+/* ==========================================================================
+ * SPI BUS 1 - External Memory (FRAM + Flash) - STANDARD PINS
+ * Uses standard pins from agsys_pins.h:
+ *   SCK=P0.26, MOSI=P0.25, MISO=P0.24, FRAM_CS=P0.23, FLASH_CS=P0.22
+ * ========================================================================== */
+/* FRAM and Flash CS pins defined in agsys_pins.h */
 
 /* ==========================================================================
  * LORA (RFM95C)

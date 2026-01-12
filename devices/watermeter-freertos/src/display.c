@@ -9,19 +9,18 @@
 #include "display.h"
 #include "st7789.h"
 #include "board_config.h"
-#include "lvgl.h"
+#include "lvgl/lvgl.h"
 #include "nrf_gpio.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 
-/* LVGL display buffer */
+/* LVGL v9 display buffer */
 #define DISP_BUF_LINES  20
-static lv_disp_draw_buf_t m_draw_buf;
-static lv_color_t m_buf1[DISPLAY_WIDTH * DISP_BUF_LINES];
+static uint8_t m_draw_buf[DISPLAY_WIDTH * DISP_BUF_LINES * sizeof(lv_color_t)];
 
-/* LVGL display driver */
-static lv_disp_drv_t m_disp_drv;
+/* LVGL v9 display handle */
+static lv_display_t *m_display = NULL;
 
 /* Current screen */
 static ScreenId_t m_currentScreen = SCREEN_MAIN;
@@ -121,15 +120,15 @@ static bool pin_verify(void);
  * LVGL DISPLAY FLUSH CALLBACK
  * ========================================================================== */
 
-static void display_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
+static void display_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
-    uint32_t w = (area->x2 - area->x1 + 1);
-    uint32_t h = (area->y2 - area->y1 + 1);
+    uint32_t w = lv_area_get_width(area);
+    uint32_t h = lv_area_get_height(area);
     
     st7789_set_addr_window(area->x1, area->y1, area->x2, area->y2);
-    st7789_write_pixels((uint16_t *)color_p, w * h);
+    st7789_write_pixels((uint16_t *)px_map, w * h);
     
-    lv_disp_flush_ready(disp_drv);
+    lv_display_flush_ready(disp);
 }
 
 /* ==========================================================================
@@ -243,16 +242,10 @@ bool display_init(void)
     /* Initialize LVGL */
     lv_init();
     
-    /* Initialize display buffer */
-    lv_disp_draw_buf_init(&m_draw_buf, m_buf1, NULL, DISPLAY_WIDTH * DISP_BUF_LINES);
-    
-    /* Initialize display driver */
-    lv_disp_drv_init(&m_disp_drv);
-    m_disp_drv.hor_res = DISPLAY_WIDTH;
-    m_disp_drv.ver_res = DISPLAY_HEIGHT;
-    m_disp_drv.flush_cb = display_flush_cb;
-    m_disp_drv.draw_buf = &m_draw_buf;
-    lv_disp_drv_register(&m_disp_drv);
+    /* Create display (LVGL v9 API) */
+    m_display = lv_display_create(DISPLAY_WIDTH, DISPLAY_HEIGHT);
+    lv_display_set_flush_cb(m_display, display_flush_cb);
+    lv_display_set_buffers(m_display, m_draw_buf, NULL, sizeof(m_draw_buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
     
     /* Initialize power state timers */
     m_lastInputMs = get_tick_ms();
@@ -700,56 +693,88 @@ void display_showError(const char *message)
  * OTA PROGRESS SCREEN
  * ========================================================================== */
 
+static lv_obj_t *m_ota_screen = NULL;
 static lv_obj_t *m_ota_progress_bar = NULL;
+static lv_obj_t *m_ota_percent_label = NULL;
 static lv_obj_t *m_ota_status_label = NULL;
+static lv_obj_t *m_ota_version_label = NULL;
 
-void display_showOTAProgress(uint8_t percent, const char *status)
+static lv_obj_t *m_ota_error_screen = NULL;
+static lv_obj_t *m_ota_error_btn = NULL;
+static uint32_t m_ota_error_start_ms = 0;
+static bool m_ota_error_active = false;
+
+#define OTA_ERROR_TIMEOUT_MS    60000
+
+static void ota_error_btn_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        m_ota_error_active = false;
+        display_showMain();
+    }
+}
+
+void display_showOTAProgress(uint8_t percent, const char *status, const char *version)
 {
     m_currentScreen = SCREEN_OTA_PROGRESS;
+    m_ota_error_active = false;
     
-    lv_obj_t *screen = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(screen, COLOR_BG, 0);
+    m_ota_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(m_ota_screen, COLOR_BG, 0);
     
     /* Title */
-    lv_obj_t *title = lv_label_create(screen);
+    lv_obj_t *title = lv_label_create(m_ota_screen);
     lv_label_set_text(title, "Firmware Update");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(title, COLOR_FLOW_FWD, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 40);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 30);
+    
+    /* Version label */
+    m_ota_version_label = lv_label_create(m_ota_screen);
+    if (version != NULL) {
+        char ver_str[32];
+        snprintf(ver_str, sizeof(ver_str), "Installing v%s", version);
+        lv_label_set_text(m_ota_version_label, ver_str);
+    } else {
+        lv_label_set_text(m_ota_version_label, "");
+    }
+    lv_obj_set_style_text_font(m_ota_version_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(m_ota_version_label, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(m_ota_version_label, LV_ALIGN_TOP_MID, 0, 60);
+    
+    /* Percent label */
+    m_ota_percent_label = lv_label_create(m_ota_screen);
+    char pct_str[16];
+    snprintf(pct_str, sizeof(pct_str), "%d%%", percent);
+    lv_label_set_text(m_ota_percent_label, pct_str);
+    lv_obj_set_style_text_font(m_ota_percent_label, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(m_ota_percent_label, COLOR_TEXT, 0);
+    lv_obj_align(m_ota_percent_label, LV_ALIGN_CENTER, 0, -40);
     
     /* Progress bar */
-    m_ota_progress_bar = lv_bar_create(screen);
+    m_ota_progress_bar = lv_bar_create(m_ota_screen);
     lv_obj_set_size(m_ota_progress_bar, 200, 20);
-    lv_obj_align(m_ota_progress_bar, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(m_ota_progress_bar, LV_ALIGN_CENTER, 0, 10);
     lv_bar_set_range(m_ota_progress_bar, 0, 100);
     lv_bar_set_value(m_ota_progress_bar, percent, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(m_ota_progress_bar, COLOR_BAR_BG, LV_PART_MAIN);
     lv_obj_set_style_bg_color(m_ota_progress_bar, COLOR_FLOW_FWD, LV_PART_INDICATOR);
     
-    /* Percent label */
-    lv_obj_t *pct_label = lv_label_create(screen);
-    char pct_str[16];
-    snprintf(pct_str, sizeof(pct_str), "%d%%", percent);
-    lv_label_set_text(pct_label, pct_str);
-    lv_obj_set_style_text_font(pct_label, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(pct_label, COLOR_TEXT, 0);
-    lv_obj_align(pct_label, LV_ALIGN_CENTER, 0, -50);
-    
     /* Status label */
-    m_ota_status_label = lv_label_create(screen);
+    m_ota_status_label = lv_label_create(m_ota_screen);
     lv_label_set_text(m_ota_status_label, status ? status : "Updating...");
     lv_obj_set_style_text_font(m_ota_status_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(m_ota_status_label, COLOR_TEXT_LABEL, 0);
-    lv_obj_align(m_ota_status_label, LV_ALIGN_CENTER, 0, 40);
+    lv_obj_align(m_ota_status_label, LV_ALIGN_CENTER, 0, 50);
     
     /* Warning */
-    lv_obj_t *warning = lv_label_create(screen);
+    lv_obj_t *warning = lv_label_create(m_ota_screen);
     lv_label_set_text(warning, "Do not power off");
     lv_obj_set_style_text_font(warning, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(warning, COLOR_ALARM_WARNING, 0);
     lv_obj_align(warning, LV_ALIGN_BOTTOM_MID, 0, -20);
     
-    lv_scr_load(screen);
+    lv_scr_load(m_ota_screen);
 }
 
 void display_updateOTAProgress(uint8_t percent)
@@ -757,6 +782,85 @@ void display_updateOTAProgress(uint8_t percent)
     if (m_ota_progress_bar != NULL) {
         lv_bar_set_value(m_ota_progress_bar, percent, LV_ANIM_ON);
     }
+    if (m_ota_percent_label != NULL) {
+        char pct_str[16];
+        snprintf(pct_str, sizeof(pct_str), "%d%%", percent);
+        lv_label_set_text(m_ota_percent_label, pct_str);
+    }
+}
+
+void display_updateOTAStatus(const char *status)
+{
+    if (m_ota_status_label != NULL && status != NULL) {
+        lv_label_set_text(m_ota_status_label, status);
+    }
+}
+
+void display_showOTAError(const char *error_msg)
+{
+    m_currentScreen = SCREEN_OTA_PROGRESS;
+    m_ota_error_active = true;
+    m_ota_error_start_ms = lv_tick_get();
+    
+    m_ota_error_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(m_ota_error_screen, COLOR_BG, 0);
+    
+    /* Title */
+    lv_obj_t *title = lv_label_create(m_ota_error_screen);
+    lv_label_set_text(title, "Update Failed");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(title, COLOR_ALARM_CRITICAL, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 40);
+    
+    /* Error message */
+    lv_obj_t *msg = lv_label_create(m_ota_error_screen);
+    lv_label_set_text(msg, error_msg ? error_msg : "Unknown error");
+    lv_obj_set_style_text_font(msg, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(msg, COLOR_TEXT, 0);
+    lv_obj_set_width(msg, 220);
+    lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(msg, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(msg, LV_ALIGN_CENTER, 0, -20);
+    
+    /* OK button */
+    m_ota_error_btn = lv_btn_create(m_ota_error_screen);
+    lv_obj_set_size(m_ota_error_btn, 100, 40);
+    lv_obj_align(m_ota_error_btn, LV_ALIGN_CENTER, 0, 50);
+    lv_obj_add_event_cb(m_ota_error_btn, ota_error_btn_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_set_style_bg_color(m_ota_error_btn, COLOR_FLOW_FWD, 0);
+    
+    lv_obj_t *btn_label = lv_label_create(m_ota_error_btn);
+    lv_label_set_text(btn_label, "OK");
+    lv_obj_center(btn_label);
+    
+    /* Auto-dismiss note */
+    lv_obj_t *note = lv_label_create(m_ota_error_screen);
+    lv_label_set_text(note, "Auto-dismiss in 60s");
+    lv_obj_set_style_text_font(note, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(note, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(note, LV_ALIGN_BOTTOM_MID, 0, -20);
+    
+    lv_scr_load(m_ota_error_screen);
+}
+
+bool display_isOTAErrorActive(void)
+{
+    return m_ota_error_active;
+}
+
+bool display_tickOTAError(void)
+{
+    if (!m_ota_error_active) {
+        return false;
+    }
+    
+    uint32_t elapsed = lv_tick_get() - m_ota_error_start_ms;
+    if (elapsed >= OTA_ERROR_TIMEOUT_MS) {
+        m_ota_error_active = false;
+        display_showMain();
+        return true;
+    }
+    return false;
 }
 
 /* ==========================================================================

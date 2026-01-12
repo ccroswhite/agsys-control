@@ -6,25 +6,33 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
+#include "agsys_pins.h"  /* Standard memory bus pins */
+
 /* ==========================================================================
  * LED PINS
+ * Note: Moved from P0.25-P0.28 to avoid conflict with standard memory bus
  * ========================================================================== */
 
-#define LED_POWER_PIN           25  /* 3.3V Power indicator */
-#define LED_24V_PIN             26  /* 24V Present indicator */
-#define LED_STATUS_PIN          27  /* Status LED */
-#define LED_VALVE_OPEN_PIN      28  /* Valve Open indicator */
+#define LED_POWER_PIN           7   /* 3.3V Power indicator */
+#define LED_24V_PIN             21  /* 24V Present indicator */
+#define LED_STATUS_PIN          29  /* Status LED */
+#define LED_VALVE_OPEN_PIN      30  /* Valve Open indicator */
 
 /* ==========================================================================
- * SPI PINS (MCP2515 CAN + FRAM)
+ * SPI BUS 0 - CAN (MCP2515)
  * ========================================================================== */
 
-#define SPI_SCK_PIN             14
-#define SPI_MOSI_PIN            12
-#define SPI_MISO_PIN            13
+#define SPI_CAN_SCK_PIN         14
+#define SPI_CAN_MOSI_PIN        12
+#define SPI_CAN_MISO_PIN        13
 #define SPI_CS_CAN_PIN          11
-#define SPI_CS_FRAM_PIN         7
-#define SPI_CS_FLASH_PIN        29  /* W25Q16 SPI Flash */
+
+/* ==========================================================================
+ * SPI BUS 1 - External Memory (FRAM + Flash) - STANDARD PINS
+ * Uses standard pins from agsys_pins.h:
+ *   SCK=P0.26, MOSI=P0.25, MISO=P0.24, FRAM_CS=P0.23, FLASH_CS=P0.22
+ * ========================================================================== */
+/* FRAM and Flash CS pins defined in agsys_pins.h */
 
 /* ==========================================================================
  * CAN (MCP2515)
@@ -65,13 +73,13 @@
 #define DIP_4_PIN               18
 #define DIP_5_PIN               19
 #define DIP_6_PIN               20
-#define DIP_TERM_PIN            24  /* CAN termination switch */
+#define DIP_TERM_PIN            28  /* CAN termination switch - moved from P0.24 to avoid memory bus conflict */
 
 /* ==========================================================================
  * BUTTON
  * ========================================================================== */
 
-#define PAIRING_BUTTON_PIN      30
+#define PAIRING_BUTTON_PIN      31
 #define PAIRING_BUTTON_HOLD_MS  3000    /* 3 second hold to enter pairing */
 #define BLE_PAIRING_TIMEOUT_MS  120000  /* 2 minute pairing window */
 

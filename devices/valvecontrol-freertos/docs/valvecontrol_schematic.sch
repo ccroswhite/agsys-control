@@ -36,14 +36,31 @@
 </classes>
 <parts>
 <!-- ================================================================== -->
-<!-- MICROCONTROLLER - nRF52832 -->
+<!-- MICROCONTROLLER - nRF52832-QFAA -->
 <!-- ================================================================== -->
 <part name="U1" value="nRF52832-QFAA" device="QFN48"/>
+
+<!-- nRF52832 Decoupling (per datasheet) -->
+<part name="C20" value="100nF" device="0402"/>
+<part name="C21" value="100nF" device="0402"/>
+<part name="C22" value="10uF" device="0805"/>
+<part name="C23" value="100nF" device="0402"/>
+<part name="C24" value="10nF" device="0402"/>
+<part name="C25" value="1uF" device="0402"/>
+<part name="L1" value="10nH" device="0402"/>
 
 <!-- ================================================================== -->
 <!-- LORA MODULE - RFM95C -->
 <!-- ================================================================== -->
-<part name="U2" value="RFM95C" device="SMD"/>
+<part name="U2" value="RFM95C-915S2" device="SMD"/>
+<part name="C30" value="100nF" device="0402"/>
+<part name="C31" value="10uF" device="0805"/>
+
+<!-- Antenna Matching Network (Pi-network for 50 ohm) -->
+<part name="L2" value="5.6nH" device="0402"/>
+<part name="C32" value="1.5pF" device="0402"/>
+<part name="C33" value="1.2pF" device="0402"/>
+<part name="ANT1" value="915MHz-WIRE" device=""/>
 
 <!-- ================================================================== -->
 <!-- CAN BUS - MCP2515 + SN65HVD230 -->
@@ -51,38 +68,58 @@
 <part name="U3" value="MCP2515-I/SO" device="SOIC-18"/>
 <part name="U4" value="SN65HVD230DR" device="SOIC-8"/>
 <part name="Y3" value="16MHz" device="HC49"/>
-<part name="C10" value="22pF" device="0603"/>
-<part name="C11" value="22pF" device="0603"/>
+<part name="C10" value="22pF" device="0402"/>
+<part name="C11" value="22pF" device="0402"/>
 <part name="R10" value="120R" device="0603"/>
+<part name="C40" value="100nF" device="0402"/>
+<part name="C41" value="100nF" device="0402"/>
+
+<!-- CAN Bus ESD Protection -->
+<part name="D1" value="PESD1CAN" device="SOT23"/>
 
 <!-- ================================================================== -->
-<!-- MEMORY - FRAM + FLASH -->
+<!-- MEMORY - FRAM + FLASH (STANDARD PINS) -->
 <!-- ================================================================== -->
-<part name="U5" value="FM25V02-G" device="SOIC-8"/>
+<part name="U5" value="MB85RS1MTPNF" device="SOIC-8"/>
+<part name="C50" value="100nF" device="0402"/>
 <part name="U6" value="W25Q16JVSSIQ" device="SOIC-8"/>
+<part name="C51" value="100nF" device="0402"/>
 
 <!-- ================================================================== -->
-<!-- RTC - RV-3028 -->
+<!-- RTC - RV-3028-C7 (I2C on P0.02/P0.03) -->
 <!-- ================================================================== -->
 <part name="U7" value="RV-3028-C7" device="SMD"/>
 <part name="BT1" value="CR2032" device="HOLDER"/>
+<part name="C52" value="100nF" device="0402"/>
+
+<!-- I2C Pull-up Resistors -->
+<part name="R20" value="4.7K" device="0402"/>
+<part name="R21" value="4.7K" device="0402"/>
 
 <!-- ================================================================== -->
-<!-- POWER - LDO -->
+<!-- POWER - LDO (24V to 3.3V) -->
 <!-- ================================================================== -->
 <part name="U8" value="MCP1700-3302E" device="SOT-23"/>
-<part name="C1" value="10uF" device="0805"/>
+<part name="C1" value="10uF/50V" device="0805"/>
 <part name="C2" value="10uF" device="0805"/>
+
+<!-- 24V Input Protection -->
+<part name="D2" value="SMBJ28A" device="SMB"/>
+<part name="F1" value="500mA PTC" device="1206"/>
+
+<!-- Reverse Polarity Protection -->
+<part name="Q1" value="SI2301CDS" device="SOT-23"/>
+<part name="R22" value="10K" device="0402"/>
 
 <!-- ================================================================== -->
 <!-- CRYSTALS -->
 <!-- ================================================================== -->
 <part name="Y1" value="32MHz" device="3215"/>
 <part name="Y2" value="32.768kHz" device="2012"/>
-<part name="C3" value="12pF" device="0603"/>
-<part name="C4" value="12pF" device="0603"/>
-<part name="C5" value="6.8pF" device="0603"/>
-<part name="C6" value="6.8pF" device="0603"/>
+<part name="C3" value="12pF" device="0402"/>
+<part name="C4" value="12pF" device="0402"/>
+<part name="C5" value="6.8pF" device="0402"/>
+<part name="C6" value="6.8pF" device="0402"/>
 
 <!-- ================================================================== -->
 <!-- STATUS LEDS -->
@@ -90,9 +127,9 @@
 <part name="LED1" value="GREEN" device="0603"/>
 <part name="LED2" value="YELLOW" device="0603"/>
 <part name="LED3" value="RED" device="0603"/>
-<part name="R1" value="1K" device="0603"/>
-<part name="R2" value="1K" device="0603"/>
-<part name="R3" value="1K" device="0603"/>
+<part name="R1" value="1K" device="0402"/>
+<part name="R2" value="1K" device="0402"/>
+<part name="R3" value="1K" device="0402"/>
 
 <!-- ================================================================== -->
 <!-- CONNECTORS -->
@@ -100,18 +137,29 @@
 <part name="J1" value="M12-4PIN" device="PANEL"/>
 <part name="J2" value="M12-4PIN" device="PANEL"/>
 <part name="J3" value="PWR-3PIN" device="XPC"/>
-<part name="SW1" value="TACTILE" device="6MM"/>
 
 <!-- ================================================================== -->
-<!-- DECOUPLING CAPACITORS -->
+<!-- PAIRING BUTTON -->
 <!-- ================================================================== -->
-<part name="C7" value="100nF" device="0603"/>
-<part name="C8" value="100nF" device="0603"/>
-<part name="C9" value="100nF" device="0603"/>
-<part name="C12" value="100nF" device="0603"/>
-<part name="C13" value="100nF" device="0603"/>
-<part name="C14" value="100nF" device="0603"/>
-<part name="C15" value="100nF" device="0603"/>
+<part name="SW1" value="TACTILE" device="6x6"/>
+<part name="R4" value="10K" device="0402"/>
+<part name="C60" value="100nF" device="0402"/>
+<part name="D3" value="PESD5V0S1BL" device="SOD323"/>
+
+<!-- ================================================================== -->
+<!-- POWER FAIL INPUT -->
+<!-- ================================================================== -->
+<part name="R5" value="10K" device="0402"/>
+<part name="R6" value="10K" device="0402"/>
+<part name="C61" value="100nF" device="0402"/>
+<part name="D4" value="PESD5V0S1BL" device="SOD323"/>
+
+<!-- ================================================================== -->
+<!-- DECOUPLING CAPACITORS (General) -->
+<!-- ================================================================== -->
+<part name="C7" value="100nF" device="0402"/>
+<part name="C8" value="100nF" device="0402"/>
+<part name="C9" value="100nF" device="0402"/>
 
 </parts>
 <sheets>
@@ -127,7 +175,7 @@
 <text x="10" y="180" size="2.54" layer="94">MICROCONTROLLER</text>
 <text x="10" y="130" size="2.54" layer="94">LORA MODULE</text>
 <text x="120" y="180" size="2.54" layer="94">CAN BUS</text>
-<text x="120" y="130" size="2.54" layer="94">MEMORY</text>
+<text x="120" y="130" size="2.54" layer="94">MEMORY (STANDARD PINS)</text>
 <text x="200" y="180" size="2.54" layer="94">RTC</text>
 <text x="200" y="130" size="2.54" layer="94">POWER</text>
 <text x="10" y="80" size="2.54" layer="94">STATUS LEDS</text>
@@ -189,75 +237,102 @@
 </net>
 
 <!-- ================================================================== -->
-<!-- SPI BUS -->
+<!-- SPI BUS 0 - PERIPHERALS (CAN + LORA) -->
 <!-- ================================================================== -->
-<net name="SPI_SCK" class="0">
+<net name="PERIPH_SCK" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.26"/>
+<pinref part="U1" gate="G$1" pin="P0.27"/>
 <pinref part="U2" gate="G$1" pin="SCK"/>
 <pinref part="U3" gate="G$1" pin="SCK"/>
-<pinref part="U5" gate="G$1" pin="SCK"/>
-<pinref part="U6" gate="G$1" pin="CLK"/>
-<wire x1="80" y1="170" x2="180" y2="170" width="0.254" layer="91"/>
+<wire x1="80" y1="170" x2="140" y2="170" width="0.254" layer="91"/>
 <label x="100" y="172" size="1.778" layer="95"/>
 </segment>
 </net>
-<net name="SPI_MOSI" class="0">
+<net name="PERIPH_MOSI" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.27"/>
+<pinref part="U1" gate="G$1" pin="P0.28"/>
 <pinref part="U2" gate="G$1" pin="MOSI"/>
 <pinref part="U3" gate="G$1" pin="SI"/>
-<pinref part="U5" gate="G$1" pin="SI"/>
-<pinref part="U6" gate="G$1" pin="DI"/>
-<wire x1="80" y1="165" x2="180" y2="165" width="0.254" layer="91"/>
+<wire x1="80" y1="165" x2="140" y2="165" width="0.254" layer="91"/>
 <label x="100" y="167" size="1.778" layer="95"/>
 </segment>
 </net>
-<net name="SPI_MISO" class="0">
+<net name="PERIPH_MISO" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.28"/>
+<pinref part="U1" gate="G$1" pin="P0.29"/>
 <pinref part="U2" gate="G$1" pin="MISO"/>
 <pinref part="U3" gate="G$1" pin="SO"/>
+<wire x1="80" y1="160" x2="140" y2="160" width="0.254" layer="91"/>
+<label x="100" y="162" size="1.778" layer="95"/>
+</segment>
+</net>
+
+<!-- ================================================================== -->
+<!-- SPI BUS 2 - MEMORY (STANDARD PINS P0.22-P0.26) -->
+<!-- ================================================================== -->
+<net name="MEM_SCK" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.26"/>
+<pinref part="U5" gate="G$1" pin="SCK"/>
+<pinref part="U6" gate="G$1" pin="CLK"/>
+<wire x1="80" y1="155" x2="180" y2="155" width="0.254" layer="91"/>
+<label x="145" y="157" size="1.778" layer="95"/>
+</segment>
+</net>
+<net name="MEM_MOSI" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.25"/>
+<pinref part="U5" gate="G$1" pin="SI"/>
+<pinref part="U6" gate="G$1" pin="DI"/>
+<wire x1="80" y1="150" x2="180" y2="150" width="0.254" layer="91"/>
+<label x="145" y="152" size="1.778" layer="95"/>
+</segment>
+</net>
+<net name="MEM_MISO" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.24"/>
 <pinref part="U5" gate="G$1" pin="SO"/>
 <pinref part="U6" gate="G$1" pin="DO"/>
-<wire x1="80" y1="160" x2="180" y2="160" width="0.254" layer="91"/>
-<label x="100" y="162" size="1.778" layer="95"/>
+<wire x1="80" y1="145" x2="180" y2="145" width="0.254" layer="91"/>
+<label x="145" y="147" size="1.778" layer="95"/>
 </segment>
 </net>
 
 <!-- ================================================================== -->
 <!-- CHIP SELECTS -->
 <!-- ================================================================== -->
-<net name="LORA_CS" class="0">
-<segment>
-<pinref part="U1" gate="G$1" pin="P0.12"/>
-<pinref part="U2" gate="G$1" pin="NSS"/>
-<wire x1="80" y1="155" x2="100" y2="140" width="0.254" layer="91"/>
-<label x="85" y="150" size="1.778" layer="95"/>
-</segment>
-</net>
+<!-- Peripheral SPI CS -->
 <net name="CAN_CS" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.11"/>
+<pinref part="U1" gate="G$1" pin="P0.30"/>
 <pinref part="U3" gate="G$1" pin="CS"/>
-<wire x1="80" y1="150" x2="130" y2="170" width="0.254" layer="91"/>
-<label x="90" y="155" size="1.778" layer="95"/>
+<wire x1="80" y1="140" x2="130" y2="170" width="0.254" layer="91"/>
+<label x="90" y="150" size="1.778" layer="95"/>
 </segment>
 </net>
+<net name="LORA_CS" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.31"/>
+<pinref part="U2" gate="G$1" pin="NSS"/>
+<wire x1="80" y1="135" x2="100" y2="140" width="0.254" layer="91"/>
+<label x="85" y="138" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- Memory SPI CS (Standard Pins) -->
 <net name="FRAM_CS" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.13"/>
+<pinref part="U1" gate="G$1" pin="P0.23"/>
 <pinref part="U5" gate="G$1" pin="CS"/>
-<wire x1="80" y1="145" x2="130" y2="140" width="0.254" layer="91"/>
-<label x="90" y="143" size="1.778" layer="95"/>
+<wire x1="80" y1="130" x2="180" y2="140" width="0.254" layer="91"/>
+<label x="145" y="135" size="1.778" layer="95"/>
 </segment>
 </net>
 <net name="FLASH_CS" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.29"/>
+<pinref part="U1" gate="G$1" pin="P0.22"/>
 <pinref part="U6" gate="G$1" pin="CS"/>
-<wire x1="80" y1="140" x2="130" y2="135" width="0.254" layer="91"/>
-<label x="90" y="138" size="1.778" layer="95"/>
+<wire x1="80" y1="125" x2="180" y2="135" width="0.254" layer="91"/>
+<label x="145" y="130" size="1.778" layer="95"/>
 </segment>
 </net>
 
@@ -268,16 +343,16 @@
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.16"/>
 <pinref part="U2" gate="G$1" pin="RESET"/>
-<wire x1="80" y1="135" x2="100" y2="135" width="0.254" layer="91"/>
-<label x="85" y="137" size="1.778" layer="95"/>
+<wire x1="80" y1="120" x2="100" y2="120" width="0.254" layer="91"/>
+<label x="85" y="122" size="1.778" layer="95"/>
 </segment>
 </net>
 <net name="LORA_DIO0" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.15"/>
 <pinref part="U2" gate="G$1" pin="DIO0"/>
-<wire x1="80" y1="130" x2="100" y2="130" width="0.254" layer="91"/>
-<label x="85" y="132" size="1.778" layer="95"/>
+<wire x1="80" y1="115" x2="100" y2="115" width="0.254" layer="91"/>
+<label x="85" y="117" size="1.778" layer="95"/>
 </segment>
 </net>
 
@@ -288,8 +363,8 @@
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.14"/>
 <pinref part="U3" gate="G$1" pin="INT"/>
-<wire x1="80" y1="125" x2="130" y2="165" width="0.254" layer="91"/>
-<label x="90" y="130" size="1.778" layer="95"/>
+<wire x1="80" y1="110" x2="130" y2="165" width="0.254" layer="91"/>
+<label x="90" y="120" size="1.778" layer="95"/>
 </segment>
 </net>
 <net name="CAN_TX" class="0">
@@ -330,22 +405,33 @@
 </net>
 
 <!-- ================================================================== -->
-<!-- I2C BUS (RTC) -->
+<!-- I2C BUS (RTC) - Moved to P0.02/P0.03 to avoid conflict with memory bus -->
 <!-- ================================================================== -->
 <net name="I2C_SDA" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.24"/>
+<pinref part="U1" gate="G$1" pin="P0.02"/>
 <pinref part="U7" gate="G$1" pin="SDA"/>
-<wire x1="80" y1="120" x2="210" y2="170" width="0.254" layer="91"/>
-<label x="150" y="150" size="1.778" layer="95"/>
+<pinref part="R20" gate="G$1" pin="1"/>
+<wire x1="80" y1="100" x2="210" y2="170" width="0.254" layer="91"/>
+<label x="150" y="140" size="1.778" layer="95"/>
 </segment>
 </net>
 <net name="I2C_SCL" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.25"/>
+<pinref part="U1" gate="G$1" pin="P0.03"/>
 <pinref part="U7" gate="G$1" pin="SCL"/>
-<wire x1="80" y1="115" x2="210" y2="165" width="0.254" layer="91"/>
-<label x="150" y="145" size="1.778" layer="95"/>
+<pinref part="R21" gate="G$1" pin="1"/>
+<wire x1="80" y1="95" x2="210" y2="165" width="0.254" layer="91"/>
+<label x="150" y="135" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- I2C Pull-ups to VCC -->
+<net name="I2C_PULLUP" class="0">
+<segment>
+<pinref part="R20" gate="G$1" pin="2"/>
+<pinref part="R21" gate="G$1" pin="2"/>
+<wire x1="215" y1="175" x2="215" y2="180" width="0.254" layer="91"/>
+<label x="217" y="177" size="1.778" layer="95"/>
 </segment>
 </net>
 
@@ -390,7 +476,7 @@
 </net>
 <net name="PAIRING_BTN" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.30"/>
+<pinref part="U1" gate="G$1" pin="P0.11"/>
 <pinref part="SW1" gate="G$1" pin="1"/>
 <wire x1="80" y1="70" x2="60" y2="50" width="0.254" layer="91"/>
 <label x="65" y="60" size="1.778" layer="95"/>

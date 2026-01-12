@@ -1,10 +1,12 @@
 /**
  * @file agsys_fram.h
- * @brief FRAM driver for FM25V02 (256Kbit SPI F-RAM)
+ * @brief FRAM driver for MB85RS1MT (1Mbit SPI F-RAM)
  * 
- * Provides persistent storage for settings, calibration, and BLE PIN.
- * Event logs are stored in W25Q16 flash (see agsys_flash_log.h).
+ * Provides persistent storage for settings, calibration, BLE PIN, and runtime logs.
  * Uses the SPI bus manager for thread-safe access.
+ * 
+ * Memory layout is defined in agsys_memory_layout.h (shared across all devices).
+ * See that header for the canonical memory map and layout versioning details.
  */
 
 #ifndef AGSYS_FRAM_H
@@ -12,15 +14,16 @@
 
 #include "agsys_common.h"
 #include "agsys_spi.h"
+#include "agsys_memory_layout.h"
 
 /* ==========================================================================
  * DEVICE SPECIFICATIONS
  * ========================================================================== */
 
-#define AGSYS_FRAM_SIZE             32768   /* 256Kbit = 32KB */
+#define AGSYS_FRAM_SIZE             131072  /* 1Mbit = 128KB */
 #define AGSYS_FRAM_PAGE_SIZE        64      /* No actual pages, but useful for alignment */
 
-/* FM25V02 Commands */
+/* MB85RS1MT SPI Commands */
 #define AGSYS_FRAM_CMD_WREN         0x06    /* Write Enable */
 #define AGSYS_FRAM_CMD_WRDI         0x04    /* Write Disable */
 #define AGSYS_FRAM_CMD_RDSR         0x05    /* Read Status Register */
@@ -30,29 +33,43 @@
 #define AGSYS_FRAM_CMD_RDID         0x9F    /* Read Device ID */
 
 /* ==========================================================================
- * MEMORY MAP
+ * MEMORY LAYOUT ALIASES
+ * 
+ * Memory layout is defined in agsys_memory_layout.h.
+ * These aliases provide backward compatibility with existing code.
  * ========================================================================== */
 
-/* Define memory regions for different data types */
-#define AGSYS_FRAM_REGION_SETTINGS      0x0000  /* Device settings */
-#define AGSYS_FRAM_REGION_SETTINGS_SIZE 0x0200  /* 512 bytes */
+/* Legacy region aliases - use AGSYS_FRAM_*_ADDR from agsys_memory_layout.h */
+#define AGSYS_FRAM_REGION_HEADER        AGSYS_FRAM_LAYOUT_HEADER_ADDR
+#define AGSYS_FRAM_REGION_HEADER_SIZE   AGSYS_FRAM_LAYOUT_HEADER_SIZE
+#define AGSYS_FRAM_REGION_BOOT_INFO     AGSYS_FRAM_BOOT_INFO_ADDR
+#define AGSYS_FRAM_REGION_BOOT_INFO_SIZE    AGSYS_FRAM_BOOT_INFO_SIZE
+#define AGSYS_FRAM_REGION_BL_INFO       AGSYS_FRAM_BL_INFO_ADDR
+#define AGSYS_FRAM_REGION_BL_INFO_SIZE  AGSYS_FRAM_BL_INFO_SIZE
+#define AGSYS_FRAM_REGION_CONFIG        AGSYS_FRAM_CONFIG_ADDR
+#define AGSYS_FRAM_REGION_CONFIG_SIZE   AGSYS_FRAM_CONFIG_SIZE
+#define AGSYS_FRAM_REGION_CALIB         AGSYS_FRAM_CALIB_ADDR
+#define AGSYS_FRAM_REGION_CALIB_SIZE    AGSYS_FRAM_CALIB_SIZE
+#define AGSYS_FRAM_REGION_APP_DATA      AGSYS_FRAM_APP_DATA_ADDR
+#define AGSYS_FRAM_REGION_APP_DATA_SIZE AGSYS_FRAM_APP_DATA_SIZE
+#define AGSYS_FRAM_REGION_LOG           AGSYS_FRAM_LOG_ADDR
+#define AGSYS_FRAM_REGION_LOG_SIZE      AGSYS_FRAM_LOG_SIZE
 
-#define AGSYS_FRAM_REGION_CALIB         0x0200  /* Calibration data */
-#define AGSYS_FRAM_REGION_CALIB_SIZE    0x0100  /* 256 bytes */
+/* Legacy address aliases */
+#define AGSYS_FRAM_REGION_SETTINGS      AGSYS_FRAM_CONFIG_ADDR
+#define AGSYS_FRAM_REGION_SETTINGS_SIZE AGSYS_FRAM_CONFIG_SIZE
+#define AGSYS_FRAM_REGION_CRYPTO        AGSYS_FRAM_CRYPTO_ADDR
+#define AGSYS_FRAM_REGION_CRYPTO_SIZE   AGSYS_FRAM_CRYPTO_SIZE
+#define AGSYS_FRAM_ADDR_BLE_PIN         AGSYS_FRAM_BLE_PIN_ADDR
+#define AGSYS_FRAM_ADDR_BOOT_COUNT      AGSYS_FRAM_BOOT_COUNT_ADDR
+#define AGSYS_FRAM_ADDR_LAST_ERROR      AGSYS_FRAM_LAST_ERROR_ADDR
 
-#define AGSYS_FRAM_REGION_CRYPTO        0x0300  /* Crypto keys/salt */
-#define AGSYS_FRAM_REGION_CRYPTO_SIZE   0x0040  /* 64 bytes */
+/* Layout version/magic aliases */
+#define AGSYS_FRAM_LAYOUT_VERSION       AGSYS_LAYOUT_VERSION
+#define AGSYS_FRAM_LAYOUT_MAGIC         AGSYS_LAYOUT_MAGIC
 
-/* Specific addresses within regions */
-#define AGSYS_FRAM_ADDR_BLE_PIN         0x0010  /* BLE PIN (6 bytes) */
-#define AGSYS_FRAM_ADDR_BOOT_COUNT      0x0020  /* Boot count (4 bytes) */
-#define AGSYS_FRAM_ADDR_LAST_ERROR      0x0024  /* Last error code (2 bytes) */
-
-/* Note: Event logs are stored in W25Q16 flash, not FRAM (see agsys_flash_log.h) */
-
-/* ==========================================================================
- * TYPES
- * ========================================================================== */
+/* Layout header type alias */
+typedef agsys_layout_header_t agsys_fram_layout_header_t;
 
 /**
  * @brief FRAM context
@@ -60,6 +77,7 @@
 typedef struct {
     agsys_spi_handle_t  spi_handle;
     bool                initialized;
+    uint8_t             layout_version;  /* Cached from header */
 } agsys_fram_ctx_t;
 
 /* ==========================================================================
@@ -85,7 +103,7 @@ void agsys_fram_deinit(agsys_fram_ctx_t *ctx);
 /**
  * @brief Verify FRAM is present and responding
  * 
- * Reads device ID and verifies it matches FM25V02.
+ * Reads device ID and verifies it matches MB85RS1MT (128KB).
  * 
  * @param ctx       FRAM context
  * @return AGSYS_OK if FRAM is present
@@ -100,13 +118,13 @@ agsys_err_t agsys_fram_verify(agsys_fram_ctx_t *ctx);
  * @brief Read data from FRAM
  * 
  * @param ctx       FRAM context
- * @param addr      Start address (0 - 32767)
+ * @param addr      Start address (0 - 131071)
  * @param data      Output buffer
  * @param len       Number of bytes to read
  * @return AGSYS_OK on success
  */
 agsys_err_t agsys_fram_read(agsys_fram_ctx_t *ctx,
-                             uint16_t addr,
+                             uint32_t addr,
                              uint8_t *data,
                              size_t len);
 
@@ -114,13 +132,13 @@ agsys_err_t agsys_fram_read(agsys_fram_ctx_t *ctx,
  * @brief Write data to FRAM
  * 
  * @param ctx       FRAM context
- * @param addr      Start address (0 - 32767)
+ * @param addr      Start address (0 - 131071)
  * @param data      Data to write
  * @param len       Number of bytes to write
  * @return AGSYS_OK on success
  */
 agsys_err_t agsys_fram_write(agsys_fram_ctx_t *ctx,
-                              uint16_t addr,
+                              uint32_t addr,
                               const uint8_t *data,
                               size_t len);
 
@@ -133,7 +151,7 @@ agsys_err_t agsys_fram_write(agsys_fram_ctx_t *ctx,
  * @return AGSYS_OK on success
  */
 agsys_err_t agsys_fram_erase(agsys_fram_ctx_t *ctx,
-                              uint16_t addr,
+                              uint32_t addr,
                               size_t len);
 
 /* ==========================================================================
@@ -150,7 +168,7 @@ agsys_err_t agsys_fram_erase(agsys_fram_ctx_t *ctx,
  * @return AGSYS_OK on success, AGSYS_ERR_FRAM if CRC mismatch
  */
 agsys_err_t agsys_fram_read_checked(agsys_fram_ctx_t *ctx,
-                                     uint16_t addr,
+                                     uint32_t addr,
                                      void *data,
                                      size_t len);
 
@@ -164,7 +182,7 @@ agsys_err_t agsys_fram_read_checked(agsys_fram_ctx_t *ctx,
  * @return AGSYS_OK on success
  */
 agsys_err_t agsys_fram_write_checked(agsys_fram_ctx_t *ctx,
-                                      uint16_t addr,
+                                      uint32_t addr,
                                       const void *data,
                                       size_t len);
 

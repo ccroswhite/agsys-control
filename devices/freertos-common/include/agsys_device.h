@@ -14,8 +14,8 @@
 #include "agsys_ble.h"
 #include "agsys_ble_auth.h"
 #include "agsys_fram.h"
+#include "agsys_fram_log.h"
 #include "agsys_flash.h"
-#include "agsys_flash_log.h"
 #include "agsys_flash_backup.h"
 
 #ifdef __cplusplus

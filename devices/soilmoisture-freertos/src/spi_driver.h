@@ -2,7 +2,7 @@
  * @file spi_driver.h
  * @brief SPI driver for Soil Moisture Sensor
  * 
- * Manages shared SPI bus for RFM95C LoRa, FM25V02 FRAM, and W25Q16 Flash.
+ * Manages shared SPI bus for RFM95C LoRa, MB85RS1MT FRAM, and W25Q16 Flash.
  */
 
 #ifndef SPI_DRIVER_H

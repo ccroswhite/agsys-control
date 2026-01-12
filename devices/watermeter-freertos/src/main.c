@@ -34,6 +34,10 @@
 #include "agsys_device.h"
 #include "agsys_protocol.h"
 #include "agsys_approtect.h"
+#include "agsys_ota.h"
+#include "agsys_ble_ota.h"
+#include "agsys_flash.h"
+#include "agsys_flash_backup.h"
 #include "board_config.h"
 #include "lora_task.h"
 #include "display.h"
@@ -47,6 +51,14 @@ SemaphoreHandle_t g_spi_mutex = NULL;
 
 /* Device context (BLE, FRAM, Flash, auth) - non-static for logging access */
 agsys_device_ctx_t m_device_ctx;
+
+/* OTA contexts */
+static agsys_flash_ctx_t m_flash_ctx;
+static agsys_backup_ctx_t m_backup_ctx;
+static agsys_ota_ctx_t m_ota_ctx;
+static agsys_ble_ota_t m_ble_ota_ctx;
+static bool m_ota_in_progress = false;
+static char m_ota_version_str[16] = {0};
 
 /* ==========================================================================
  * FLOW MEASUREMENT STATE
@@ -70,19 +82,11 @@ volatile float g_total_volume_l = 0.0f;
 volatile uint8_t g_alarm_flags = 0;
 
 /* ==========================================================================
- * ALARM STATE
+ * ALARM STATE (types defined in ui_types.h)
  * ========================================================================== */
 
-typedef enum {
-    ALARM_NONE = 0,
-    ALARM_LEAK,
-    ALARM_REVERSE_FLOW,
-    ALARM_TAMPER,
-    ALARM_HIGH_FLOW
-} alarm_type_t;
-
 typedef struct {
-    alarm_type_t type;
+    AlarmType_t type;
     uint32_t start_time_sec;
     float flow_rate_lpm;
     float volume_l;
@@ -92,16 +96,10 @@ typedef struct {
 static alarm_state_t m_alarm_state = {0};
 
 /* ==========================================================================
- * DISPLAY STATE
+ * DISPLAY STATE (types defined in ui_types.h)
  * ========================================================================== */
 
-typedef enum {
-    DISPLAY_ACTIVE = 0,
-    DISPLAY_DIM,
-    DISPLAY_SLEEP
-} display_power_t;
-
-static display_power_t m_display_power = DISPLAY_ACTIVE;
+static DisplayPowerState_t m_display_power = DISPLAY_ACTIVE;
 static uint32_t m_last_activity_tick = 0;
 
 /* ==========================================================================
@@ -122,22 +120,8 @@ static TaskHandle_t m_display_task_handle = NULL;
 static TaskHandle_t m_button_task_handle = NULL;
 
 /* ==========================================================================
- * BUTTON EVENT QUEUE
+ * BUTTON EVENT QUEUE (types defined in ui_types.h)
  * ========================================================================== */
-
-typedef enum {
-    BTN_NONE = 0,
-    BTN_UP_SHORT,
-    BTN_UP_LONG,
-    BTN_DOWN_SHORT,
-    BTN_DOWN_LONG,
-    BTN_LEFT_SHORT,
-    BTN_LEFT_LONG,
-    BTN_RIGHT_SHORT,
-    BTN_RIGHT_LONG,
-    BTN_SELECT_SHORT,
-    BTN_SELECT_LONG
-} button_event_t;
 
 static QueueHandle_t m_button_queue = NULL;
 
@@ -255,6 +239,257 @@ static void ble_event_handler(const agsys_ble_evt_t *evt)
 }
 
 /* ==========================================================================
+ * OTA CALLBACKS AND HELPERS
+ * ========================================================================== */
+
+static const char *ota_status_to_string(agsys_ota_status_t status)
+{
+    switch (status) {
+        case AGSYS_OTA_STATUS_IDLE:              return "Idle";
+        case AGSYS_OTA_STATUS_BACKUP_IN_PROGRESS: return "Backing up...";
+        case AGSYS_OTA_STATUS_RECEIVING:         return "Receiving...";
+        case AGSYS_OTA_STATUS_VERIFYING:         return "Verifying...";
+        case AGSYS_OTA_STATUS_APPLYING:          return "Applying...";
+        case AGSYS_OTA_STATUS_PENDING_REBOOT:    return "Complete!";
+        case AGSYS_OTA_STATUS_PENDING_CONFIRM:   return "Confirming...";
+        case AGSYS_OTA_STATUS_ERROR:             return "Error";
+        default:                                 return "Unknown";
+    }
+}
+
+static const char *ota_error_to_string(agsys_ota_error_t error)
+{
+    switch (error) {
+        case AGSYS_OTA_ERR_NONE:                return "No error";
+        case AGSYS_OTA_ERR_ALREADY_IN_PROGRESS: return "Update already in progress";
+        case AGSYS_OTA_ERR_BACKUP_FAILED:       return "Backup failed";
+        case AGSYS_OTA_ERR_FLASH_ERASE:         return "Flash erase failed";
+        case AGSYS_OTA_ERR_FLASH_WRITE:         return "Flash write failed";
+        case AGSYS_OTA_ERR_INVALID_CHUNK:       return "Invalid data chunk";
+        case AGSYS_OTA_ERR_CRC_MISMATCH:        return "CRC verification failed";
+        case AGSYS_OTA_ERR_SIZE_MISMATCH:       return "Size mismatch";
+        case AGSYS_OTA_ERR_SIGNATURE_INVALID:   return "Invalid signature";
+        case AGSYS_OTA_ERR_INTERNAL_FLASH:      return "Internal flash error";
+        case AGSYS_OTA_ERR_NOT_STARTED:         return "OTA not started";
+        case AGSYS_OTA_ERR_TIMEOUT:             return "Timeout";
+        default:                                return "Unknown error";
+    }
+}
+
+static void ota_progress_callback(agsys_ota_status_t status, uint8_t progress, void *user_data)
+{
+    (void)user_data;
+    
+    SEGGER_RTT_printf(0, "OTA: %s (%d%%)\n", ota_status_to_string(status), progress);
+    
+    /* Update display */
+    if (!m_ota_in_progress && status != AGSYS_OTA_STATUS_IDLE) {
+        m_ota_in_progress = true;
+        /* Get version from OTA context */
+        snprintf(m_ota_version_str, sizeof(m_ota_version_str), "%d.%d.%d",
+                 m_ota_ctx.expected_version[0],
+                 m_ota_ctx.expected_version[1],
+                 m_ota_ctx.expected_version[2]);
+        display_showOTAProgress(progress, ota_status_to_string(status), m_ota_version_str);
+    } else if (m_ota_in_progress) {
+        display_updateOTAProgress(progress);
+        display_updateOTAStatus(ota_status_to_string(status));
+    }
+}
+
+static void ota_complete_callback(bool success, agsys_ota_error_t error, void *user_data)
+{
+    (void)user_data;
+    
+    if (success) {
+        SEGGER_RTT_printf(0, "OTA: Complete, rebooting...\n");
+        display_updateOTAStatus("Rebooting...");
+        /* Reboot is handled by OTA module after ACK sent */
+    } else {
+        SEGGER_RTT_printf(0, "OTA: Failed - %s\n", ota_error_to_string(error));
+        m_ota_in_progress = false;
+        display_showOTAError(ota_error_to_string(error));
+    }
+}
+
+static bool init_ota(void)
+{
+    /* Initialize external flash */
+    if (!agsys_flash_init(&m_flash_ctx, SPI_CS_FLASH_PIN)) {
+        SEGGER_RTT_printf(0, "OTA: Flash init failed\n");
+        return false;
+    }
+    
+    /* Initialize backup system */
+    if (!agsys_backup_init(&m_backup_ctx, &m_flash_ctx)) {
+        SEGGER_RTT_printf(0, "OTA: Backup init failed\n");
+        return false;
+    }
+    
+    /* Check for rollback from previous failed update */
+    if (agsys_backup_check_rollback(&m_backup_ctx)) {
+        SEGGER_RTT_printf(0, "OTA: Rollback occurred from failed update\n");
+        uint8_t major, minor, patch;
+        if (agsys_backup_get_failed_version(&m_backup_ctx, &major, &minor, &patch)) {
+            SEGGER_RTT_printf(0, "OTA: Failed version was v%d.%d.%d\n", major, minor, patch);
+        }
+    }
+    
+    /* Initialize OTA module */
+    if (!agsys_ota_init(&m_ota_ctx, &m_flash_ctx, &m_backup_ctx)) {
+        SEGGER_RTT_printf(0, "OTA: OTA init failed\n");
+        return false;
+    }
+    
+    /* Set callbacks */
+    agsys_ota_set_progress_callback(&m_ota_ctx, ota_progress_callback, NULL);
+    agsys_ota_set_complete_callback(&m_ota_ctx, ota_complete_callback, NULL);
+    
+    /* Register tasks to suspend during OTA apply phase */
+    agsys_ota_register_task(m_adc_task_handle);
+    agsys_ota_register_task(m_display_task_handle);
+    agsys_ota_register_task(m_button_task_handle);
+    
+    /* LoRa OTA: Messages are handled via lora_task calling ota_handle_lora_message() 
+     * See ota_handle_lora_message() below for the handler function */
+    SEGGER_RTT_printf(0, "OTA: LoRa OTA enabled (via lora_task)\n");
+    
+    /* Initialize BLE OTA service */
+    uint32_t err_code = agsys_ble_ota_init(&m_ble_ota_ctx, &m_ota_ctx);
+    if (err_code != NRF_SUCCESS) {
+        SEGGER_RTT_printf(0, "OTA: BLE OTA init failed (err=%lu)\n", err_code);
+        /* Continue - LoRa OTA can still work */
+    } else {
+        SEGGER_RTT_printf(0, "OTA: BLE OTA enabled\n");
+    }
+    
+    /* Confirm firmware if pending from previous OTA */
+    if (agsys_ota_is_confirm_pending(&m_ota_ctx)) {
+        SEGGER_RTT_printf(0, "OTA: Confirming firmware after successful boot\n");
+        agsys_ota_confirm(&m_ota_ctx);
+    }
+    
+    SEGGER_RTT_printf(0, "OTA: Initialized\n");
+    return true;
+}
+
+/* ==========================================================================
+ * LORA OTA MESSAGE HANDLER (called from lora_task)
+ * ========================================================================== */
+
+/**
+ * @brief Handle incoming LoRa OTA message
+ * 
+ * Called by lora_task when an OTA message (0x40-0x45) is received.
+ * Returns response data to send back to controller.
+ * 
+ * @param msg_type Message type (0x40-0x45)
+ * @param data Message payload
+ * @param len Payload length
+ * @param response Output buffer for response (at least 4 bytes)
+ * @param response_len Output: response length
+ * @return true if response should be sent
+ */
+bool ota_handle_lora_message(uint8_t msg_type, const uint8_t *data, size_t len,
+                              uint8_t *response, size_t *response_len)
+{
+    if (data == NULL || response == NULL || response_len == NULL) {
+        return false;
+    }
+    
+    *response_len = 0;
+    
+    switch (msg_type) {
+        case 0x40: {  /* OTA_START */
+            if (len < 12) {
+                SEGGER_RTT_printf(0, "OTA: Invalid START message\n");
+                response[0] = 0x80;  /* ACK_ERROR */
+                response[1] = 0;
+                *response_len = 2;
+                return true;
+            }
+            
+            uint32_t fw_size = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+            uint32_t fw_crc = data[4] | (data[5] << 8) | (data[6] << 16) | (data[7] << 24);
+            uint8_t major = data[8];
+            uint8_t minor = data[9];
+            uint8_t patch = data[10];
+            
+            SEGGER_RTT_printf(0, "OTA: LoRa START - size=%lu, v%d.%d.%d\n", 
+                              fw_size, major, minor, patch);
+            
+            agsys_ota_error_t err = agsys_ota_start(&m_ota_ctx, fw_size, fw_crc, 
+                                                     major, minor, patch);
+            if (err == AGSYS_OTA_ERR_NONE) {
+                response[0] = 0x01;  /* ACK_READY */
+                response[1] = 0;
+                *response_len = 2;
+            } else {
+                response[0] = 0x80;  /* ACK_ERROR */
+                response[1] = (uint8_t)err;
+                *response_len = 2;
+            }
+            return true;
+        }
+        
+        case 0x41: {  /* OTA_CHUNK */
+            if (len < 4) {
+                return false;
+            }
+            
+            uint16_t chunk_idx = data[0] | (data[1] << 8);
+            /* offset_check at data[2-3] can be used for verification if needed */
+            const uint8_t *chunk_data = &data[4];
+            size_t chunk_len = len - 4;
+            
+            /* Calculate actual offset from chunk index */
+            uint32_t offset = (uint32_t)chunk_idx * 200;  /* 200 byte chunks for LoRa */
+            
+            agsys_ota_error_t err = agsys_ota_write_chunk(&m_ota_ctx, offset, 
+                                                          chunk_data, chunk_len);
+            
+            response[0] = (err == AGSYS_OTA_ERR_NONE) ? 0x02 : 0x80;  /* ACK_CHUNK_OK or ERROR */
+            response[1] = agsys_ota_get_progress(&m_ota_ctx);
+            response[2] = chunk_idx & 0xFF;
+            response[3] = (chunk_idx >> 8) & 0xFF;
+            *response_len = 4;
+            return true;
+        }
+        
+        case 0x42: {  /* OTA_FINISH */
+            SEGGER_RTT_printf(0, "OTA: LoRa FINISH\n");
+            
+            agsys_ota_error_t err = agsys_ota_finish(&m_ota_ctx);
+            if (err == AGSYS_OTA_ERR_NONE) {
+                response[0] = 0x04;  /* ACK_REBOOTING */
+                response[1] = 100;
+                *response_len = 2;
+                /* Reboot will happen after ACK is sent (handled by complete callback) */
+            } else {
+                response[0] = 0x80;  /* ACK_ERROR */
+                response[1] = (uint8_t)err;
+                *response_len = 2;
+            }
+            return true;
+        }
+        
+        case 0x43: {  /* OTA_ABORT */
+            SEGGER_RTT_printf(0, "OTA: LoRa ABORT\n");
+            agsys_ota_abort(&m_ota_ctx);
+            m_ota_in_progress = false;
+            display_showMain();
+            
+            response[0] = 0x00;  /* ACK_OK */
+            *response_len = 1;
+            return true;
+        }
+        
+        default:
+            return false;
+    }
+}
+
+/* ==========================================================================
  * SOFTDEVICE INITIALIZATION
  * ========================================================================== */
 
@@ -309,7 +544,7 @@ static bool create_shared_resources(void)
     }
     
     /* Create button event queue */
-    m_button_queue = xQueueCreate(10, sizeof(button_event_t));
+    m_button_queue = xQueueCreate(10, sizeof(ButtonEvent_t));
     if (m_button_queue == NULL) {
         SEGGER_RTT_printf(0, "Failed to create button queue\n");
         return false;
@@ -378,7 +613,7 @@ static void display_task(void *pvParameters)
         }
         
         /* Process button events from queue */
-        button_event_t btn_event;
+        ButtonEvent_t btn_event;
         while (xQueueReceive(m_button_queue, &btn_event, 0) == pdTRUE) {
             /* Reset activity timer on any button press */
             m_last_activity_tick = xTaskGetTickCount();
@@ -390,7 +625,7 @@ static void display_task(void *pvParameters)
         
         /* Update display power state */
         TickType_t idle_time = xTaskGetTickCount() - m_last_activity_tick;
-        if (m_alarm_state.type == ALARM_NONE) {
+        if (m_alarm_state.type == ALARM_CLEARED) {
             if (idle_time > pdMS_TO_TICKS(AGSYS_DISPLAY_DIM_TIMEOUT_SEC * 1000 + 
                                           AGSYS_DISPLAY_SLEEP_TIMEOUT_SEC * 1000)) {
                 m_display_power = DISPLAY_SLEEP;
@@ -404,6 +639,9 @@ static void display_task(void *pvParameters)
         
         /* Update BLE icon flash animation */
         display_tickBleIcon();
+        
+        /* Check OTA error screen timeout (60s auto-dismiss) */
+        display_tickOTAError();
         
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(20));  /* 50 Hz refresh */
     }
@@ -429,8 +667,8 @@ static void button_task(void *pvParameters)
     /* Button state tracking */
     typedef struct {
         uint8_t pin;
-        button_event_t short_event;
-        button_event_t long_event;
+        ButtonEvent_t short_event;
+        ButtonEvent_t long_event;
         bool pressed;
         uint32_t press_start;
     } button_t;
@@ -459,7 +697,7 @@ static void button_task(void *pvParameters)
                 buttons[i].pressed = false;
                 uint32_t duration = now - buttons[i].press_start;
                 
-                button_event_t event;
+                ButtonEvent_t event;
                 if (duration >= AGSYS_BTN_LONG_PRESS_MS) {
                     event = buttons[i].long_event;
                 } else if (duration >= AGSYS_BTN_DEBOUNCE_MS) {
@@ -575,6 +813,11 @@ int main(void)
     
     xTaskCreate(button_task, "Button", AGSYS_TASK_STACK_BUTTON,
                 NULL, AGSYS_TASK_PRIORITY_HIGH, &m_button_task_handle);
+    
+    /* Initialize OTA (LoRa + BLE) after tasks are created */
+    if (!init_ota()) {
+        SEGGER_RTT_printf(0, "WARNING: OTA init failed, updates disabled\n");
+    }
     
     SEGGER_RTT_printf(0, "Starting FreeRTOS scheduler...\n");
     

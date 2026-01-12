@@ -3,7 +3,7 @@
  * @brief W25Q16 SPI NOR Flash Driver for FreeRTOS
  * 
  * Low-level driver for Winbond W25Q16 (2MB) SPI flash.
- * Used for encrypted log storage and firmware backup.
+ * Used for firmware backup and OTA staging.
  * 
  * Flash Specifications:
  * - Capacity: 2MB (16 Mbit)
@@ -11,6 +11,9 @@
  * - Sector size: 4KB (smallest erasable unit)
  * - Block size: 64KB
  * - Erase cycles: 100,000 per sector
+ * 
+ * Memory layout is defined in agsys_memory_layout.h (shared across all devices).
+ * See that header for the canonical memory map (A/B firmware slots, etc.).
  */
 
 #ifndef AGSYS_FLASH_H
@@ -19,6 +22,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "agsys_memory_layout.h"
 
 #ifdef __cplusplus
 extern "C" {

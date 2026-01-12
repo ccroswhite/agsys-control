@@ -75,7 +75,17 @@ bool agsys_device_init(agsys_device_ctx_t *ctx, const agsys_device_init_t *init)
         return false;
     }
     
-    /* Initialize Flash (if CS pin provided) */
+    /* Initialize FRAM-based log storage (uses FRAM for unlimited write endurance) */
+    if (agsys_log_init(&ctx->log_ctx, &ctx->fram_ctx)) {
+        ctx->log_available = true;
+        SEGGER_RTT_printf(0, "Log (FRAM): %lu entries, %lu pending sync\n",
+                          agsys_log_get_total_count(&ctx->log_ctx),
+                          agsys_log_get_unsynced_count(&ctx->log_ctx));
+    } else {
+        SEGGER_RTT_printf(0, "WARNING: FRAM Log init failed\n");
+    }
+    
+    /* Initialize Flash (if CS pin provided) - used only for OTA firmware storage */
     if (init->flash_cs_pin != 0) {
         if (agsys_flash_init(&ctx->flash_ctx, init->flash_cs_pin) == AGSYS_OK) {
             ctx->flash_available = true;
@@ -83,17 +93,7 @@ bool agsys_device_init(agsys_device_ctx_t *ctx, const agsys_device_init_t *init)
                               ctx->flash_ctx.device_id,
                               ctx->flash_ctx.capacity / 1024);
             
-            /* Initialize encrypted log storage */
-            if (agsys_log_init(&ctx->log_ctx, &ctx->flash_ctx)) {
-                ctx->log_available = true;
-                SEGGER_RTT_printf(0, "Log: %lu entries, %lu pending sync\n",
-                                  agsys_log_get_total_count(&ctx->log_ctx),
-                                  agsys_log_get_unsynced_count(&ctx->log_ctx));
-            } else {
-                SEGGER_RTT_printf(0, "WARNING: Log init failed\n");
-            }
-            
-            /* Initialize firmware backup */
+            /* Initialize firmware backup (flash is only for OTA, not logging) */
             if (agsys_backup_init(&ctx->backup_ctx, &ctx->flash_ctx)) {
                 ctx->backup_available = true;
                 SEGGER_RTT_printf(0, "Backup: Slot A=%d, Slot B=%d\n",

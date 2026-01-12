@@ -6,14 +6,17 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
+#include "agsys_pins.h"  /* Standard memory bus pins */
+
 /* ==========================================================================
  * SPI BUS 0 - ADC (ADS131M02) - Dedicated for high-speed sampling
+ * Moved to avoid conflict with standard memory bus (P0.22-P0.26)
  * ========================================================================== */
 
-#define SPI0_SCK_PIN            NRF_GPIO_PIN_MAP(0, 25)  /* P0.25 */
-#define SPI0_MOSI_PIN           NRF_GPIO_PIN_MAP(0, 24)  /* P0.24 */
-#define SPI0_MISO_PIN           NRF_GPIO_PIN_MAP(0, 23)  /* P0.23 */
-#define SPI_CS_ADC_PIN          NRF_GPIO_PIN_MAP(0, 22)  /* P0.22 */
+#define SPI0_SCK_PIN            NRF_GPIO_PIN_MAP(0, 5)   /* P0.05 */
+#define SPI0_MOSI_PIN           NRF_GPIO_PIN_MAP(0, 4)   /* P0.04 */
+#define SPI0_MISO_PIN           NRF_GPIO_PIN_MAP(0, 3)   /* P0.03 */
+#define SPI_CS_ADC_PIN          NRF_GPIO_PIN_MAP(0, 2)   /* P0.02 */
 
 /* ==========================================================================
  * SPI BUS 1 - Display (ST7789)
@@ -34,15 +37,14 @@
 #define SPI_CS_LORA_PIN         NRF_GPIO_PIN_MAP(0, 10)  /* P0.10 */
 
 /* ==========================================================================
- * SPI BUS 3 - FRAM + Flash (shared)
- * Note: P0.07 not available on 48-pin QFAA, using P0.29 for SCLK
+ * SPI BUS 3 - External Memory (FRAM + Flash) - STANDARD PINS
+ * Uses standard pins from agsys_pins.h:
+ *   SCK=P0.26, MOSI=P0.25, MISO=P0.24, FRAM_CS=P0.23, FLASH_CS=P0.22
  * ========================================================================== */
-
-#define SPI3_SCK_PIN            NRF_GPIO_PIN_MAP(0, 29)  /* P0.29 */
-#define SPI3_MOSI_PIN           NRF_GPIO_PIN_MAP(0, 6)   /* P0.06 */
-#define SPI3_MISO_PIN           NRF_GPIO_PIN_MAP(0, 5)   /* P0.05 */
-#define SPI_CS_FRAM_PIN         NRF_GPIO_PIN_MAP(0, 4)   /* P0.04 */
-#define SPI_CS_FLASH_PIN        NRF_GPIO_PIN_MAP(0, 3)   /* P0.03 */
+/* FRAM and Flash CS pins defined in agsys_pins.h */
+#define SPI3_SCK_PIN            AGSYS_MEM_SPI_SCK
+#define SPI3_MOSI_PIN           AGSYS_MEM_SPI_MOSI
+#define SPI3_MISO_PIN           AGSYS_MEM_SPI_MISO
 
 /* ==========================================================================
  * ADC (ADS131M02)

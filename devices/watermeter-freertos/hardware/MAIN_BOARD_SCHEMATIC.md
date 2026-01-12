@@ -15,7 +15,7 @@ This document provides the complete netlist, BOM, and connection details for the
 | U3 | THS4551IDGKR | Fully Differential Amp | VSSOP-8 | 1 |
 | U4 | ADA4522-2ARMZ | Dual Zero-Drift Op-Amp | MSOP-8 | 1 |
 | U5 | RFM95CW | LoRa Module, 915MHz | Module | 1 |
-| U6 | FM25V02-G | 256Kbit FRAM | SOIC-8 | 1 |
+| U6 | MB85RS1MTPNF | 1Mbit FRAM (128KB) | SOIC-8 | 1 |
 | U7 | LMR36006QDDAR | Buck 24-60V→5V, 0.6A (digital) | SOT-23-6 | 1 |
 | U8 | LMR36006QDDAR | Buck 24-60V→5V, 0.6A (analog) | SOT-23-6 | 1 |
 | U9 | AP2112K-3.3 | LDO 5V→3.3V, 600mA (digital) | SOT-23-5 | 1 |
@@ -212,10 +212,15 @@ DISP_BL_EN (P0.14) ── R41 ──┬──── Q1 Gate
 | C33 | 4.7µF | 0402 | nRF52840 DCC |
 | C34 | 1µF | 0402 | nRF52840 DCC |
 | C35 | 100pF | 0402 | nRF52840 DCC |
-| L2 | 10µH | 0402 | nRF52840 DCC inductor |
-| Y1 | 32.768kHz | 3215 | RTC crystal |
-| C36 | 12pF | 0402 | Crystal load cap |
-| C37 | 12pF | 0402 | Crystal load cap |
+| L4 | 10nH | 0402 | nRF52840 DCC inductor |
+| Y1 | 32.768kHz | 3215 | RTC crystal (low-power) |
+| C36 | 6.8pF | 0402 | 32.768kHz crystal load cap |
+| C37 | 6.8pF | 0402 | 32.768kHz crystal load cap |
+| Y2 | 32MHz | 3215 | HFXO crystal (BLE timing) |
+| C38 | 12pF | 0402 | 32MHz crystal load cap |
+| C39 | 12pF | 0402 | 32MHz crystal load cap |
+
+**Note:** nRF52840 requires 32MHz crystal for BLE operation. 32.768kHz is for low-power RTC.
 
 ### Passive Components - LoRa
 
@@ -224,11 +229,43 @@ DISP_BL_EN (P0.14) ── R41 ──┬──── Q1 Gate
 | C40 | 100nF | 0402 | RFM95C decoupling |
 | C41 | 10µF | 0805 | RFM95C decoupling |
 
-### Passive Components - FRAM
+### Passive Components - FRAM + Flash (Standard Memory Bus)
 
 | Ref | Value | Package | Description |
 |-----|-------|---------|-------------|
-| C50 | 100nF | 0402 | FM25V02 decoupling |
+| C50 | 100nF | 0402 | MB85RS1MT (FRAM) decoupling |
+| C51 | 100nF | 0402 | W25Q16 (Flash) decoupling |
+
+### Passive Components - Navigation Buttons
+
+| Ref | Value | Package | Description |
+|-----|-------|---------|-------------|
+| R50 | 10K | 0402 | BTN_UP pull-up (internal pull-up also available) |
+| R51 | 10K | 0402 | BTN_DOWN pull-up |
+| R52 | 10K | 0402 | BTN_LEFT pull-up |
+| R53 | 10K | 0402 | BTN_RIGHT pull-up |
+| R54 | 10K | 0402 | BTN_SELECT pull-up |
+| C52 | 100nF | 0402 | BTN_UP debounce |
+| C53 | 100nF | 0402 | BTN_DOWN debounce |
+| C54 | 100nF | 0402 | BTN_LEFT debounce |
+| C55 | 100nF | 0402 | BTN_RIGHT debounce |
+| C56 | 100nF | 0402 | BTN_SELECT debounce |
+| D20 | PESD5V0S1BL | SOD323 | BTN_UP ESD protection |
+| D21 | PESD5V0S1BL | SOD323 | BTN_DOWN ESD protection |
+| D22 | PESD5V0S1BL | SOD323 | BTN_LEFT ESD protection |
+| D23 | PESD5V0S1BL | SOD323 | BTN_RIGHT ESD protection |
+| D24 | PESD5V0S1BL | SOD323 | BTN_SELECT ESD protection |
+
+**Note:** External pull-ups optional if using nRF52840 internal pull-ups. Debounce caps recommended for mechanical switches.
+
+### Passive Components - Status LEDs
+
+| Ref | Value | Package | Description |
+|-----|-------|---------|-------------|
+| LED1 | Green | 0603 | BLE status (P1.07) |
+| LED2 | Blue | 0603 | LoRa status (P1.08) |
+| R55 | 1K | 0402 | LED1 current limit |
+| R56 | 1K | 0402 | LED2 current limit |
 
 ### TVS Diodes (Optional - Footprints Only)
 
@@ -278,11 +315,11 @@ DISP_BL_EN (P0.14) ── R41 ──┬──── Q1 Gate
 
 | Net Name | U2 Pin | U1 Pin | Description |
 |----------|--------|--------|-------------|
-| ADC_SCLK | 14 (SCLK) | P0.25 | SPI clock |
-| ADC_MOSI | 16 (DIN) | P0.24 | SPI data in |
-| ADC_MISO | 15 (DOUT) | P0.23 | SPI data out |
-| ADC_CS | 12 (CS) | P0.22 | Chip select |
-| ADC_DRDY | 13 (DRDY) | P0.21 | Data ready (interrupt) |
+| ADC_SCLK | 14 (SCLK) | P0.05 | SPI clock |
+| ADC_MOSI | 16 (DIN) | P0.04 | SPI data in |
+| ADC_MISO | 15 (DOUT) | P0.03 | SPI data out |
+| ADC_CS | 12 (CS) | P0.02 | Chip select |
+| ADC_DRDY | 13 (DRDY) | P0.31 | Data ready (interrupt, moved from P0.21) |
 | ADC_SYNC | 11 (SYNC/RST) | P0.20 | Sync/Reset |
 
 ### Display (SPI)
@@ -292,7 +329,7 @@ DISP_BL_EN (P0.14) ── R41 ──┬──── Q1 Gate
 | DISP_SCLK | 34 (DOTCLK) | P0.19 | SPI clock |
 | DISP_MOSI | 33 (SDA) | P0.18 | SPI data |
 | DISP_CS | 10 (CSX) | P0.17 | Chip select |
-| DISP_DC | 11 (DCX) | P0.16 | Data/Command |
+| DISP_DC | 11 (DCX) | P0.30 | Data/Command (moved from P0.16) |
 | DISP_RST | 38 (RESX) | P0.15 | Reset |
 | DISP_BL_EN | - | P0.14 | Backlight enable (to U9 EN) |
 
@@ -307,14 +344,15 @@ DISP_BL_EN (P0.14) ── R41 ──┬──── Q1 Gate
 | LORA_RST | RST | P0.09 | Reset |
 | LORA_DIO0 | DIO0 | P0.08 | Interrupt |
 
-### FRAM (SPI)
+### FRAM + Flash (SPI) - STANDARD PINS
 
 | Net Name | U6 Pin | U1 Pin | Description |
 |----------|--------|--------|-------------|
-| FRAM_SCLK | 6 (SCK) | P0.07 | SPI clock |
-| FRAM_MOSI | 5 (SI) | P0.06 | SPI data in |
-| FRAM_MISO | 2 (SO) | P0.05 | SPI data out |
-| FRAM_CS | 1 (CS) | P0.04 | Chip select |
+| MEM_SCLK | 6 (SCK) | P0.26 | SPI clock (standard) |
+| MEM_MOSI | 5 (SI) | P0.25 | SPI data in (standard) |
+| MEM_MISO | 2 (SO) | P0.24 | SPI data out (standard) |
+| FRAM_CS | 1 (CS) | P0.23 | Chip select (standard) |
+| FLASH_CS | - | P0.22 | W25Q16 chip select (standard) |
 
 ### Power Board Connector (J1)
 
@@ -356,10 +394,10 @@ DISP_BL_EN (P0.14) ── R41 ──┬──── Q1 Gate
 
 | GPIO | Function | Direction | Notes |
 |------|----------|-----------|-------|
-| P0.04 | FRAM_CS | Output | |
-| P0.05 | FRAM_MISO | Input | |
-| P0.06 | FRAM_MOSI | Output | |
-| P0.07 | FRAM_SCLK | Output | |
+| P0.02 | ADC_CS | Output | |
+| P0.03 | ADC_MISO | Input | |
+| P0.04 | ADC_MOSI | Output | |
+| P0.05 | ADC_SCLK | Output | |
 | P0.08 | LORA_DIO0 | Input | Interrupt |
 | P0.09 | LORA_RST | Output | |
 | P0.10 | LORA_CS | Output | |
@@ -368,16 +406,17 @@ DISP_BL_EN (P0.14) ── R41 ──┬──── Q1 Gate
 | P0.13 | LORA_SCLK | Output | |
 | P0.14 | DISP_BL_EN | Output | Backlight PWM |
 | P0.15 | DISP_RST | Output | |
-| P0.16 | DISP_DC | Output | |
+| P0.30 | DISP_DC | Output | Data/Command (moved from P0.16) |
+| P0.31 | ADC_DRDY | Input | Data ready interrupt |
 | P0.17 | DISP_CS | Output | |
 | P0.18 | DISP_MOSI | Output | |
 | P0.19 | DISP_SCLK | Output | |
 | P0.20 | ADC_SYNC | Output | |
-| P0.21 | ADC_DRDY | Input | Interrupt |
-| P0.22 | ADC_CS | Output | |
-| P0.23 | ADC_MISO | Input | |
-| P0.24 | ADC_MOSI | Output | |
-| P0.25 | ADC_SCLK | Output | |
+| P0.22 | FLASH_CS | Output | Standard memory pin |
+| P0.23 | FRAM_CS | Output | Standard memory pin |
+| P0.24 | MEM_MISO | Input | Standard memory pin |
+| P0.25 | MEM_MOSI | Output | Standard memory pin |
+| P0.26 | MEM_SCLK | Output | Standard memory pin |
 | P1.00 | COIL_GATE | Output | PWM |
 | P1.01 | TIER_ID | Analog In | ADC for tier detect |
 | P1.02 | BTN_UP | Input | Navigation button, active LOW |

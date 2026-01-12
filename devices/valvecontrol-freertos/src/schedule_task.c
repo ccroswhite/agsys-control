@@ -2,7 +2,7 @@
  * @file schedule_task.c
  * @brief Schedule task implementation for Valve Controller
  * 
- * Manages time-based irrigation schedules using RV-3028 RTC and FM25V02 FRAM.
+ * Manages time-based irrigation schedules using RV-3028 RTC and MB85RS1MT FRAM.
  */
 
 #include "sdk_config.h"
@@ -18,6 +18,8 @@
 #include "can_task.h"
 #include "spi_driver.h"
 #include "board_config.h"
+#include "agsys_fram.h"
+#include "agsys_memory_layout.h"
 
 #include <string.h>
 
@@ -43,18 +45,16 @@
 #define RV3028_CONTROL_2        0x10
 
 /* ==========================================================================
- * FM25V02 FRAM DEFINITIONS (SPI)
+ * FRAM SCHEDULE STORAGE (uses common HAL)
+ * 
+ * Schedules are stored in the App Data region defined in agsys_memory_layout.h
  * ========================================================================== */
 
-#define FRAM_WREN               0x06
-#define FRAM_WRDI               0x04
-#define FRAM_RDSR               0x05
-#define FRAM_WRSR               0x01
-#define FRAM_READ               0x03
-#define FRAM_WRITE              0x02
-
-#define FRAM_SCHEDULE_ADDR      0x0000
+#define FRAM_SCHEDULE_ADDR      AGSYS_FRAM_APP_DATA_ADDR
 #define FRAM_SCHEDULE_MAGIC     0xA65C
+
+/* FRAM context - set by schedule_init() */
+static agsys_fram_ctx_t *m_fram_ctx = NULL;
 
 /* ==========================================================================
  * PRIVATE DATA
@@ -164,60 +164,39 @@ static void unix_to_time(uint32_t unix_time, uint8_t *dow, uint8_t *hour, uint8_
 }
 
 /* ==========================================================================
- * FRAM FUNCTIONS
+ * SCHEDULE STORAGE (uses common FRAM HAL)
  * ========================================================================== */
 
-static void fram_write_enable(void)
+void schedule_set_fram_ctx(agsys_fram_ctx_t *ctx)
 {
-    uint8_t cmd = FRAM_WREN;
-    spi_transfer(SPI_CS_FRAM_PIN, &cmd, NULL, 1);
+    m_fram_ctx = ctx;
 }
-
-static void fram_read(uint16_t addr, uint8_t *data, uint16_t len)
-{
-    uint8_t cmd[3] = { FRAM_READ, (addr >> 8) & 0xFF, addr & 0xFF };
-    
-    spi_cs_assert(SPI_CS_FRAM_PIN);
-    spi_transfer_raw(cmd, NULL, 3);
-    spi_transfer_raw(NULL, data, len);
-    spi_cs_deassert(SPI_CS_FRAM_PIN);
-}
-
-static void fram_write(uint16_t addr, const uint8_t *data, uint16_t len)
-{
-    fram_write_enable();
-    
-    uint8_t cmd[3] = { FRAM_WRITE, (addr >> 8) & 0xFF, addr & 0xFF };
-    
-    spi_cs_assert(SPI_CS_FRAM_PIN);
-    spi_transfer_raw(cmd, NULL, 3);
-    spi_transfer_raw(data, NULL, len);
-    spi_cs_deassert(SPI_CS_FRAM_PIN);
-}
-
-/* ==========================================================================
- * SCHEDULE STORAGE
- * ========================================================================== */
 
 void schedule_load(void)
 {
-    if (!spi_acquire(pdMS_TO_TICKS(100))) return;
+    if (m_fram_ctx == NULL) {
+        SEGGER_RTT_printf(0, "Schedule: FRAM context not set\n");
+        return;
+    }
     
     /* Read magic number */
     uint16_t magic;
-    fram_read(FRAM_SCHEDULE_ADDR, (uint8_t *)&magic, 2);
+    if (agsys_fram_read(m_fram_ctx, FRAM_SCHEDULE_ADDR, (uint8_t *)&magic, 2) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "Schedule: FRAM read error\n");
+        return;
+    }
     
     if (magic != FRAM_SCHEDULE_MAGIC) {
         SEGGER_RTT_printf(0, "No valid schedules in FRAM\n");
         memset(m_schedules, 0, sizeof(m_schedules));
-        spi_release();
         return;
     }
     
     /* Read schedules */
-    fram_read(FRAM_SCHEDULE_ADDR + 2, (uint8_t *)m_schedules, sizeof(m_schedules));
-    
-    spi_release();
+    if (agsys_fram_read(m_fram_ctx, FRAM_SCHEDULE_ADDR + 2, (uint8_t *)m_schedules, sizeof(m_schedules)) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "Schedule: FRAM read error\n");
+        return;
+    }
     
     /* Count enabled schedules */
     uint8_t count = 0;
@@ -230,16 +209,23 @@ void schedule_load(void)
 
 void schedule_save(void)
 {
-    if (!spi_acquire(pdMS_TO_TICKS(100))) return;
+    if (m_fram_ctx == NULL) {
+        SEGGER_RTT_printf(0, "Schedule: FRAM context not set\n");
+        return;
+    }
     
     /* Write magic number */
     uint16_t magic = FRAM_SCHEDULE_MAGIC;
-    fram_write(FRAM_SCHEDULE_ADDR, (uint8_t *)&magic, 2);
+    if (agsys_fram_write(m_fram_ctx, FRAM_SCHEDULE_ADDR, (uint8_t *)&magic, 2) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "Schedule: FRAM write error\n");
+        return;
+    }
     
     /* Write schedules */
-    fram_write(FRAM_SCHEDULE_ADDR + 2, (uint8_t *)m_schedules, sizeof(m_schedules));
-    
-    spi_release();
+    if (agsys_fram_write(m_fram_ctx, FRAM_SCHEDULE_ADDR + 2, (uint8_t *)m_schedules, sizeof(m_schedules)) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "Schedule: FRAM write error\n");
+        return;
+    }
     
     SEGGER_RTT_printf(0, "Schedules saved to FRAM\n");
 }

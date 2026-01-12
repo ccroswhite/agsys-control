@@ -28,6 +28,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "agsys_memory_layout.h"  /* Device type constants defined there */
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,14 +42,12 @@ extern "C" {
 #define AGSYS_MAGIC_BYTE1           0x41    /* 'A' */
 #define AGSYS_MAGIC_BYTE2           0x47    /* 'G' */
 
-/* ==========================================================================
- * DEVICE TYPES
- * ========================================================================== */
-
-#define AGSYS_DEVICE_TYPE_SOIL_MOISTURE     0x01
-#define AGSYS_DEVICE_TYPE_VALVE_CONTROLLER  0x02
-#define AGSYS_DEVICE_TYPE_WATER_METER       0x03
-#define AGSYS_DEVICE_TYPE_VALVE_ACTUATOR    0x04  /* CAN bus only, no direct LoRa */
+/* Device types are defined in agsys_memory_layout.h:
+ * AGSYS_DEVICE_TYPE_SOIL_MOISTURE     1
+ * AGSYS_DEVICE_TYPE_VALVE_CONTROLLER  2
+ * AGSYS_DEVICE_TYPE_WATER_METER       3
+ * AGSYS_DEVICE_TYPE_VALVE_ACTUATOR    4
+ */
 
 /* ==========================================================================
  * MESSAGE TYPES

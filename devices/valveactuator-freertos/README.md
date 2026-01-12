@@ -8,7 +8,7 @@ FreeRTOS port of the Valve Actuator firmware for nRF52810.
 - **SoftDevice:** S112 (BLE peripheral only)
 - **CAN:** MCP2515 via SPI
 - **Motor:** Discrete H-bridge with current sensing
-- **Storage:** FM25V02 FRAM
+- **Storage:** MB85RS1MT FRAM (128KB)
 
 ## Tasks
 

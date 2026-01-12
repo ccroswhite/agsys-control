@@ -54,7 +54,7 @@
 </layers>
 <schematic xreflabel="%F%N/%S.%C%R" xrefpart="/%S.%C%R">
 <description>AgSys Soil Moisture Sensor - Wiring Diagram
-nRF52832 + RFM95C LoRa + FM25V02 FRAM + Oscillator Frequency Shift Probes (4x)</description>
+nRF52832 + RFM95C LoRa + MB85RS1MT FRAM + Oscillator Frequency Shift Probes (4x)</description>
 <libraries>
 </libraries>
 <attributes>
@@ -71,46 +71,115 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + Oscillator Frequency Shift Probes (4x)</
 </class>
 </classes>
 <parts>
-<!-- nRF52832 MCU -->
-<part name="U1" library="nordic" deviceset="NRF52832" device="" value="nRF52832"/>
-<!-- LoRa Module -->
-<part name="U2" library="rfm" deviceset="RFM95" device="" value="RFM95C-915"/>
-<!-- FRAM -->
-<part name="U3" library="fram" deviceset="FM25V02" device="" value="FM25V02-8KB"/>
-<!-- SPI NOR Flash for firmware backup -->
-<part name="U5" library="flash" deviceset="W25Q16" device="" value="W25Q16-2MB"/>
-<!-- Probe Power Switch (P-FET high-side) -->
-<part name="Q1" library="mosfet" deviceset="SI2301" device="" value="SI2301-PFET"/>
-<!-- Gate pull-up resistor for Q1 -->
-<part name="R7" library="resistor" deviceset="R" device="" value="10K"/>
-<!-- LDO Regulator -->
-<part name="U4" library="regulator" deviceset="MCP1700" device="" value="MCP1700-2502E"/>
-<!-- Battery -->
+<!-- ================================================================== -->
+<!-- MICROCONTROLLER - nRF52832-QFAA -->
+<!-- ================================================================== -->
+<part name="U1" library="nordic" deviceset="NRF52832" device="QFAA" value="nRF52832-QFAA"/>
+
+<!-- nRF52832 32MHz Crystal + Load Caps -->
+<part name="Y1" library="crystal" deviceset="CRYSTAL" device="3215" value="32MHz"/>
+<part name="C20" library="capacitor" deviceset="C" device="0402" value="12pF"/>
+<part name="C21" library="capacitor" deviceset="C" device="0402" value="12pF"/>
+
+<!-- nRF52832 32.768kHz Crystal + Load Caps (for RTC) -->
+<part name="Y2" library="crystal" deviceset="CRYSTAL" device="1610" value="32.768kHz"/>
+<part name="C22" library="capacitor" deviceset="C" device="0402" value="6.8pF"/>
+<part name="C23" library="capacitor" deviceset="C" device="0402" value="6.8pF"/>
+
+<!-- nRF52832 Decoupling (per datasheet) -->
+<part name="C10" library="capacitor" deviceset="C" device="0402" value="100nF"/>
+<part name="C11" library="capacitor" deviceset="C" device="0402" value="100nF"/>
+<part name="C12" library="capacitor" deviceset="C" device="0805" value="10uF"/>
+<part name="C13" library="capacitor" deviceset="C" device="0402" value="100nF"/>
+<part name="C14" library="capacitor" deviceset="C" device="0402" value="10nF"/>
+<part name="C15" library="capacitor" deviceset="C" device="0402" value="1uF"/>
+<part name="L1" library="inductor" deviceset="L" device="0402" value="10nH"/>
+
+<!-- ================================================================== -->
+<!-- LORA MODULE - RFM95C-915S2 -->
+<!-- ================================================================== -->
+<part name="U2" library="rfm" deviceset="RFM95" device="" value="RFM95C-915S2"/>
+<part name="C30" library="capacitor" deviceset="C" device="0402" value="100nF"/>
+
+<!-- Antenna Matching Network (Pi-network for 50 ohm) -->
+<part name="L2" library="inductor" deviceset="L" device="0402" value="5.6nH"/>
+<part name="C31" library="capacitor" deviceset="C" device="0402" value="1.5pF"/>
+<part name="C32" library="capacitor" deviceset="C" device="0402" value="1.2pF"/>
+<part name="ANT1" library="antenna" deviceset="ANTENNA" device="" value="915MHz-WIRE"/>
+
+<!-- ================================================================== -->
+<!-- EXTERNAL MEMORY - FRAM + FLASH (STANDARD PINS) -->
+<!-- ================================================================== -->
+<part name="U3" library="fram" deviceset="MB85RS1MT" device="SOIC8" value="MB85RS1MTPNF"/>
+<part name="C40" library="capacitor" deviceset="C" device="0402" value="100nF"/>
+
+<part name="U5" library="flash" deviceset="W25Q16" device="SOIC8" value="W25Q16JVSSIQ"/>
+<part name="C41" library="capacitor" deviceset="C" device="0402" value="100nF"/>
+
+<!-- ================================================================== -->
+<!-- POWER SUPPLY - LDO (3.0-4.2V to 2.5V) -->
+<!-- ================================================================== -->
+<part name="U4" library="regulator" deviceset="MCP1700" device="SOT23" value="MCP1700-2502E"/>
+<part name="C1" library="capacitor" deviceset="C" device="0805" value="10uF"/>
+<part name="C2" library="capacitor" deviceset="C" device="0805" value="10uF"/>
+
+<!-- Reverse polarity protection (P-FET) -->
+<part name="Q2" library="mosfet" deviceset="SI2301" device="SOT23" value="SI2301CDS"/>
+<part name="R8" library="resistor" deviceset="R" device="0402" value="10K"/>
+
+<!-- ================================================================== -->
+<!-- BATTERY -->
+<!-- ================================================================== -->
 <part name="BT1" library="battery" deviceset="21700" device="" value="21700-5000mAh"/>
-<!-- Status LED (single) -->
-<part name="LED1" library="led" deviceset="LED" device="" value="GREEN"/>
-<!-- Resistors -->
-<part name="R1" library="resistor" deviceset="R" device="" value="100K"/>
-<part name="R2" library="resistor" deviceset="R" device="" value="100K"/>
-<part name="R3" library="resistor" deviceset="R" device="" value="330"/>
-<part name="R4" library="resistor" deviceset="R" device="" value="330"/>
-<part name="R5" library="resistor" deviceset="R" device="" value="330"/>
-<part name="R6" library="resistor" deviceset="R" device="" value="10K"/>
-<!-- Capacitors -->
-<part name="C1" library="capacitor" deviceset="C" device="" value="10uF"/>
-<part name="C2" library="capacitor" deviceset="C" device="" value="100nF"/>
-<part name="C3" library="capacitor" deviceset="C" device="" value="100nF"/>
-<part name="C4" library="capacitor" deviceset="C" device="" value="100nF"/>
-<!-- Button -->
-<part name="SW1" library="switch" deviceset="TACTILE" device="" value="OTA_BTN"/>
-<!-- Antenna -->
-<part name="ANT1" library="antenna" deviceset="ANTENNA" device="" value="915MHz"/>
-<!-- Oscillator Probe Connectors (4x, 3-pin: VCC, GND, FREQ) -->
-<part name="J1" library="connector" deviceset="CONN_3" device="" value="PROBE1-1FT"/>
-<part name="J2" library="connector" deviceset="CONN_3" device="" value="PROBE2-3FT"/>
-<part name="J3" library="connector" deviceset="CONN_3" device="" value="PROBE3-5FT"/>
-<part name="J4" library="connector" deviceset="CONN_3" device="" value="PROBE4-7FT"/>
-<!-- Power Supply Labels -->
+<part name="J5" library="connector" deviceset="CONN_2" device="" value="BATT"/>
+
+<!-- Battery voltage divider for ADC (P0.30/AIN6) -->
+<part name="R1" library="resistor" deviceset="R" device="0402" value="1M"/>
+<part name="R2" library="resistor" deviceset="R" device="0402" value="1M"/>
+<part name="C3" library="capacitor" deviceset="C" device="0402" value="100nF"/>
+
+<!-- ================================================================== -->
+<!-- PROBE POWER SWITCH (P-FET high-side) -->
+<!-- ================================================================== -->
+<part name="Q1" library="mosfet" deviceset="SI2301" device="SOT23" value="SI2301CDS"/>
+<part name="R7" library="resistor" deviceset="R" device="0402" value="10K"/>
+
+<!-- ================================================================== -->
+<!-- STATUS LED -->
+<!-- ================================================================== -->
+<part name="LED1" library="led" deviceset="LED" device="0603" value="GREEN"/>
+<part name="R3" library="resistor" deviceset="R" device="0402" value="330"/>
+
+<!-- ================================================================== -->
+<!-- PAIRING BUTTON -->
+<!-- ================================================================== -->
+<part name="SW1" library="switch" deviceset="TACTILE" device="6x6" value="PAIRING"/>
+<part name="R6" library="resistor" deviceset="R" device="0402" value="10K"/>
+<part name="C4" library="capacitor" deviceset="C" device="0402" value="100nF"/>
+
+<!-- ================================================================== -->
+<!-- PROBE CONNECTORS (4x JST-XH 3-pin: VCC, GND, FREQ) -->
+<!-- ================================================================== -->
+<part name="J1" library="connector" deviceset="JST_XH_3" device="" value="PROBE1-1FT"/>
+<part name="J2" library="connector" deviceset="JST_XH_3" device="" value="PROBE2-3FT"/>
+<part name="J3" library="connector" deviceset="JST_XH_3" device="" value="PROBE3-5FT"/>
+<part name="J4" library="connector" deviceset="JST_XH_3" device="" value="PROBE4-7FT"/>
+
+<!-- ESD Protection on probe inputs -->
+<part name="D1" library="tvs" deviceset="PESD5V0" device="SOD323" value="PESD5V0S1BL"/>
+<part name="D2" library="tvs" deviceset="PESD5V0" device="SOD323" value="PESD5V0S1BL"/>
+<part name="D3" library="tvs" deviceset="PESD5V0" device="SOD323" value="PESD5V0S1BL"/>
+<part name="D4" library="tvs" deviceset="PESD5V0" device="SOD323" value="PESD5V0S1BL"/>
+
+<!-- Input filtering on probe frequency pins -->
+<part name="R10" library="resistor" deviceset="R" device="0402" value="100"/>
+<part name="R11" library="resistor" deviceset="R" device="0402" value="100"/>
+<part name="R12" library="resistor" deviceset="R" device="0402" value="100"/>
+<part name="R13" library="resistor" deviceset="R" device="0402" value="100"/>
+
+<!-- ================================================================== -->
+<!-- POWER SUPPLY LABELS -->
+<!-- ================================================================== -->
 <part name="VCC" library="supply" deviceset="VCC" device="" value="2.5V"/>
 <part name="GND" library="supply" deviceset="GND" device=""/>
 <part name="VBAT" library="supply" deviceset="VBAT" device="" value="3.0-4.2V"/>
@@ -121,16 +190,17 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + Oscillator Frequency Shift Probes (4x)</
 <plain>
 <!-- Title Block -->
 <text x="200" y="10" size="3.81" layer="97">AgSys Soil Moisture Sensor</text>
-<text x="200" y="5" size="2.54" layer="97">nRF52832 + RFM95C + FM25V02 + Oscillator Probes</text>
+<text x="200" y="5" size="2.54" layer="97">nRF52832 + RFM95C + MB85RS1MT + Oscillator Probes</text>
 <text x="200" y="0" size="1.778" layer="97">Rev 2.0 - January 2026</text>
 
 <!-- Section Labels -->
 <text x="10" y="180" size="2.54" layer="97" font="vector">POWER SUPPLY</text>
 <text x="80" y="180" size="2.54" layer="97" font="vector">MCU - nRF52832</text>
-<text x="160" y="180" size="2.54" layer="97" font="vector">SPI BUS</text>
+<text x="160" y="180" size="2.54" layer="97" font="vector">SPI BUS 0 - LORA</text>
+<text x="160" y="140" size="2.54" layer="97" font="vector">SPI BUS 1 - MEMORY (STANDARD)</text>
 <text x="10" y="100" size="2.54" layer="97" font="vector">PROBE POWER SWITCH</text>
 <text x="160" y="100" size="2.54" layer="97" font="vector">LORA MODULE</text>
-<text x="160" y="50" size="2.54" layer="97" font="vector">FRAM</text>
+<text x="160" y="50" size="2.54" layer="97" font="vector">FRAM + FLASH (STANDARD PINS)</text>
 <text x="10" y="50" size="2.54" layer="97" font="vector">PROBE CONNECTORS</text>
 
 <!-- Connection Notes -->
@@ -143,22 +213,65 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + Oscillator Frequency Shift Probes (4x)</
 <!-- Note: Actual X,Y coordinates need adjustment in Eagle -->
 </instances>
 <busses>
-<bus name="SPI:SCK,MOSI,MISO">
+<bus name="SPI_LORA:SCK,MOSI,MISO">
 <segment>
-<wire x1="150" y1="150" x2="150" y2="50" width="0.762" layer="92"/>
-<label x="152" y="100" size="1.778" layer="95"/>
+<wire x1="150" y1="150" x2="150" y2="100" width="0.762" layer="92"/>
+<label x="152" y="125" size="1.778" layer="95"/>
+</segment>
+</bus>
+<bus name="SPI_MEM:SCK,MOSI,MISO">
+<segment>
+<wire x1="170" y1="150" x2="170" y2="50" width="0.762" layer="92"/>
+<label x="172" y="100" size="1.778" layer="95"/>
 </segment>
 </bus>
 </busses>
 <nets>
-<!-- VCC Net -->
+<!-- ================================================================== -->
+<!-- POWER NETS -->
+<!-- ================================================================== -->
+<!-- VCC (2.5V) Net -->
 <net name="VCC" class="1">
 <segment>
 <pinref part="U1" gate="G$1" pin="VDD"/>
 <pinref part="U2" gate="G$1" pin="VCC"/>
 <pinref part="U3" gate="G$1" pin="VCC"/>
-<wire x1="50" y1="170" x2="100" y2="170" width="0.4064" layer="91"/>
-<label x="75" y="172" size="1.778" layer="95"/>
+<pinref part="U5" gate="G$1" pin="VCC"/>
+<pinref part="U4" gate="G$1" pin="VOUT"/>
+<pinref part="C2" gate="G$1" pin="1"/>
+<pinref part="C10" gate="G$1" pin="1"/>
+<pinref part="C11" gate="G$1" pin="1"/>
+<pinref part="C12" gate="G$1" pin="1"/>
+<pinref part="C13" gate="G$1" pin="1"/>
+<pinref part="C30" gate="G$1" pin="1"/>
+<pinref part="C40" gate="G$1" pin="1"/>
+<pinref part="C41" gate="G$1" pin="1"/>
+<pinref part="R6" gate="G$1" pin="1"/>
+<pinref part="R7" gate="G$1" pin="1"/>
+<wire x1="50" y1="170" x2="200" y2="170" width="0.4064" layer="91"/>
+<label x="100" y="172" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- VBAT (3.0-4.2V) Net -->
+<net name="VBAT" class="1">
+<segment>
+<pinref part="BT1" gate="G$1" pin="+"/>
+<pinref part="J5" gate="G$1" pin="1"/>
+<pinref part="Q2" gate="G$1" pin="S"/>
+<pinref part="R1" gate="G$1" pin="1"/>
+<wire x1="10" y1="170" x2="30" y2="170" width="0.4064" layer="91"/>
+<label x="15" y="172" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- VBAT_PROT (after reverse polarity protection) -->
+<net name="VBAT_PROT" class="1">
+<segment>
+<pinref part="Q2" gate="G$1" pin="D"/>
+<pinref part="U4" gate="G$1" pin="VIN"/>
+<pinref part="C1" gate="G$1" pin="1"/>
+<pinref part="Q1" gate="G$1" pin="S"/>
+<wire x1="35" y1="170" x2="45" y2="170" width="0.4064" layer="91"/>
+<label x="37" y="172" size="1.778" layer="95"/>
 </segment>
 </net>
 <!-- GND Net -->
@@ -168,44 +281,161 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + Oscillator Frequency Shift Probes (4x)</
 <pinref part="U2" gate="G$1" pin="GND"/>
 <pinref part="U3" gate="G$1" pin="GND"/>
 <pinref part="U4" gate="G$1" pin="GND"/>
-<wire x1="50" y1="10" x2="200" y2="10" width="0.4064" layer="91"/>
+<pinref part="U5" gate="G$1" pin="GND"/>
+<pinref part="BT1" gate="G$1" pin="-"/>
+<pinref part="J5" gate="G$1" pin="2"/>
+<pinref part="C1" gate="G$1" pin="2"/>
+<pinref part="C2" gate="G$1" pin="2"/>
+<pinref part="C3" gate="G$1" pin="2"/>
+<pinref part="C10" gate="G$1" pin="2"/>
+<pinref part="C11" gate="G$1" pin="2"/>
+<pinref part="C12" gate="G$1" pin="2"/>
+<pinref part="C20" gate="G$1" pin="2"/>
+<pinref part="C21" gate="G$1" pin="2"/>
+<pinref part="C22" gate="G$1" pin="2"/>
+<pinref part="C23" gate="G$1" pin="2"/>
+<pinref part="C30" gate="G$1" pin="2"/>
+<pinref part="C40" gate="G$1" pin="2"/>
+<pinref part="C41" gate="G$1" pin="2"/>
+<pinref part="R2" gate="G$1" pin="2"/>
+<pinref part="R8" gate="G$1" pin="2"/>
+<pinref part="SW1" gate="G$1" pin="2"/>
+<pinref part="LED1" gate="G$1" pin="K"/>
+<pinref part="D1" gate="G$1" pin="K"/>
+<pinref part="D2" gate="G$1" pin="K"/>
+<pinref part="D3" gate="G$1" pin="K"/>
+<pinref part="D4" gate="G$1" pin="K"/>
+<pinref part="J1" gate="G$1" pin="2"/>
+<pinref part="J2" gate="G$1" pin="2"/>
+<pinref part="J3" gate="G$1" pin="2"/>
+<pinref part="J4" gate="G$1" pin="2"/>
+<wire x1="10" y1="10" x2="250" y2="10" width="0.4064" layer="91"/>
 <label x="100" y="12" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- SPI Clock -->
-<net name="SPI_SCK" class="0">
+
+<!-- ================================================================== -->
+<!-- nRF52832 CRYSTAL CIRCUITS -->
+<!-- ================================================================== -->
+<!-- 32MHz Crystal -->
+<net name="XC1" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="XC1"/>
+<pinref part="Y1" gate="G$1" pin="1"/>
+<pinref part="C20" gate="G$1" pin="1"/>
+<wire x1="60" y1="160" x2="70" y2="160" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="XC2" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="XC2"/>
+<pinref part="Y1" gate="G$1" pin="2"/>
+<pinref part="C21" gate="G$1" pin="1"/>
+<wire x1="60" y1="155" x2="70" y2="155" width="0.254" layer="91"/>
+</segment>
+</net>
+<!-- 32.768kHz Crystal -->
+<net name="XL1" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="XL1"/>
+<pinref part="Y2" gate="G$1" pin="1"/>
+<pinref part="C22" gate="G$1" pin="1"/>
+<wire x1="60" y1="150" x2="70" y2="150" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="XL2" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="XL2"/>
+<pinref part="Y2" gate="G$1" pin="2"/>
+<pinref part="C23" gate="G$1" pin="1"/>
+<wire x1="60" y1="145" x2="70" y2="145" width="0.254" layer="91"/>
+</segment>
+</net>
+<!-- nRF52832 DEC pins -->
+<net name="DEC1" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="DEC1"/>
+<pinref part="C14" gate="G$1" pin="1"/>
+<wire x1="60" y1="140" x2="65" y2="140" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="DCC" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="DCC"/>
+<pinref part="L1" gate="G$1" pin="1"/>
+<wire x1="60" y1="135" x2="65" y2="135" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="DCCH" class="0">
+<segment>
+<pinref part="L1" gate="G$1" pin="2"/>
+<pinref part="C15" gate="G$1" pin="1"/>
+<wire x1="75" y1="135" x2="80" y2="135" width="0.254" layer="91"/>
+</segment>
+</net>
+<!-- SPI Bus 0 - LoRa -->
+<!-- LoRa SPI Clock -->
+<net name="LORA_SCK" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.14"/>
+<pinref part="U2" gate="G$1" pin="SCK"/>
+<wire x1="120" y1="140" x2="160" y2="140" width="0.254" layer="91"/>
+<label x="135" y="142" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- LoRa SPI MOSI -->
+<net name="LORA_MOSI" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.13"/>
+<pinref part="U2" gate="G$1" pin="MOSI"/>
+<wire x1="120" y1="135" x2="160" y2="135" width="0.254" layer="91"/>
+<label x="135" y="137" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- LoRa SPI MISO -->
+<net name="LORA_MISO" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.12"/>
+<pinref part="U2" gate="G$1" pin="MISO"/>
+<wire x1="120" y1="130" x2="160" y2="130" width="0.254" layer="91"/>
+<label x="135" y="132" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- SPI Bus 1 - External Memory (Standard Pins) -->
+<!-- Memory SPI Clock -->
+<net name="MEM_SCK" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.26"/>
+<pinref part="U3" gate="G$1" pin="SCK"/>
+<pinref part="U5" gate="G$1" pin="SCK"/>
+<wire x1="120" y1="145" x2="180" y2="145" width="0.254" layer="91"/>
+<label x="145" y="147" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- Memory SPI MOSI -->
+<net name="MEM_MOSI" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.25"/>
-<pinref part="U2" gate="G$1" pin="SCK"/>
-<pinref part="U3" gate="G$1" pin="SCK"/>
-<wire x1="120" y1="140" x2="180" y2="140" width="0.254" layer="91"/>
-<label x="140" y="142" size="1.778" layer="95"/>
+<pinref part="U3" gate="G$1" pin="SI"/>
+<pinref part="U5" gate="G$1" pin="SI"/>
+<wire x1="120" y1="142" x2="180" y2="142" width="0.254" layer="91"/>
+<label x="145" y="144" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- SPI MOSI -->
-<net name="SPI_MOSI" class="0">
+<!-- Memory SPI MISO -->
+<net name="MEM_MISO" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.24"/>
-<pinref part="U2" gate="G$1" pin="MOSI"/>
-<pinref part="U3" gate="G$1" pin="SI"/>
-<wire x1="120" y1="135" x2="180" y2="135" width="0.254" layer="91"/>
-<label x="140" y="137" size="1.778" layer="95"/>
-</segment>
-</net>
-<!-- SPI MISO -->
-<net name="SPI_MISO" class="0">
-<segment>
-<pinref part="U1" gate="G$1" pin="P0.23"/>
-<pinref part="U2" gate="G$1" pin="MISO"/>
 <pinref part="U3" gate="G$1" pin="SO"/>
-<wire x1="120" y1="130" x2="180" y2="130" width="0.254" layer="91"/>
-<label x="140" y="132" size="1.778" layer="95"/>
+<pinref part="U5" gate="G$1" pin="SO"/>
+<wire x1="120" y1="139" x2="180" y2="139" width="0.254" layer="91"/>
+<label x="145" y="141" size="1.778" layer="95"/>
 </segment>
 </net>
 <!-- LoRa Chip Select -->
 <net name="LORA_CS" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.27"/>
+<pinref part="U1" gate="G$1" pin="P0.11"/>
 <pinref part="U2" gate="G$1" pin="NSS"/>
 <wire x1="120" y1="120" x2="160" y2="120" width="0.254" layer="91"/>
 <label x="135" y="122" size="1.778" layer="95"/>
@@ -229,13 +459,13 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + Oscillator Frequency Shift Probes (4x)</
 <label x="135" y="112" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- FRAM Chip Select -->
-<net name="NVRAM_CS" class="0">
+<!-- FRAM Chip Select (Standard Pin) -->
+<net name="FRAM_CS" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.11"/>
+<pinref part="U1" gate="G$1" pin="P0.23"/>
 <pinref part="U3" gate="G$1" pin="CS"/>
-<wire x1="120" y1="100" x2="160" y2="60" width="0.254" layer="91"/>
-<label x="135" y="80" size="1.778" layer="95"/>
+<wire x1="120" y1="100" x2="180" y2="60" width="0.254" layer="91"/>
+<label x="145" y="80" size="1.778" layer="95"/>
 </segment>
 </net>
 <!-- Probe Power Enable (P-FET gate, active LOW) -->
@@ -305,13 +535,13 @@ nRF52832 + RFM95C LoRa + FM25V02 FRAM + Oscillator Frequency Shift Probes (4x)</
 <label x="35" y="165" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- SPI Flash Chip Select -->
+<!-- Flash Chip Select (Standard Pin) -->
 <net name="FLASH_CS" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.12"/>
+<pinref part="U1" gate="G$1" pin="P0.22"/>
 <pinref part="U5" gate="G$1" pin="CS"/>
-<wire x1="120" y1="95" x2="160" y2="55" width="0.254" layer="91"/>
-<label x="135" y="75" size="1.778" layer="95"/>
+<wire x1="120" y1="95" x2="180" y2="55" width="0.254" layer="91"/>
+<label x="145" y="75" size="1.778" layer="95"/>
 </segment>
 </net>
 <!-- Status LED (single green LED for all status indication) -->

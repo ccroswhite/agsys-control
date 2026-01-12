@@ -1,6 +1,9 @@
 /**
  * @file agsys_fram.c
- * @brief FRAM driver implementation for FM25V02
+ * @brief FRAM driver implementation for MB85RS1MT (128KB)
+ * 
+ * Using MB85RS1MT (128KB) to accommodate extensive runtime logging in FRAM,
+ * extending external flash lifetime.
  */
 
 #include "agsys_fram.h"
@@ -104,14 +107,14 @@ agsys_err_t agsys_fram_verify(agsys_fram_ctx_t *ctx)
         return err;
     }
 
-    /* FM25V02 ID: 0x7F 0x7F 0x7F 0x7F 0x7F 0x7F 0xC2 0x22 0x08 */
-    /* Check manufacturer (Cypress/Infineon) and density */
-    if (id[6] == 0xC2 && id[7] == 0x22) {
-        AGSYS_LOG_DEBUG("FRAM: FM25V02 detected");
+    /* MB85RS1MT ID: 0x7F 0x7F 0x7F 0x7F 0x7F 0x7F 0x04 0x27 0x03 */
+    /* Check manufacturer (Fujitsu/RAMXEED) and density */
+    if (id[6] == 0x04 && id[7] == 0x27) {
+        AGSYS_LOG_DEBUG("FRAM: MB85RS1MT (128KB) detected");
         return AGSYS_OK;
     }
 
-    AGSYS_LOG_WARNING("FRAM: Unknown device ID: %02X %02X", id[6], id[7]);
+    AGSYS_LOG_ERROR("FRAM: Unsupported device ID: %02X %02X (expected MB85RS1MT)", id[6], id[7]);
     return AGSYS_ERR_FRAM;
 }
 
@@ -120,7 +123,7 @@ agsys_err_t agsys_fram_verify(agsys_fram_ctx_t *ctx)
  * ========================================================================== */
 
 agsys_err_t agsys_fram_read(agsys_fram_ctx_t *ctx,
-                             uint16_t addr,
+                             uint32_t addr,
                              uint8_t *data,
                              size_t len)
 {
@@ -131,15 +134,16 @@ agsys_err_t agsys_fram_read(agsys_fram_ctx_t *ctx,
         return AGSYS_ERR_INVALID_PARAM;
     }
 
-    /* Command: READ + 16-bit address */
-    uint8_t cmd[3] = {
+    /* Command: READ + 24-bit address (MB85RS1MT requires 3 address bytes) */
+    uint8_t cmd[4] = {
         AGSYS_FRAM_CMD_READ,
+        (uint8_t)(addr >> 16),
         (uint8_t)(addr >> 8),
         (uint8_t)(addr & 0xFF),
     };
 
     agsys_spi_xfer_t xfers[2] = {
-        { .tx_buf = cmd, .rx_buf = NULL, .length = 3 },
+        { .tx_buf = cmd, .rx_buf = NULL, .length = 4 },
         { .tx_buf = NULL, .rx_buf = data, .length = len },
     };
 
@@ -147,7 +151,7 @@ agsys_err_t agsys_fram_read(agsys_fram_ctx_t *ctx,
 }
 
 agsys_err_t agsys_fram_write(agsys_fram_ctx_t *ctx,
-                              uint16_t addr,
+                              uint32_t addr,
                               const uint8_t *data,
                               size_t len)
 {
@@ -164,15 +168,16 @@ agsys_err_t agsys_fram_write(agsys_fram_ctx_t *ctx,
         return err;
     }
 
-    /* Command: WRITE + 16-bit address */
-    uint8_t cmd[3] = {
+    /* Command: WRITE + 24-bit address (MB85RS1MT requires 3 address bytes) */
+    uint8_t cmd[4] = {
         AGSYS_FRAM_CMD_WRITE,
+        (uint8_t)(addr >> 16),
         (uint8_t)(addr >> 8),
         (uint8_t)(addr & 0xFF),
     };
 
     agsys_spi_xfer_t xfers[2] = {
-        { .tx_buf = cmd, .rx_buf = NULL, .length = 3 },
+        { .tx_buf = cmd, .rx_buf = NULL, .length = 4 },
         { .tx_buf = data, .rx_buf = NULL, .length = len },
     };
 
@@ -180,7 +185,7 @@ agsys_err_t agsys_fram_write(agsys_fram_ctx_t *ctx,
 }
 
 agsys_err_t agsys_fram_erase(agsys_fram_ctx_t *ctx,
-                              uint16_t addr,
+                              uint32_t addr,
                               size_t len)
 {
     if (ctx == NULL || !ctx->initialized) {
@@ -212,7 +217,7 @@ agsys_err_t agsys_fram_erase(agsys_fram_ctx_t *ctx,
  * ========================================================================== */
 
 agsys_err_t agsys_fram_read_checked(agsys_fram_ctx_t *ctx,
-                                     uint16_t addr,
+                                     uint32_t addr,
                                      void *data,
                                      size_t len)
 {
@@ -237,8 +242,8 @@ agsys_err_t agsys_fram_read_checked(agsys_fram_ctx_t *ctx,
     /* Verify CRC */
     uint16_t calc_crc = crc16_ccitt(buf, len);
     if (calc_crc != stored_crc) {
-        AGSYS_LOG_WARNING("FRAM: CRC mismatch at 0x%04X (stored=%04X, calc=%04X)",
-                          addr, stored_crc, calc_crc);
+        AGSYS_LOG_WARNING("FRAM: CRC mismatch at 0x%05lX (stored=%04X, calc=%04X)",
+                          (unsigned long)addr, stored_crc, calc_crc);
         return AGSYS_ERR_FRAM;
     }
 
@@ -246,7 +251,7 @@ agsys_err_t agsys_fram_read_checked(agsys_fram_ctx_t *ctx,
 }
 
 agsys_err_t agsys_fram_write_checked(agsys_fram_ctx_t *ctx,
-                                      uint16_t addr,
+                                      uint32_t addr,
                                       const void *data,
                                       size_t len)
 {

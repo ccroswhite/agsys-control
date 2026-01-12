@@ -37,9 +37,23 @@
 </classes>
 <parts>
 <!-- ================================================================== -->
-<!-- MICROCONTROLLER - nRF52810 -->
+<!-- MICROCONTROLLER - nRF52810-QFAA -->
 <!-- ================================================================== -->
 <part name="U1" value="nRF52810-QFAA" device="QFN32"/>
+
+<!-- nRF52810 32MHz Crystal + Load Caps (optional - can use internal RC) -->
+<part name="Y2" value="32MHz" device="2520" value="32MHz"/>
+<part name="C20" value="12pF" device="0402"/>
+<part name="C21" value="12pF" device="0402"/>
+
+<!-- nRF52810 Decoupling (per datasheet) -->
+<part name="C22" value="100nF" device="0402"/>
+<part name="C23" value="100nF" device="0402"/>
+<part name="C24" value="10uF" device="0805"/>
+<part name="C25" value="100nF" device="0402"/>
+<part name="C26" value="10nF" device="0402"/>
+<part name="C27" value="1uF" device="0402"/>
+<part name="L2" value="10nH" device="0402"/>
 
 <!-- ================================================================== -->
 <!-- CAN BUS - MCP2515 + SN65HVD230 -->
@@ -47,9 +61,19 @@
 <part name="U2" value="MCP2515-I/SO" device="SOIC-18"/>
 <part name="U3" value="SN65HVD230DR" device="SOIC-8"/>
 <part name="Y1" value="16MHz" device="HC49"/>
-<part name="C10" value="22pF" device="0603"/>
-<part name="C11" value="22pF" device="0603"/>
+<part name="C10" value="22pF" device="0402"/>
+<part name="C11" value="22pF" device="0402"/>
 <part name="R10" value="120R" device="0603"/>
+<part name="C12" value="100nF" device="0402"/>
+<part name="C13" value="100nF" device="0402"/>
+
+<!-- ================================================================== -->
+<!-- MEMORY - FRAM + FLASH (STANDARD PINS) -->
+<!-- ================================================================== -->
+<part name="U5" value="MB85RS1MTPNF" device="SOIC-8"/>
+<part name="C40" value="100nF" device="0402"/>
+<part name="U6" value="W25Q16JVSSIQ" device="SOIC-8"/>
+<part name="C41" value="100nF" device="0402"/>
 
 <!-- ================================================================== -->
 <!-- POWER - BUCK CONVERTER (24V to 3.3V) -->
@@ -60,6 +84,7 @@
 <part name="C2" value="22uF/10V" device="0805"/>
 <part name="R1" value="100K" device="0603"/>
 <part name="R2" value="31.6K" device="0603"/>
+<part name="C8" value="100nF" device="0402"/>
 
 <!-- ================================================================== -->
 <!-- H-BRIDGE - DISCRETE MOSFETS -->
@@ -80,8 +105,11 @@
 <part name="R4" value="100R" device="0603"/>
 <part name="R5" value="100R" device="0603"/>
 <part name="R6" value="100R" device="0603"/>
-<!-- Current sense -->
-<part name="R7" value="0.1R/1W" device="2512"/>
+<!-- Gate pull-ups for P-FETs (ensure off at startup) -->
+<part name="R20" value="10K" device="0402"/>
+<part name="R21" value="10K" device="0402"/>
+<!-- Current sense shunt -->
+<part name="R7" value="0.05R/1W" device="2512"/>
 
 <!-- ================================================================== -->
 <!-- SURGE PROTECTION -->
@@ -90,24 +118,35 @@
 <part name="D6" value="SMBJ28A" device="SMB"/>
 <part name="D7" value="SMBJ5.0A" device="SMB"/>
 <part name="D8" value="SMBJ5.0A" device="SMB"/>
+<part name="D9" value="PESD5V0S1BL" device="SOD323"/>
 <part name="F1" value="2A PTC" device="1206"/>
 
 <!-- ================================================================== -->
-<!-- STATUS LEDS -->
+<!-- STATUS LEDS (P0.07, P0.21, P0.29, P0.30) -->
 <!-- ================================================================== -->
 <part name="LED1" value="GREEN" device="0603"/>
 <part name="LED2" value="YELLOW" device="0603"/>
 <part name="LED3" value="RED" device="0603"/>
 <part name="LED4" value="BLUE" device="0603"/>
-<part name="R11" value="1K" device="0603"/>
-<part name="R12" value="10K" device="0603"/>
-<part name="R13" value="1K" device="0603"/>
-<part name="R14" value="1K" device="0603"/>
+<part name="R11" value="1K" device="0402"/>
+<part name="R12" value="1K" device="0402"/>
+<part name="R13" value="1K" device="0402"/>
+<part name="R14" value="1K" device="0402"/>
 
 <!-- ================================================================== -->
-<!-- DIP SWITCH - 10 POSITION -->
+<!-- DIP SWITCH - 10 POSITION + PULL-UPS -->
 <!-- ================================================================== -->
 <part name="SW1" value="DIP-10" device="SMD"/>
+<part name="RN1" value="10K x 8" device="0603x4"/>
+<part name="R22" value="10K" device="0402"/>
+<part name="R23" value="10K" device="0402"/>
+
+<!-- ================================================================== -->
+<!-- PAIRING BUTTON (P0.31) -->
+<!-- ================================================================== -->
+<part name="SW2" value="TACTILE" device="6x6"/>
+<part name="R15" value="10K" device="0402"/>
+<part name="C9" value="100nF" device="0402"/>
 
 <!-- ================================================================== -->
 <!-- CONNECTORS -->
@@ -119,11 +158,11 @@
 <!-- ================================================================== -->
 <!-- DECOUPLING CAPACITORS -->
 <!-- ================================================================== -->
-<part name="C3" value="100nF" device="0603"/>
-<part name="C4" value="100nF" device="0603"/>
-<part name="C5" value="100nF" device="0603"/>
-<part name="C6" value="100nF" device="0603"/>
-<part name="C7" value="100nF" device="0603"/>
+<part name="C3" value="100nF" device="0402"/>
+<part name="C4" value="100nF" device="0402"/>
+<part name="C5" value="100nF" device="0402"/>
+<part name="C6" value="100nF" device="0402"/>
+<part name="C7" value="100nF" device="0402"/>
 
 </parts>
 <sheets>
@@ -143,6 +182,7 @@
 <text x="10" y="80" size="2.54" layer="94">STATUS LEDS</text>
 <text x="120" y="80" size="2.54" layer="94">DIP SWITCH / CONNECTORS</text>
 <text x="200" y="130" size="2.54" layer="94">SURGE PROTECTION</text>
+<text x="200" y="80" size="2.54" layer="94">MEMORY (STANDARD PINS)</text>
 
 <!-- Notes -->
 <text x="10" y="20" size="1.778" layer="94">NOTES:</text>
@@ -199,9 +239,9 @@
 </net>
 
 <!-- ================================================================== -->
-<!-- SPI BUS -->
+<!-- SPI BUS 0 - CAN -->
 <!-- ================================================================== -->
-<net name="SPI_SCK" class="0">
+<net name="CAN_SCK" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.14"/>
 <pinref part="U2" gate="G$1" pin="SCK"/>
@@ -209,7 +249,7 @@
 <label x="90" y="172" size="1.778" layer="95"/>
 </segment>
 </net>
-<net name="SPI_MOSI" class="0">
+<net name="CAN_MOSI" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.12"/>
 <pinref part="U2" gate="G$1" pin="SI"/>
@@ -217,7 +257,7 @@
 <label x="90" y="167" size="1.778" layer="95"/>
 </segment>
 </net>
-<net name="SPI_MISO" class="0">
+<net name="CAN_MISO" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.13"/>
 <pinref part="U2" gate="G$1" pin="SO"/>
@@ -471,7 +511,7 @@
 </net>
 <net name="DIP_10" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.24"/>
+<pinref part="U1" gate="G$1" pin="P0.28"/>
 <pinref part="SW1" gate="G$1" pin="10"/>
 <pinref part="R10" gate="G$1" pin="EN"/>
 <wire x1="80" y1="60" x2="175" y2="70" width="0.254" layer="91"/>
@@ -480,67 +520,172 @@
 </net>
 
 <!-- ================================================================== -->
-<!-- STATUS LEDS -->
+<!-- STATUS LEDS - Moved to avoid conflict with memory bus -->
 <!-- ================================================================== -->
-<net name="LED_3V3" class="0">
+<net name="LED_POWER" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.25"/>
+<pinref part="U1" gate="G$1" pin="P0.07"/>
 <pinref part="R11" gate="G$1" pin="1"/>
-<wire x1="80" y1="55" x2="40" y2="70" width="0.254" layer="91"/>
-<label x="50" y="62" size="1.778" layer="95"/>
+<wire x1="80" y1="45" x2="40" y2="70" width="0.254" layer="91"/>
+<label x="50" y="57" size="1.778" layer="95"/>
 </segment>
 </net>
 <net name="LED_24V" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.26"/>
+<pinref part="U1" gate="G$1" pin="P0.21"/>
 <pinref part="R12" gate="G$1" pin="1"/>
-<wire x1="80" y1="50" x2="50" y2="70" width="0.254" layer="91"/>
-<label x="55" y="60" size="1.778" layer="95"/>
+<wire x1="80" y1="40" x2="50" y2="70" width="0.254" layer="91"/>
+<label x="55" y="55" size="1.778" layer="95"/>
 </segment>
 </net>
 <net name="LED_STATUS" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.27"/>
+<pinref part="U1" gate="G$1" pin="P0.29"/>
 <pinref part="R13" gate="G$1" pin="1"/>
-<wire x1="80" y1="45" x2="60" y2="70" width="0.254" layer="91"/>
-<label x="62" y="57" size="1.778" layer="95"/>
+<wire x1="80" y1="35" x2="60" y2="70" width="0.254" layer="91"/>
+<label x="62" y="52" size="1.778" layer="95"/>
 </segment>
 </net>
 <net name="LED_VALVE_OPEN" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.28"/>
+<pinref part="U1" gate="G$1" pin="P0.30"/>
 <pinref part="R14" gate="G$1" pin="1"/>
-<wire x1="80" y1="40" x2="70" y2="70" width="0.254" layer="91"/>
-<label x="72" y="55" size="1.778" layer="95"/>
+<wire x1="80" y1="30" x2="70" y2="70" width="0.254" layer="91"/>
+<label x="72" y="50" size="1.778" layer="95"/>
 </segment>
 </net>
 
 <!-- ================================================================== -->
-<!-- MEMORY (FRAM + FLASH) -->
+<!-- SPI BUS 1 - MEMORY (STANDARD PINS P0.22-P0.26) -->
 <!-- ================================================================== -->
+<net name="MEM_SCK" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.26"/>
+<wire x1="80" y1="50" x2="200" y2="75" width="0.254" layer="91"/>
+<label x="180" y="77" size="1.778" layer="95"/>
+</segment>
+</net>
+<net name="MEM_MOSI" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.25"/>
+<wire x1="80" y1="55" x2="200" y2="70" width="0.254" layer="91"/>
+<label x="180" y="72" size="1.778" layer="95"/>
+</segment>
+</net>
+<net name="MEM_MISO" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="P0.24"/>
+<wire x1="80" y1="60" x2="200" y2="65" width="0.254" layer="91"/>
+<label x="180" y="67" size="1.778" layer="95"/>
+</segment>
+</net>
 <net name="FRAM_CS" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.07"/>
-<wire x1="80" y1="35" x2="130" y2="55" width="0.254" layer="91"/>
-<label x="90" y="40" size="1.778" layer="95"/>
+<pinref part="U1" gate="G$1" pin="P0.23"/>
+<wire x1="80" y1="35" x2="200" y2="60" width="0.254" layer="91"/>
+<label x="180" y="62" size="1.778" layer="95"/>
 </segment>
 </net>
 <net name="FLASH_CS" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.29"/>
-<wire x1="80" y1="30" x2="130" y2="50" width="0.254" layer="91"/>
-<label x="90" y="35" size="1.778" layer="95"/>
+<pinref part="U1" gate="G$1" pin="P0.22"/>
+<wire x1="80" y1="30" x2="200" y2="55" width="0.254" layer="91"/>
+<label x="180" y="57" size="1.778" layer="95"/>
 </segment>
 </net>
 
 <!-- ================================================================== -->
-<!-- PAIRING BUTTON -->
+<!-- PAIRING BUTTON (P0.31) -->
 <!-- ================================================================== -->
 <net name="PAIRING_BTN" class="0">
 <segment>
-<pinref part="U1" gate="G$1" pin="P0.30"/>
+<pinref part="U1" gate="G$1" pin="P0.31"/>
+<pinref part="SW2" gate="G$1" pin="1"/>
+<pinref part="R15" gate="G$1" pin="1"/>
+<pinref part="C9" gate="G$1" pin="1"/>
+<pinref part="D9" gate="G$1" pin="A"/>
 <wire x1="80" y1="25" x2="60" y2="40" width="0.254" layer="91"/>
 <label x="65" y="32" size="1.778" layer="95"/>
+</segment>
+</net>
+
+<!-- ================================================================== -->
+<!-- nRF52810 CRYSTAL CIRCUIT (optional - can use internal RC) -->
+<!-- ================================================================== -->
+<net name="XC1" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="XC1"/>
+<pinref part="Y2" gate="G$1" pin="1"/>
+<pinref part="C20" gate="G$1" pin="1"/>
+<wire x1="60" y1="175" x2="70" y2="175" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="XC2" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="XC2"/>
+<pinref part="Y2" gate="G$1" pin="2"/>
+<pinref part="C21" gate="G$1" pin="1"/>
+<wire x1="60" y1="170" x2="70" y2="170" width="0.254" layer="91"/>
+</segment>
+</net>
+
+<!-- nRF52810 DEC pins -->
+<net name="DEC1" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="DEC1"/>
+<pinref part="C26" gate="G$1" pin="1"/>
+<wire x1="60" y1="165" x2="65" y2="165" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="DCC" class="0">
+<segment>
+<pinref part="U1" gate="G$1" pin="DCC"/>
+<pinref part="L2" gate="G$1" pin="1"/>
+<wire x1="60" y1="160" x2="65" y2="160" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="DCCH" class="0">
+<segment>
+<pinref part="L2" gate="G$1" pin="2"/>
+<pinref part="C27" gate="G$1" pin="1"/>
+<wire x1="75" y1="160" x2="80" y2="160" width="0.254" layer="91"/>
+</segment>
+</net>
+
+<!-- ================================================================== -->
+<!-- MEMORY SPI BUS ACTIVE CONNECTIONS -->
+<!-- ================================================================== -->
+<net name="MEM_SCK_ACTIVE" class="0">
+<segment>
+<pinref part="U5" gate="G$1" pin="SCK"/>
+<pinref part="U6" gate="G$1" pin="CLK"/>
+<wire x1="200" y1="75" x2="220" y2="75" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="MEM_MOSI_ACTIVE" class="0">
+<segment>
+<pinref part="U5" gate="G$1" pin="SI"/>
+<pinref part="U6" gate="G$1" pin="DI"/>
+<wire x1="200" y1="70" x2="220" y2="70" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="MEM_MISO_ACTIVE" class="0">
+<segment>
+<pinref part="U5" gate="G$1" pin="SO"/>
+<pinref part="U6" gate="G$1" pin="DO"/>
+<wire x1="200" y1="65" x2="220" y2="65" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="FRAM_CS_ACTIVE" class="0">
+<segment>
+<pinref part="U5" gate="G$1" pin="CS"/>
+<wire x1="200" y1="60" x2="210" y2="60" width="0.254" layer="91"/>
+</segment>
+</net>
+<net name="FLASH_CS_ACTIVE" class="0">
+<segment>
+<pinref part="U6" gate="G$1" pin="CS"/>
+<wire x1="220" y1="55" x2="230" y2="55" width="0.254" layer="91"/>
 </segment>
 </net>
 

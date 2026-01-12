@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "agsys_fram.h"
 
 /* Maximum number of schedule entries */
 #define MAX_SCHEDULES   16
@@ -34,6 +35,11 @@ void schedule_task(void *pvParameters);
  * @brief Initialize schedule task resources
  */
 bool schedule_task_init(void);
+
+/**
+ * @brief Set FRAM context for schedule storage
+ */
+void schedule_set_fram_ctx(agsys_fram_ctx_t *ctx);
 
 /**
  * @brief Load schedules from FRAM

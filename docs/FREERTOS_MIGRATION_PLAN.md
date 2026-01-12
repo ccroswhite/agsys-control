@@ -503,7 +503,7 @@ Only need to implement HAL functions (SPI transfer, GPIO, delays).
 | RFM95 (LoRa) | 2-3 days | **1-1.5 days** | [Semtech LoRaMac-node](https://github.com/Lora-net/LoRaMac-node) | BSD-3 |
 | ADS131M02 (ADC) | 1 day | **0.5 day** | [Pablo-Jean/ADS131M0x](https://github.com/Pablo-Jean/ADS131M0x) | Permissive |
 | MCP2515 (CAN) | 1 day | **0.5 day** | [mortenmj/FreeRTOS MCP2515](https://github.com/mortenmj/FreeRTOS/tree/master/FreeRTOS/Control/can) | BSD-3 |
-| FRAM (FM25V02) | 0.5 day | **0.25 day** | [GeneralEmbeddedCLibraries/fm25](https://github.com/GeneralEmbeddedCLibraries/fm25) | Permissive |
+| FRAM (MB85RS1MT) | 0.5 day | **0.25 day** | Custom driver (SPI FRAM) | N/A |
 | Display (ST7789) | 1-2 days | 1-2 days | LVGL has drivers, need SPI backend | MIT |
 | LVGL | 0.5 day | 0.5 day | Native FreeRTOS support built-in | MIT |
 

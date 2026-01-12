@@ -72,10 +72,13 @@ SRC_FILES += \
   $(COMMON_DIR)/src/agsys_ble_auth.c \
   $(COMMON_DIR)/src/agsys_device.c \
   $(COMMON_DIR)/src/agsys_flash.c \
-  $(COMMON_DIR)/src/agsys_flash_log.c \
+  $(COMMON_DIR)/src/agsys_fram_log.c \
   $(COMMON_DIR)/src/agsys_flash_backup.c \
   $(COMMON_DIR)/src/agsys_fram.c \
   $(COMMON_DIR)/src/agsys_spi.c \
+  $(COMMON_DIR)/src/agsys_ota.c \
+  $(COMMON_DIR)/src/agsys_ble_ota.c \
+  $(SDK_ROOT)/modules/nrfx/hal/nrf_nvmc.c \
 
 # Include folders
 INC_FOLDERS += \
