@@ -43,7 +43,7 @@
 
 #define AGSYS_ADC_CS_PIN            16
 #define AGSYS_ADC_DRDY_PIN          17
-#define AGSYS_ADC_RESET_PIN         18
+#define AGSYS_ADC_SYNC_PIN          18  /* SYNC/RESET pin */
 
 /* ==========================================================================
  * DISPLAY CONFIGURATION (ST7789 2.8" TFT)
@@ -93,9 +93,23 @@
  * COIL DRIVER CONFIGURATION
  * ========================================================================== */
 
-#define AGSYS_COIL_PWM_PIN          2
-#define AGSYS_COIL_ENABLE_PIN       3
-#define AGSYS_COIL_CURRENT_PIN      4   /* ADC input for current sense */
+#define AGSYS_COIL_GATE_PIN         NRF_GPIO_PIN_MAP(1, 0)  /* P1.00 - MOSFET gate */
+#define AGSYS_TIER_ID_PIN           NRF_GPIO_PIN_MAP(1, 1)  /* P1.01 - Tier ID ADC */
+
+/* ==========================================================================
+ * TEMPERATURE SENSOR CONFIGURATION
+ * ========================================================================== */
+
+/* Board temperature - NTC thermistor on ADC */
+#define AGSYS_TEMP_BOARD_PIN        NRF_GPIO_PIN_MAP(0, 29) /* P0.29/AIN5 - NTC divider */
+#define AGSYS_TEMP_NTC_B_VALUE      3380                    /* NTC B-constant */
+#define AGSYS_TEMP_NTC_R25          10000                   /* NTC resistance at 25°C */
+#define AGSYS_TEMP_REF_R            10000                   /* Reference resistor */
+
+/* Pipe/coil temperature - TMP102 on I2C */
+#define AGSYS_TEMP_I2C_SDA_PIN      NRF_GPIO_PIN_MAP(0, 6)  /* P0.06 - I2C SDA */
+#define AGSYS_TEMP_I2C_SCL_PIN      NRF_GPIO_PIN_MAP(0, 7)  /* P0.07 - I2C SCL */
+#define AGSYS_TEMP_TMP102_ADDR      0x48                    /* TMP102 I2C address (ADD0=GND) */
 
 /* ==========================================================================
  * BLE CONFIGURATION
@@ -128,6 +142,19 @@
 #define AGSYS_DISPLAY_DIM_TIMEOUT_SEC       60
 #define AGSYS_DISPLAY_SLEEP_TIMEOUT_SEC     30
 #define AGSYS_DISPLAY_MENU_TIMEOUT_SEC      60
+
+/* ==========================================================================
+ * DISPLAY AND LORA REPORTING INTERVALS
+ * ========================================================================== */
+
+/* Display update interval (seconds) - how often flow values refresh on screen */
+#define AGSYS_DISPLAY_UPDATE_SEC_DEFAULT    15
+
+/* LoRa report multiplier - report sent every (display_update * multiplier) seconds
+ * Default: 4 → report every 60 seconds (15s × 4)
+ * Range: 1-10
+ */
+#define AGSYS_LORA_REPORT_MULT_DEFAULT      4
 
 /* ==========================================================================
  * METER TIERS (pipe sizes)

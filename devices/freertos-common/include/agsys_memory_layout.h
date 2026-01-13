@@ -121,6 +121,10 @@ extern "C" {
 #define AGSYS_FRAM_CRYPTO_ADDR              (AGSYS_FRAM_CONFIG_ADDR + 0x0380)
 #define AGSYS_FRAM_CRYPTO_SIZE              0x0040  /* 64 bytes */
 
+/* Flow meter calibration within Calibration region */
+#define AGSYS_FRAM_FLOW_CAL_ADDR            (AGSYS_FRAM_CALIB_ADDR + 0x0000)
+#define AGSYS_FRAM_FLOW_CAL_SIZE            0x0080  /* 128 bytes */
+
 /* ==========================================================================
  * EXTERNAL FLASH MEMORY LAYOUT (W25Q16 - 2MB)
  * 

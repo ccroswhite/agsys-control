@@ -267,6 +267,77 @@ DISP_BL_EN (P0.14) ── R41 ──┬──── Q1 Gate
 | R55 | 1K | 0402 | LED1 current limit |
 | R56 | 1K | 0402 | LED2 current limit |
 
+### Temperature Sensors
+
+**Board Temperature (NTC Thermistor):**
+
+| Ref | Part Number | Description | Package |
+|-----|-------------|-------------|---------|
+| RT1 | NCP18XH103F03RB | 10kΩ NTC thermistor, B=3380K | 0402 |
+| R60 | 10kΩ 1% | Reference resistor for NTC divider | 0402 |
+| C80 | 100nF | NTC filter cap | 0402 |
+
+```
++3V3_D ────┬──── RT1 (10k NTC) ────┬──── TEMP_BOARD (P0.29/AIN5)
+           │                       │
+           └──── R60 (10k 1%) ─────┘
+                                   │
+                                  C80
+                                   │
+                                  GND
+```
+
+**Pipe/Coil Temperature (Remote I2C Sensor):**
+
+| Ref | Part Number | Description | Package |
+|-----|-------------|-------------|---------|
+| J7 | SACC-DSI-M8FS-4CON-M10-L180 | M8 4-pin panel mount receptacle, IP67 | Panel mount |
+| R61 | 4.7kΩ | I2C SDA pull-up | 0402 |
+| R62 | 4.7kΩ | I2C SCL pull-up | 0402 |
+
+**Alternative Part Numbers:**
+- Amphenol LTW: M8S-04PFFP-SF8001 (receptacle)
+- Phoenix Contact: SACC-DSI-M8FS-4CON-M10-L180 (receptacle)
+- TE Connectivity: T4140012041-000 (receptacle)
+
+```
+J7 Pinout (M8 A-coded, to remote TMP102 on coil assembly):
+  Pin 1: +3V3_D (power)      - Brown wire
+  Pin 2: GND                 - White wire  
+  Pin 3: I2C_SDA (P0.06)     - Blue wire   ──── R61 ──── +3V3_D
+  Pin 4: I2C_SCL (P0.07)     - Black wire  ──── R62 ──── +3V3_D
+```
+
+**Remote Sensor Module (mounted on coil spool):**
+
+| Ref | Part Number | Description | Package |
+|-----|-------------|-------------|---------|
+| U14 | TMP102AIDRLT | I2C temp sensor, ±1°C | SOT-23-6 |
+| C81 | 100nF | TMP102 bypass cap | 0402 |
+| J8 | SACC-M8MS-4CON-M | M8 4-pin cable plug | Molded cable |
+
+```
+TMP102 connections (on small PCB potted in sensor housing):
+  VCC ──── +3V3 (from J8 pin 1, brown)
+  GND ──── GND (from J8 pin 2, white)
+  SDA ──── J8 pin 3 (blue)
+  SCL ──── J8 pin 4 (black)
+  ADD0 ── GND (I2C address 0x48)
+  ALT ──── NC (alert not used)
+```
+
+**Cable Specification:**
+- M8 4-pin A-coded molded cable assembly
+- IP67 rated when mated
+- Pre-made cables available: 0.5m, 1m, 2m lengths
+- Example: Phoenix Contact SAC-4P-M8MS/x,0-PUR (x = length in meters)
+- Maximum length: 2 meters for reliable I2C at 100kHz
+
+**Sensor Housing:**
+- TMP102 PCB potted in small IP67 enclosure
+- Mount on coil spool or pipe clamp
+- M8 pigtail cable exits housing
+
 ### TVS Diodes (Optional - Footprints Only)
 
 | Ref | Part Number | Package | Description |
@@ -424,6 +495,9 @@ DISP_BL_EN (P0.14) ── R41 ──┬──── Q1 Gate
 | P1.04 | BTN_LEFT | Input | Navigation button, active LOW |
 | P1.05 | BTN_RIGHT | Input | Navigation button, active LOW |
 | P1.06 | BTN_SELECT | Input | Navigation button, active LOW |
+| P0.06 | I2C_SDA | I/O | Remote temp sensor (TMP102) |
+| P0.07 | I2C_SCL | Output | Remote temp sensor (TMP102) |
+| P0.29 | TEMP_BOARD | Analog In | NTC thermistor (AIN5) |
 
 ---
 

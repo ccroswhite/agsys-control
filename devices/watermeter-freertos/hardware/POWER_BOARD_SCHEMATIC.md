@@ -8,20 +8,22 @@ The power board is a modular daughter board that plugs into the main board. Thre
 
 | Variant | Pipe Size | Input Voltage | Excitation Freq | Coil Current |
 |---------|-----------|---------------|-----------------|--------------|
-| MM-S | 1.5" - 2" | 24V DC | 500 Hz | ~2.5A peak |
-| MM-M | 2.5" - 4" | 48V DC | 1 kHz | ~4A peak |
-| MM-L | 5" - 6" | 60V DC | 2 kHz | ~5A peak |
+| MM-S | 3/4" - 2" | 24V DC | 2 kHz | 1A |
+| MM-M | 2.5" - 4" | 48V DC | 2 kHz | 2.5A |
+| MM-L | 5" - 6" | 60V DC | 2 kHz | 4A |
+
+**Note:** All variants now use 2 kHz excitation for better 1/f noise rejection and capacitive coupling through PVC.
 
 ---
 
-## MM-S Power Board (24V, 500Hz)
+## MM-S Power Board (24V, 2kHz)
 
 ### Bill of Materials
 
 | Ref | Part Number | Description | Package | Qty |
 |-----|-------------|-------------|---------|-----|
 | Q1 | IRLB8721PBF | N-ch MOSFET, 30V 62A, Rds 8.7mΩ | TO-220 | 1 |
-| D1 | SS34 | Schottky diode, 3A 40V | SMA | 1 |
+| D1 | SS34 | Schottky diode, 3A 40V (24V supply OK) | SMA | 1 |
 | R1 | 0.1Ω 1W | Current sense resistor | 2512 | 1 |
 | R2 | 10kΩ | Gate pulldown | 0402 | 1 |
 | R3 | 100Ω | Gate series resistor | 0402 | 1 |
@@ -139,14 +141,14 @@ Uses 1% tolerance resistors for accuracy. Optional 100pF cap for noise filtering
 
 ---
 
-## MM-M Power Board (48V, 1kHz)
+## MM-M Power Board (48V, 2kHz)
 
 ### Bill of Materials (differences from MM-S)
 
 | Ref | Part Number | Description | Package | Notes |
 |-----|-------------|-------------|---------|-------|
 | Q1 | IPD50N06S4-14 | N-ch MOSFET, 60V 50A, Rds 9mΩ | TO-252 | Higher voltage |
-| D1 | SS54 | Schottky diode, 5A 40V | SMC | Higher current |
+| D1 | SS56 | Schottky diode, 5A 60V | SMC | 60V for 48V supply margin |
 | R1 | 0.02Ω 1W | Current sense resistor | 1206 | Low power with amp |
 | U1 | INA181A1IDBVR | Current sense amp, 20V/V | SOT-23-5 | Amplifies shunt voltage |
 | C1 | 100µF 63V | Input bulk cap | Electrolytic | Higher voltage |
@@ -170,7 +172,7 @@ Uses 1% tolerance resistors for accuracy. Optional 100pF cap for noise filtering
 | Ref | Part Number | Description | Package | Notes |
 |-----|-------------|-------------|---------|-------|
 | Q1 | IPD50N06S4-14 | N-ch MOSFET, 60V 50A, Rds 9mΩ | TO-252 | Same as MM-M |
-| D1 | SS56 | Schottky diode, 5A 60V | SMC | Higher voltage |
+| D1 | SS510 | Schottky diode, 5A 100V | SMC | 100V for 60V supply margin |
 | R1 | 0.02Ω 1W | Current sense resistor | 1206 | Low power with amp |
 | U1 | INA181A1IDBVR | Current sense amp, 20V/V | SOT-23-5 | Amplifies shunt voltage |
 | C1 | 100µF 80V | Input bulk cap | Electrolytic | Higher voltage |
@@ -271,10 +273,17 @@ The INA181 is a low-side current sense amplifier that amplifies the small voltag
 
 ### Flyback Diode Selection
 
-1. **Vrrm > supply voltage**
+1. **Vrrm > 1.5× supply voltage** (margin for inductive spikes)
 2. **If > peak coil current**
 3. **Fast recovery** (Schottky preferred)
 4. **Place as close to MOSFET as possible**
+
+**Selected Diodes:**
+| Tier | Supply | Diode | Vrrm | Margin |
+|------|--------|-------|------|--------|
+| MM-S | 24V | SS34 | 40V | 67% |
+| MM-M | 48V | SS56 | 60V | 25% |
+| MM-L | 60V | SS510 | 100V | 67% |
 
 ### Current Sense Resistor
 

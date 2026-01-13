@@ -1,49 +1,37 @@
 /**
  * @file st7789.c
  * @brief ST7789 TFT Display Driver for nRF52840
+ * 
+ * Uses shared agsys_spi driver for DMA-based SPI transfers.
  */
 
 #include "st7789.h"
+#include "agsys_spi.h"
 #include "board_config.h"
 #include "nrf_gpio.h"
 #include "nrf_delay.h"
-#include "nrfx_spim.h"
 
-/* SPI instance for display */
-static const nrfx_spim_t m_spi = NRFX_SPIM_INSTANCE(1);
-static volatile bool m_spi_xfer_done = true;
+/* SPI handle for display */
+static agsys_spi_handle_t m_spi_handle = AGSYS_SPI_INVALID_HANDLE;
 
 /* Current rotation */
 static uint8_t m_rotation = 0;
 static uint16_t m_width = ST7789_WIDTH;
 static uint16_t m_height = ST7789_HEIGHT;
 
-/* SPI event handler */
-static void spi_event_handler(nrfx_spim_evt_t const *p_event, void *p_context)
-{
-    m_spi_xfer_done = true;
-}
-
-/* Wait for SPI transfer to complete */
-static void spi_wait(void)
-{
-    while (!m_spi_xfer_done) {
-        __WFE();
-    }
-}
-
-/* Send command to display */
+/* Send command to display (uses low-level access for DC pin control) */
 static void st7789_write_cmd(uint8_t cmd)
 {
+    agsys_spi_acquire(100);
+    
     nrf_gpio_pin_clear(DISPLAY_DC_PIN);  /* Command mode */
-    nrf_gpio_pin_clear(SPI_CS_DISPLAY_PIN);
+    agsys_spi_cs_assert(m_spi_handle);
     
-    nrfx_spim_xfer_desc_t xfer = NRFX_SPIM_XFER_TX(&cmd, 1);
-    m_spi_xfer_done = false;
-    nrfx_spim_xfer(&m_spi, &xfer, 0);
-    spi_wait();
+    agsys_spi_xfer_t xfer = { .tx_buf = &cmd, .rx_buf = NULL, .length = 1 };
+    agsys_spi_transfer_raw(m_spi_handle, &xfer);
     
-    nrf_gpio_pin_set(SPI_CS_DISPLAY_PIN);
+    agsys_spi_cs_deassert(m_spi_handle);
+    agsys_spi_release();
 }
 
 /* Send data to display */
@@ -51,21 +39,22 @@ static void st7789_write_data(const uint8_t *data, uint32_t len)
 {
     if (len == 0) return;
     
-    nrf_gpio_pin_set(DISPLAY_DC_PIN);  /* Data mode */
-    nrf_gpio_pin_clear(SPI_CS_DISPLAY_PIN);
+    agsys_spi_acquire(100);
     
-    /* SPI transfer in chunks (max 255 bytes per transfer) */
+    nrf_gpio_pin_set(DISPLAY_DC_PIN);  /* Data mode */
+    agsys_spi_cs_assert(m_spi_handle);
+    
+    /* SPI transfer in chunks (max 255 bytes per DMA transfer) */
     while (len > 0) {
         uint32_t chunk = (len > 255) ? 255 : len;
-        nrfx_spim_xfer_desc_t xfer = NRFX_SPIM_XFER_TX(data, chunk);
-        m_spi_xfer_done = false;
-        nrfx_spim_xfer(&m_spi, &xfer, 0);
-        spi_wait();
+        agsys_spi_xfer_t xfer = { .tx_buf = data, .rx_buf = NULL, .length = chunk };
+        agsys_spi_transfer_raw(m_spi_handle, &xfer);
         data += chunk;
         len -= chunk;
     }
     
-    nrf_gpio_pin_set(SPI_CS_DISPLAY_PIN);
+    agsys_spi_cs_deassert(m_spi_handle);
+    agsys_spi_release();
 }
 
 /* Send single byte data */
@@ -80,22 +69,17 @@ bool st7789_init(void)
     nrf_gpio_cfg_output(DISPLAY_DC_PIN);
     nrf_gpio_cfg_output(DISPLAY_RESET_PIN);
     nrf_gpio_cfg_output(DISPLAY_BACKLIGHT_PIN);
-    nrf_gpio_cfg_output(SPI_CS_DISPLAY_PIN);
-    
-    nrf_gpio_pin_set(SPI_CS_DISPLAY_PIN);
     nrf_gpio_pin_clear(DISPLAY_BACKLIGHT_PIN);
     
-    /* Configure SPI */
-    nrfx_spim_config_t spi_config = NRFX_SPIM_DEFAULT_CONFIG;
-    spi_config.sck_pin = SPI1_SCK_PIN;
-    spi_config.mosi_pin = SPI1_MOSI_PIN;
-    spi_config.miso_pin = NRFX_SPIM_PIN_NOT_USED;
-    spi_config.frequency = NRF_SPIM_FREQ_8M;
-    spi_config.mode = NRF_SPIM_MODE_0;
-    spi_config.bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST;
+    /* Register with SPI manager */
+    agsys_spi_config_t spi_config = {
+        .cs_pin = SPI_CS_DISPLAY_PIN,
+        .cs_active_low = true,
+        .frequency = NRF_SPIM_FREQ_8M,
+        .mode = 0,
+    };
     
-    nrfx_err_t err = nrfx_spim_init(&m_spi, &spi_config, spi_event_handler, NULL);
-    if (err != NRFX_SUCCESS) {
+    if (agsys_spi_register(&spi_config, &m_spi_handle) != AGSYS_OK) {
         return false;
     }
     
@@ -209,20 +193,39 @@ void st7789_set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 
 void st7789_write_pixels(const uint16_t *data, uint32_t len)
 {
-    /* Convert to bytes and send */
-    nrf_gpio_pin_set(DISPLAY_DC_PIN);
-    nrf_gpio_pin_clear(SPI_CS_DISPLAY_PIN);
+    if (len == 0) return;
     
-    /* Send pixel data (2 bytes per pixel, big-endian) */
-    for (uint32_t i = 0; i < len; i++) {
-        uint8_t buf[2] = {(uint8_t)(data[i] >> 8), (uint8_t)(data[i] & 0xFF)};
-        nrfx_spim_xfer_desc_t xfer = NRFX_SPIM_XFER_TX(buf, 2);
-        m_spi_xfer_done = false;
-        nrfx_spim_xfer(&m_spi, &xfer, 0);
-        spi_wait();
+    agsys_spi_acquire(100);
+    
+    nrf_gpio_pin_set(DISPLAY_DC_PIN);  /* Data mode */
+    agsys_spi_cs_assert(m_spi_handle);
+    
+    /* Send pixel data in chunks for better performance
+     * LVGL provides RGB565 in native byte order, ST7789 expects big-endian
+     * We need to byte-swap each pixel
+     */
+    #define PIXEL_CHUNK_SIZE 128
+    static uint8_t swap_buf[PIXEL_CHUNK_SIZE * 2];
+    
+    while (len > 0) {
+        uint32_t chunk = (len > PIXEL_CHUNK_SIZE) ? PIXEL_CHUNK_SIZE : len;
+        
+        /* Byte-swap pixels into buffer */
+        for (uint32_t i = 0; i < chunk; i++) {
+            swap_buf[i * 2] = (uint8_t)(data[i] >> 8);
+            swap_buf[i * 2 + 1] = (uint8_t)(data[i] & 0xFF);
+        }
+        
+        /* Send chunk via DMA */
+        agsys_spi_xfer_t xfer = { .tx_buf = swap_buf, .rx_buf = NULL, .length = chunk * 2 };
+        agsys_spi_transfer_raw(m_spi_handle, &xfer);
+        
+        data += chunk;
+        len -= chunk;
     }
     
-    nrf_gpio_pin_set(SPI_CS_DISPLAY_PIN);
+    agsys_spi_cs_deassert(m_spi_handle);
+    agsys_spi_release();
 }
 
 void st7789_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color)
@@ -233,22 +236,32 @@ void st7789_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t c
     
     st7789_set_addr_window(x, y, x + w - 1, y + h - 1);
     
+    /* Prepare fill buffer with repeated color (big-endian) */
+    #define FILL_CHUNK_SIZE 128
+    static uint8_t fill_buf[FILL_CHUNK_SIZE * 2];
     uint8_t hi = color >> 8;
     uint8_t lo = color & 0xFF;
-    uint8_t buf[2] = {hi, lo};
     
-    nrf_gpio_pin_set(DISPLAY_DC_PIN);
-    nrf_gpio_pin_clear(SPI_CS_DISPLAY_PIN);
-    
-    uint32_t total = (uint32_t)w * h;
-    for (uint32_t i = 0; i < total; i++) {
-        nrfx_spim_xfer_desc_t xfer = NRFX_SPIM_XFER_TX(buf, 2);
-        m_spi_xfer_done = false;
-        nrfx_spim_xfer(&m_spi, &xfer, 0);
-        spi_wait();
+    for (int i = 0; i < FILL_CHUNK_SIZE; i++) {
+        fill_buf[i * 2] = hi;
+        fill_buf[i * 2 + 1] = lo;
     }
     
-    nrf_gpio_pin_set(SPI_CS_DISPLAY_PIN);
+    agsys_spi_acquire(100);
+    
+    nrf_gpio_pin_set(DISPLAY_DC_PIN);  /* Data mode */
+    agsys_spi_cs_assert(m_spi_handle);
+    
+    uint32_t total = (uint32_t)w * h;
+    while (total > 0) {
+        uint32_t chunk = (total > FILL_CHUNK_SIZE) ? FILL_CHUNK_SIZE : total;
+        agsys_spi_xfer_t xfer = { .tx_buf = fill_buf, .rx_buf = NULL, .length = chunk * 2 };
+        agsys_spi_transfer_raw(m_spi_handle, &xfer);
+        total -= chunk;
+    }
+    
+    agsys_spi_cs_deassert(m_spi_handle);
+    agsys_spi_release();
 }
 
 void st7789_fill_screen(uint16_t color)

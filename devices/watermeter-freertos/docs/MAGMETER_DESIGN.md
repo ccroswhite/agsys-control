@@ -93,8 +93,8 @@ Three board variants handle different pipe size ranges, each with optimized powe
 
 | Board | Pipes | Schedule | Voltage | Frequency | Peak Current | Peak Power |
 |-------|-------|----------|---------|-----------|--------------|------------|
-| **MM-S** | 1.5" - 2" | 80 | 24V DC | 500 Hz | 2.5A | ~100W |
-| **MM-M** | 2.5" - 4" | 40 | 48V DC | 1 kHz | 4A | ~300W |
+| **MM-S** | 1.5" - 2" | 80 | 24V DC | 2 kHz | 2.5A | ~100W |
+| **MM-M** | 2.5" - 4" | 40 | 48V DC | 2 kHz | 4A | ~300W |
 | **MM-L** | 5" - 6" | 40 | 60V DC | 2 kHz | 5A | ~550W |
 
 **Shared across all boards:**
@@ -311,35 +311,49 @@ Shields
 1. **Excitation Generation**
    - MCU generates pulsed DC signal (no H-bridge needed)
    - Single MOSFET driver with flyback diode
-   - Pulse frequency: **1 kHz** (above 1/f noise corner for better SNR)
-   - Current: ~100-500mA peak
+   - Pulse frequency: **2 kHz** (well above 1/f noise corner for better SNR)
+   - Current: **Tiered by pipe size** (see table below)
    - Pulsed DC is sufficient because:
      - No wetted electrodes (capacitive coupling eliminates polarization)
      - Non-ferrous copper electrodes (no magnetic interaction)
      - Plastic housing (no eddy currents)
    - **Bidirectional flow detection**: Sign of (V_on - V_off) indicates direction
+   
+   **Coil Current by Board Variant:**
+   | Board | Pipe Size | Peak Current | Rationale |
+   |-------|-----------|--------------|----------|
+   | MM-S | 1.5" - 2" | 500mA - 1A | Small diameter, lower B needed |
+   | MM-M | 2.5" - 4" | 2A - 3A | Medium diameter |
+   | MM-L | 5" - 6" | 4A - 5A | Large diameter, max B needed |
+   
+   *Note: Larger pipes require stronger magnetic field (B) to generate equivalent signal voltage per Faraday's law (V = B × D × v).*
 
 2. **Signal Pickup**
    - Copper foil electrodes capacitively couple to water
-   - Expected signal: 10-100 µV (depending on flow rate and pipe size)
+   - Expected signal: **100-500 µV** (increased via higher coil current)
+   - Target SNR: >60 dB (well above ADS131M02 noise floor)
    - Triaxial cable with active guard to PCB
 
 3. **Instrumentation Amplifier**
    - High CMRR (>100dB) to reject common-mode noise
    - Low noise (<10 nV/√Hz)
-   - Gain: 60-80 dB
+   - Gain: 10-100× (let ADC PGA handle fine adjustment)
    - Guard driver output for active shielding
 
-4. **Pulsed DC Measurement (Offset Cancellation)**
+4. **Pulsed DC Measurement (Synchronous Detection)**
    - Sample during field-ON: V_on = V_flow + V_offset
    - Sample during field-OFF: V_off = V_offset
    - Compute: V_flow = V_on - V_off
    - Eliminates DC offset and low-frequency drift
    - No complex lock-in amplifier needed
+   - **ADC sample rate: 16 kSPS** (8 samples per half-cycle at 2kHz)
+   - Average over 32 cycles for output (16ms window)
 
 5. **ADC**
-   - 24-bit resolution for µV-level signals
-   - Built-in or external temperature sensor for compensation
+   - ADS131M02: 24-bit resolution, 64 kSPS max, PGA 1-128×
+   - With 128× PGA: ~0.1 µV resolution
+   - 100-500 µV signal → **60+ dB SNR**
+   - Built-in temperature sensor for compensation
    - SPI interface to MCU
 
 ### Temperature Compensation
@@ -614,6 +628,124 @@ Each meter requires calibration for:
 - Zero check: Close valves, verify zero reading
 - Span check: Compare against reference meter or timed fill
 
+## Temperature Sensing
+
+Temperature monitoring is critical for accurate flow measurement due to:
+- Coil resistance drift (+0.393%/°C copper tempco)
+- Electronics drift with temperature
+- Calibration accuracy over operating range
+
+### Dual Temperature Sensors
+
+**1. Board Temperature (NTC Thermistor)**
+- Location: Main PCB near analog front-end
+- Part: 10kΩ NTC (NCP18XH103F03RB), B=3380K
+- Purpose: Monitor electronics temperature for drift compensation
+- Interface: nRF52840 ADC (P0.29/AIN5)
+
+**2. Pipe/Coil Temperature (Remote I2C Sensor)**
+- Location: Mounted on coil spool, near pipe
+- Part: TMP102 (±1°C accuracy)
+- Purpose: Monitor actual measurement environment
+- Interface: I2C via M8 industrial connector
+
+### Industrial Connector for Remote Sensor
+
+The remote temperature sensor uses an **M8 4-pin A-coded** industrial circular connector for field reliability:
+
+#### Board-Side Components (Main PCB)
+
+| Ref | Part Number | Description | Supplier |
+|-----|-------------|-------------|----------|
+| J7 | SACC-DSI-M8FS-4CON-M10-L180 | M8 4-pin panel mount receptacle, IP67 | Phoenix Contact |
+| J7 | M8S-04PFFP-SF8001 | M8 4-pin panel mount receptacle, IP67 | Amphenol LTW |
+| J7 | T4140012041-000 | M8 4-pin panel mount receptacle | TE Connectivity |
+| R61 | 4.7kΩ 0402 | I2C SDA pull-up resistor | - |
+| R62 | 4.7kΩ 0402 | I2C SCL pull-up resistor | - |
+
+**Board Header Schematic:**
+```
++3V3_D ──────────────────────────────────────► J7 Pin 1 (Brown)
+                                               
+GND ─────────────────────────────────────────► J7 Pin 2 (White)
+
+P0.06 (I2C_SDA) ──┬──── R61 (4.7k) ──── +3V3_D
+                  │
+                  └──────────────────────────► J7 Pin 3 (Blue)
+
+P0.07 (I2C_SCL) ──┬──── R62 (4.7k) ──── +3V3_D
+                  │
+                  └──────────────────────────► J7 Pin 4 (Black)
+```
+
+#### Cable Assembly
+
+| Part Number | Description | Length | Supplier |
+|-------------|-------------|--------|----------|
+| SAC-4P-M8MS/0,5-PUR | M8 4-pin molded cable, IP67 | 0.5m | Phoenix Contact |
+| SAC-4P-M8MS/1,0-PUR | M8 4-pin molded cable, IP67 | 1.0m | Phoenix Contact |
+| SAC-4P-M8MS/2,0-PUR | M8 4-pin molded cable, IP67 | 2.0m | Phoenix Contact |
+
+**Note:** Maximum cable length is 2 meters for reliable I2C communication at 100kHz.
+
+#### M8 A-coded Pinout (Standard)
+
+| Pin | Signal | Wire Color | MCU Pin |
+|-----|--------|------------|---------|
+| 1 | +3.3V | Brown | - |
+| 2 | GND | White | - |
+| 3 | I2C SDA | Blue | P0.06 |
+| 4 | I2C SCL | Black | P0.07 |
+
+#### Remote Sensor Module (TMP102)
+
+| Ref | Part Number | Description | Package |
+|-----|-------------|-------------|---------|
+| U14 | TMP102AIDRLT | I2C temperature sensor, ±1°C | SOT-23-6 |
+| C81 | 100nF | Bypass capacitor | 0402 |
+| J8 | SACC-M8MS-4CON-M | M8 4-pin cable plug (molded) | - |
+
+**TMP102 Schematic (on sensor PCB):**
+```
+J8 Pin 1 (Brown, +3V3) ──┬──── U14 VCC
+                         │
+                        C81 (100nF)
+                         │
+J8 Pin 2 (White, GND) ───┴──── U14 GND ──── U14 ADD0 (addr 0x48)
+
+J8 Pin 3 (Blue, SDA) ─────────── U14 SDA
+
+J8 Pin 4 (Black, SCL) ────────── U14 SCL
+
+U14 ALT ──── NC (not connected)
+```
+
+**Sensor Module Assembly:**
+- TMP102 mounted on small PCB (~15mm × 10mm)
+- PCB potted in IP67 enclosure (e.g., Hammond 1551SNAP or similar)
+- M8 pigtail cable exits through cable gland
+- Mount on coil spool flange or pipe clamp bracket
+- Ensure thermal contact with coil/pipe for accurate reading
+
+#### I2C Configuration
+
+| Parameter | Value |
+|-----------|-------|
+| I2C Address | 0x48 (ADD0 tied to GND) |
+| I2C Speed | 100 kHz (standard mode) |
+| Pull-up Resistors | 4.7kΩ (on main board) |
+| Max Cable Length | 2 meters |
+
+### Temperature Compensation
+
+The firmware applies temperature compensation:
+1. Read both sensors every 10 seconds
+2. Adjust PWM duty cycle for coil resistance change (optional closed-loop)
+3. Apply span temperature coefficient from calibration data
+4. Log temperatures for diagnostics
+
+---
+
 ## Lightning / Surge Protection
 
 Given outdoor installation near water pipes (excellent ground path), a layered protection strategy is used.
@@ -658,8 +790,29 @@ For clean water installations where cost is prioritized over fouling resistance,
 
 This will be documented separately.
 
+## Key Signal Parameters Summary
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Excitation frequency | **2 kHz** | Above 1/f noise corner, all variants |
+| Peak coil current | **0.5A - 5A** | Tiered by pipe size (see Signal Chain) |
+| Expected signal | **100-500 µV** | Depends on flow rate and pipe size |
+| ADC sample rate | **16 kSPS** | 8 samples per half-cycle |
+| ADC PGA gain | **32-128×** | Auto-ranging |
+| Averaging window | **32 cycles** | 16ms output update |
+| Target SNR | **>60 dB** | For ≤1% accuracy |
+| Zero threshold | **±5 µV** | Below = report zero |
+
+**Hardware Verification (all variants use 2kHz now):**
+- [x] MOSFET switching speed OK for 2kHz (20-50ns rise/fall << 500µs period)
+- [x] MOSFET current capacity OK (62A/50A rated vs 0.5-5A actual)
+- [ ] Verify flyback diode current ratings match new currents
+- [ ] Verify power supply can deliver sustained current for each variant
+
 ## Revision History
 
 | Rev | Date | Author | Changes |
 |-----|------|--------|---------|
+| 0.3 | 2026-01-12 | - | Clarified tiered current approach (0.5A-5A by pipe size) |
+| 0.2 | 2026-01-12 | - | Standardized all variants to 2kHz excitation, target 100-500µV signal |
 | 0.1 | 2026-01-07 | - | Initial design decisions |

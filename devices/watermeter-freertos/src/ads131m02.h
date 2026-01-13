@@ -18,7 +18,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "nrf_drv_spi.h"
+#include "agsys_spi.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
 
@@ -146,11 +146,10 @@ typedef struct {
 
 typedef struct {
     /* SPI configuration */
-    uint8_t             spi_instance;
+    agsys_spi_handle_t  spi_handle;
     uint8_t             cs_pin;
     uint8_t             drdy_pin;
     uint8_t             sync_pin;
-    SemaphoreHandle_t   spi_mutex;
     
     /* ADC configuration */
     ads131m02_osr_t     osr;
@@ -168,11 +167,9 @@ typedef struct {
 } ads131m02_ctx_t;
 
 typedef struct {
-    uint8_t             spi_instance;
     uint8_t             cs_pin;
     uint8_t             drdy_pin;
     uint8_t             sync_pin;
-    SemaphoreHandle_t   spi_mutex;
     ads131m02_osr_t     osr;
     ads131m02_gain_t    gain_ch0;
     ads131m02_gain_t    gain_ch1;

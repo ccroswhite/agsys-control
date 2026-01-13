@@ -90,6 +90,31 @@ void display_showLoRaConfig(void);
 void display_showCalibration(void);
 
 /**
+ * @brief Show zero calibration screen
+ */
+void display_showCalZero(void);
+
+/**
+ * @brief Show span calibration screen (enter reference flow)
+ */
+void display_showCalSpan(void);
+
+/**
+ * @brief Show pipe size selection screen
+ */
+void display_showCalPipeSize(void);
+
+/**
+ * @brief Show duty cycle configuration screen
+ */
+void display_showCalDutyCycle(void);
+
+/**
+ * @brief Show current calibration data
+ */
+void display_showCalView(void);
+
+/**
  * @brief Show totalizer screen
  * @param totalLiters Current total volume
  */

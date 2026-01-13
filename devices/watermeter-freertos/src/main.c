@@ -22,6 +22,7 @@
 #include "nrf_gpio.h"
 #include "nrf_delay.h"
 #include "nrf_drv_clock.h"
+#include "nrf_drv_saadc.h"
 #include "nrf_pwr_mgmt.h"
 
 #include "nrf_sdh.h"
@@ -29,6 +30,8 @@
 #include "nrf_sdh_freertos.h"
 
 #include "SEGGER_RTT.h"
+
+#include <math.h>
 
 #include "agsys_config.h"
 #include "agsys_device.h"
@@ -41,6 +44,10 @@
 #include "board_config.h"
 #include "lora_task.h"
 #include "display.h"
+#include "flow_calc.h"
+#include "coil_driver.h"
+#include "temp_sensor.h"
+#include "lvgl_port.h"
 
 /* ==========================================================================
  * SHARED RESOURCES
@@ -51,6 +58,9 @@ SemaphoreHandle_t g_spi_mutex = NULL;
 
 /* Device context (BLE, FRAM, Flash, auth) - non-static for logging access */
 agsys_device_ctx_t m_device_ctx;
+
+/* Global FRAM context pointer for flow_calc module */
+agsys_fram_ctx_t *g_fram_ctx = NULL;
 
 /* OTA contexts */
 static agsys_flash_ctx_t m_flash_ctx;
@@ -64,22 +74,18 @@ static char m_ota_version_str[16] = {0};
  * FLOW MEASUREMENT STATE
  * ========================================================================== */
 
-typedef struct {
-    float flow_rate_lpm;        /* Current flow rate (L/min) */
-    float total_volume_l;       /* Total volume (liters) */
-    float trend_volume_l;       /* Volume change in trend period */
-    float avg_volume_l;         /* Average volume in avg period */
-    float velocity_mps;         /* Flow velocity (m/s) */
-    bool reverse_flow;          /* Reverse flow detected */
-    uint8_t tier;               /* Meter tier (pipe size) */
-} flow_state_t;
-
-static flow_state_t m_flow_state = {0};
+static ads131m02_ctx_t m_adc_ctx;
+static flow_calc_ctx_t m_flow_ctx;
+static coil_driver_ctx_t m_coil_ctx;
+static temp_sensor_ctx_t m_temp_ctx;
 
 /* Global flow data for LoRa task access */
 volatile float g_flow_rate_lpm = 0.0f;
 volatile float g_total_volume_l = 0.0f;
 volatile uint8_t g_alarm_flags = 0;
+
+/* Calibration state - set true if device needs calibration */
+volatile bool g_needs_calibration = false;
 
 /* ==========================================================================
  * ALARM STATE (types defined in ui_types.h)
@@ -143,6 +149,81 @@ static void exit_pairing_mode(void);
  * UTILITY FUNCTIONS
  * ========================================================================== */
 
+/**
+ * @brief Read TIER_ID voltage from ADC
+ * 
+ * P1.01 = AIN7 on nRF52840
+ * Voltage divider on power board sets:
+ *   MM-S: 0.825V (R4=1M, R5=3M)
+ *   MM-M: 1.65V  (R4=1M, R5=1M)
+ *   MM-L: 2.475V (R4=1M, R5=0.5M)
+ * 
+ * @return Voltage in millivolts
+ */
+static uint32_t read_tier_id_adc(void)
+{
+    /* P1.01 = AIN7 on nRF52840 */
+    #define TIER_ID_AIN     NRF_SAADC_INPUT_AIN7
+    
+    /* Initialize SAADC if not already done */
+    ret_code_t err = nrf_drv_saadc_init(NULL, NULL);
+    if (err != NRF_SUCCESS && err != NRF_ERROR_INVALID_STATE) {
+        SEGGER_RTT_printf(0, "TIER: SAADC init failed (err=%d)\n", err);
+        return 0;
+    }
+    
+    /* Configure channel for TIER_ID
+     * Using VDD/4 reference with 1/4 gain gives full VDD range
+     * Resolution: VDD / 4096 per LSB (12-bit)
+     */
+    nrf_saadc_channel_config_t channel_config = NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(TIER_ID_AIN);
+    channel_config.gain = NRF_SAADC_GAIN1_4;
+    channel_config.reference = NRF_SAADC_REFERENCE_VDD4;
+    channel_config.acq_time = NRF_SAADC_ACQTIME_40US;  /* Long acquisition for high-impedance divider */
+    
+    /* Use channel 1 (channel 0 may be used by temp sensor) */
+    err = nrf_drv_saadc_channel_init(1, &channel_config);
+    if (err != NRF_SUCCESS && err != NRF_ERROR_INVALID_STATE) {
+        SEGGER_RTT_printf(0, "TIER: Channel init failed (err=%d)\n", err);
+        return 0;
+    }
+    
+    /* Take multiple samples and average */
+    int32_t sum = 0;
+    int valid_samples = 0;
+    
+    for (int i = 0; i < 8; i++) {
+        nrf_saadc_value_t sample;
+        err = nrf_drv_saadc_sample_convert(1, &sample);
+        if (err == NRF_SUCCESS && sample > 0) {
+            sum += sample;
+            valid_samples++;
+        }
+        nrf_delay_us(100);
+    }
+    
+    /* Uninit channel to free it */
+    nrf_drv_saadc_channel_uninit(1);
+    
+    if (valid_samples == 0) {
+        SEGGER_RTT_printf(0, "TIER: No valid samples\n");
+        return 0;
+    }
+    
+    int32_t avg_raw = sum / valid_samples;
+    
+    /* Convert to millivolts
+     * With VDD/4 reference and 1/4 gain:
+     * V_in = (raw / 4096) * VDD
+     * Assuming VDD = 3.3V = 3300mV
+     */
+    uint32_t voltage_mv = (uint32_t)((avg_raw * 3300) / 4096);
+    
+    SEGGER_RTT_printf(0, "TIER: ADC raw=%ld, voltage=%lu mV\n", avg_raw, voltage_mv);
+    
+    return voltage_mv;
+}
+
 static bool check_pairing_button(void)
 {
     nrf_gpio_cfg_input(AGSYS_BTN_SELECT_PIN, NRF_GPIO_PIN_PULLUP);
@@ -189,6 +270,213 @@ static void exit_pairing_mode(void)
 }
 
 /* ==========================================================================
+ * DISPLAY CALIBRATION CALLBACKS
+ * ========================================================================== */
+
+bool display_cal_zero_callback(void)
+{
+    SEGGER_RTT_printf(0, "UI: Zero calibration requested\n");
+    if (flow_calc_zero_calibrate(&m_flow_ctx)) {
+        flow_calc_save_calibration(&m_flow_ctx);
+        SEGGER_RTT_printf(0, "UI: Zero cal success\n");
+        return true;
+    }
+    SEGGER_RTT_printf(0, "UI: Zero cal failed\n");
+    return false;
+}
+
+bool display_cal_span_callback(float known_flow_lpm)
+{
+    SEGGER_RTT_printf(0, "UI: Span calibration requested (ref=%.1f L/min)\n", known_flow_lpm);
+    if (flow_calc_span_calibrate(&m_flow_ctx, known_flow_lpm)) {
+        flow_calc_save_calibration(&m_flow_ctx);
+        SEGGER_RTT_printf(0, "UI: Span cal success\n");
+        return true;
+    }
+    SEGGER_RTT_printf(0, "UI: Span cal failed\n");
+    return false;
+}
+
+void display_cal_pipe_size_callback(uint8_t pipe_size)
+{
+    SEGGER_RTT_printf(0, "UI: Pipe size set to %d\n", pipe_size);
+    flow_calc_set_defaults(&m_flow_ctx, (flow_pipe_size_t)pipe_size);
+    flow_calc_save_calibration(&m_flow_ctx);
+}
+
+void display_cal_get_data(float *zero_uv, float *span, float *diameter_m, uint8_t *pipe_size)
+{
+    if (zero_uv) *zero_uv = m_flow_ctx.calibration.zero_offset_uv;
+    if (span) *span = m_flow_ctx.calibration.span_uv_per_mps;
+    if (diameter_m) *diameter_m = m_flow_ctx.calibration.pipe_diameter_m;
+    if (pipe_size) *pipe_size = m_flow_ctx.calibration.pipe_size;
+}
+
+void display_cal_get_duty_cycle(uint16_t *on_ms, uint16_t *off_ms)
+{
+    if (on_ms) *on_ms = m_flow_ctx.calibration.coil_on_time_ms;
+    if (off_ms) *off_ms = m_flow_ctx.calibration.coil_off_time_ms;
+}
+
+void display_cal_set_duty_cycle(uint16_t on_ms, uint16_t off_ms)
+{
+    SEGGER_RTT_printf(0, "UI: Duty cycle set to %ums/%ums\n", on_ms, off_ms);
+    
+    /* Apply to coil driver */
+    coil_driver_set_duty_cycle(&m_coil_ctx, on_ms, off_ms);
+    
+    /* Save to calibration (use clamped values from driver) */
+    m_flow_ctx.calibration.coil_on_time_ms = m_coil_ctx.on_time_ms;
+    m_flow_ctx.calibration.coil_off_time_ms = m_coil_ctx.off_time_ms;
+    flow_calc_save_calibration(&m_flow_ctx);
+}
+
+/* ==========================================================================
+ * BLE COMMAND IDS (Water Meter specific)
+ * ========================================================================== */
+
+#define BLE_CMD_ZERO_CAL            0x10  /* Trigger zero calibration */
+#define BLE_CMD_SPAN_CAL            0x11  /* Span cal: params = float32 known_flow_lpm */
+#define BLE_CMD_SET_PIPE_SIZE       0x12  /* Set pipe size: params = uint8 pipe_size_enum */
+#define BLE_CMD_RESET_TOTAL         0x13  /* Reset totalizer */
+#define BLE_CMD_GET_CAL_DATA        0x14  /* Request calibration data */
+#define BLE_CMD_SAVE_CAL            0x15  /* Save calibration to FRAM */
+#define BLE_CMD_AUTO_ZERO_ENABLE    0x16  /* Enable/disable auto-zero: params = uint8 enable */
+#define BLE_CMD_SET_DUTY_CYCLE      0x17  /* Set duty cycle: params = uint16 on_ms, uint16 off_ms */
+#define BLE_CMD_GET_DUTY_CYCLE      0x18  /* Get current duty cycle */
+
+/* BLE response codes */
+#define BLE_RSP_OK                  0x00
+#define BLE_RSP_ERR_NOT_READY       0x01
+#define BLE_RSP_ERR_INVALID_PARAM   0x02
+#define BLE_RSP_ERR_CAL_FAILED      0x03
+#define BLE_RSP_ERR_NOT_AUTH        0x04
+
+/* ==========================================================================
+ * BLE COMMAND HANDLER
+ * ========================================================================== */
+
+static void handle_ble_command(uint8_t cmd_id, const uint8_t *params, uint16_t params_len)
+{
+    uint8_t response[32];
+    uint16_t rsp_len = 2;  /* cmd_id + status */
+    response[0] = cmd_id;
+    response[1] = BLE_RSP_OK;
+    
+    switch (cmd_id) {
+        case BLE_CMD_ZERO_CAL:
+            SEGGER_RTT_printf(0, "BLE: Zero calibration requested\n");
+            if (flow_calc_zero_calibrate(&m_flow_ctx)) {
+                flow_calc_save_calibration(&m_flow_ctx);
+                SEGGER_RTT_printf(0, "BLE: Zero cal success\n");
+            } else {
+                response[1] = BLE_RSP_ERR_CAL_FAILED;
+                SEGGER_RTT_printf(0, "BLE: Zero cal failed\n");
+            }
+            break;
+            
+        case BLE_CMD_SPAN_CAL:
+            if (params_len >= 4) {
+                float known_flow_lpm;
+                memcpy(&known_flow_lpm, params, sizeof(float));
+                SEGGER_RTT_printf(0, "BLE: Span cal requested (ref=%.1f L/min)\n", known_flow_lpm);
+                
+                if (flow_calc_span_calibrate(&m_flow_ctx, known_flow_lpm)) {
+                    flow_calc_save_calibration(&m_flow_ctx);
+                    SEGGER_RTT_printf(0, "BLE: Span cal success\n");
+                } else {
+                    response[1] = BLE_RSP_ERR_CAL_FAILED;
+                    SEGGER_RTT_printf(0, "BLE: Span cal failed\n");
+                }
+            } else {
+                response[1] = BLE_RSP_ERR_INVALID_PARAM;
+            }
+            break;
+            
+        case BLE_CMD_SET_PIPE_SIZE:
+            if (params_len >= 1 && params[0] < PIPE_SIZE_COUNT) {
+                flow_pipe_size_t pipe_size = (flow_pipe_size_t)params[0];
+                flow_calc_set_defaults(&m_flow_ctx, pipe_size);
+                flow_calc_save_calibration(&m_flow_ctx);
+                SEGGER_RTT_printf(0, "BLE: Pipe size set to %d\n", pipe_size);
+            } else {
+                response[1] = BLE_RSP_ERR_INVALID_PARAM;
+            }
+            break;
+            
+        case BLE_CMD_RESET_TOTAL:
+            flow_calc_reset_total(&m_flow_ctx);
+            SEGGER_RTT_printf(0, "BLE: Totalizer reset\n");
+            break;
+            
+        case BLE_CMD_GET_CAL_DATA:
+            /* Return calibration data in response */
+            response[2] = m_flow_ctx.calibration.pipe_size;
+            memcpy(&response[3], &m_flow_ctx.calibration.zero_offset_uv, sizeof(float));
+            memcpy(&response[7], &m_flow_ctx.calibration.span_uv_per_mps, sizeof(float));
+            memcpy(&response[11], &m_flow_ctx.calibration.pipe_diameter_m, sizeof(float));
+            rsp_len = 15;
+            SEGGER_RTT_printf(0, "BLE: Cal data requested\n");
+            break;
+            
+        case BLE_CMD_SAVE_CAL:
+            if (flow_calc_save_calibration(&m_flow_ctx)) {
+                SEGGER_RTT_printf(0, "BLE: Cal saved\n");
+            } else {
+                response[1] = BLE_RSP_ERR_CAL_FAILED;
+            }
+            break;
+            
+        case BLE_CMD_AUTO_ZERO_ENABLE:
+            if (params_len >= 1) {
+                flow_calc_set_auto_zero(&m_flow_ctx, params[0] != 0);
+                m_flow_ctx.calibration.auto_zero_enabled = params[0] != 0;
+                flow_calc_save_calibration(&m_flow_ctx);
+            } else {
+                response[1] = BLE_RSP_ERR_INVALID_PARAM;
+            }
+            break;
+            
+        case BLE_CMD_SET_DUTY_CYCLE:
+            if (params_len >= 4) {
+                uint16_t on_ms, off_ms;
+                memcpy(&on_ms, params, sizeof(uint16_t));
+                memcpy(&off_ms, params + 2, sizeof(uint16_t));
+                
+                /* Apply to coil driver */
+                coil_driver_set_duty_cycle(&m_coil_ctx, on_ms, off_ms);
+                
+                /* Save to calibration */
+                m_flow_ctx.calibration.coil_on_time_ms = m_coil_ctx.on_time_ms;
+                m_flow_ctx.calibration.coil_off_time_ms = m_coil_ctx.off_time_ms;
+                flow_calc_save_calibration(&m_flow_ctx);
+                
+                SEGGER_RTT_printf(0, "BLE: Duty cycle set to %ums/%ums\n", on_ms, off_ms);
+            } else {
+                response[1] = BLE_RSP_ERR_INVALID_PARAM;
+            }
+            break;
+            
+        case BLE_CMD_GET_DUTY_CYCLE:
+            /* Return duty cycle in response */
+            memcpy(&response[2], &m_flow_ctx.calibration.coil_on_time_ms, sizeof(uint16_t));
+            memcpy(&response[4], &m_flow_ctx.calibration.coil_off_time_ms, sizeof(uint16_t));
+            response[6] = m_flow_ctx.calibration.auto_zero_enabled;
+            rsp_len = 7;
+            SEGGER_RTT_printf(0, "BLE: Duty cycle requested\n");
+            break;
+            
+        default:
+            response[1] = BLE_RSP_ERR_INVALID_PARAM;
+            SEGGER_RTT_printf(0, "BLE: Unknown command %d\n", cmd_id);
+            break;
+    }
+    
+    /* Send response */
+    agsys_ble_send_response(&m_device_ctx.ble_ctx, response, rsp_len);
+}
+
+/* ==========================================================================
  * BLE EVENT HANDLER
  * ========================================================================== */
 
@@ -230,7 +518,7 @@ static void ble_event_handler(const agsys_ble_evt_t *evt)
             
         case AGSYS_BLE_EVT_COMMAND_RECEIVED:
             SEGGER_RTT_printf(0, "BLE: Command received (cmd=%d)\n", evt->command.cmd_id);
-            /* TODO: Handle commands from app */
+            handle_ble_command(evt->command.cmd_id, evt->command.params, evt->command.params_len);
             break;
             
         default:
@@ -541,6 +829,9 @@ static bool create_shared_resources(void)
     };
     if (!agsys_device_init(&m_device_ctx, &dev_init)) {
         SEGGER_RTT_printf(0, "WARNING: Device init failed\n");
+    } else {
+        /* Set global FRAM pointer for flow_calc module */
+        g_fram_ctx = &m_device_ctx.fram_ctx;
     }
     
     /* Create button event queue */
@@ -553,6 +844,22 @@ static bool create_shared_resources(void)
     return true;
 }
 
+
+/* ==========================================================================
+ * ADC DRDY CALLBACK - Called when new sample ready
+ * ========================================================================== */
+
+static void adc_drdy_callback(ads131m02_sample_t *sample, void *user_data)
+{
+    (void)user_data;
+    
+    /* Get current coil state from hardware driver */
+    bool coil_on = coil_driver_get_state(&m_coil_ctx);
+    
+    /* Process sample through flow calculator */
+    flow_calc_process_sample(&m_flow_ctx, sample, coil_on);
+}
+
 /* ==========================================================================
  * ADC TASK - Signal acquisition and flow calculation
  * ========================================================================== */
@@ -563,27 +870,177 @@ static void adc_task(void *pvParameters)
     
     SEGGER_RTT_printf(0, "ADC task started\n");
     
-    /* TODO: Initialize ADS131M02 ADC */
-    /* TODO: Initialize coil driver with hardware timers */
+    /* Initialize ADS131M02 ADC */
+    ads131m02_config_t adc_config = {
+        .spi_cs_pin = AGSYS_ADC_CS_PIN,
+        .drdy_pin = AGSYS_ADC_DRDY_PIN,
+        .sync_pin = AGSYS_ADC_SYNC_PIN,
+        .osr = ADS131M02_OSR_256,       /* 16 kSPS (OSR=256 with 8.192MHz clock) */
+        .gain_ch0 = ADS131M02_GAIN_32,  /* Electrode signal */
+        .gain_ch1 = ADS131M02_GAIN_1,   /* Coil current sense */
+    };
+    
+    if (!ads131m02_init(&m_adc_ctx, &adc_config)) {
+        SEGGER_RTT_printf(0, "ADC: Init failed!\n");
+        vTaskSuspend(NULL);
+    }
+    
+    /* Initialize flow calculator */
+    if (!flow_calc_init(&m_flow_ctx, &m_adc_ctx)) {
+        SEGGER_RTT_printf(0, "FLOW: Init failed!\n");
+        vTaskSuspend(NULL);
+    }
+    
+    /* =======================================================================
+     * AUTO-DETECTION SEQUENCE
+     * 
+     * 1. Detect tier from TIER_ID pin (resistor divider on coil board)
+     * 2. Load calibration from FRAM
+     * 3. If no calibration: apply tier defaults, measure coil resistance
+     * 4. If tier changed: update tier-specific parameters
+     * ======================================================================= */
+    
+    /* Step 1: Detect tier from TIER_ID ADC pin */
+    uint32_t tier_id_mv = read_tier_id_adc();
+    flow_tier_t detected_tier = flow_calc_detect_tier(tier_id_mv);
+    
+    const char *tier_names[] = {"MM-S", "MM-M", "MM-L", "UNKNOWN"};
+    SEGGER_RTT_printf(0, "TIER: Detected %s (voltage=%lu mV)\n", 
+                      tier_names[detected_tier < 4 ? detected_tier : 3], tier_id_mv);
+    
+    /* Step 2: Try to load calibration from FRAM */
+    bool cal_loaded = flow_calc_load_calibration(&m_flow_ctx);
+    bool needs_calibration = false;
+    
+    if (!cal_loaded) {
+        /* No valid calibration - first boot or corrupted */
+        SEGGER_RTT_printf(0, "BOOT: No calibration found - applying defaults\n");
+        flow_calc_set_defaults(&m_flow_ctx, PIPE_SIZE_2_INCH);
+        flow_calc_apply_tier_defaults(&m_flow_ctx, detected_tier);
+        needs_calibration = true;
+    } else {
+        /* Check if tier changed (different coil board installed) */
+        flow_tier_t stored_tier = (flow_tier_t)m_flow_ctx.calibration.tier;
+        if (detected_tier != FLOW_TIER_UNKNOWN && detected_tier != stored_tier) {
+            SEGGER_RTT_printf(0, "BOOT: Tier changed from %d to %d - updating parameters\n",
+                              stored_tier, detected_tier);
+            flow_calc_apply_tier_defaults(&m_flow_ctx, detected_tier);
+            needs_calibration = true;
+        }
+        
+        /* Check if device has ever been calibrated */
+        if (!flow_calc_is_calibrated(&m_flow_ctx)) {
+            SEGGER_RTT_printf(0, "BOOT: Device has defaults but never calibrated\n");
+            needs_calibration = true;
+        }
+    }
+    
+    /* Initialize hardware coil driver (TIMER2 + PPI + GPIOTE) */
+    if (!coil_driver_init(&m_coil_ctx, AGSYS_COIL_GATE_PIN)) {
+        SEGGER_RTT_printf(0, "COIL: Init failed!\n");
+        vTaskSuspend(NULL);
+    }
+    
+    /* Step 3: If uncalibrated, measure coil resistance */
+    if (needs_calibration) {
+        SEGGER_RTT_printf(0, "BOOT: Measuring coil resistance...\n");
+        uint16_t measured_r = flow_calc_measure_coil_resistance(&m_flow_ctx);
+        if (measured_r > 0) {
+            SEGGER_RTT_printf(0, "BOOT: Coil resistance = %u mΩ\n", measured_r);
+        } else {
+            SEGGER_RTT_printf(0, "BOOT: Coil measurement failed - using defaults\n");
+        }
+        
+        /* Save updated calibration with tier and measured resistance */
+        flow_calc_save_calibration(&m_flow_ctx);
+        
+        /* Set flag to show calibration needed on display */
+        g_needs_calibration = true;
+    }
+    
+    /* Apply duty cycle from calibration data */
+    coil_driver_set_duty_cycle(&m_coil_ctx, 
+                                m_flow_ctx.calibration.coil_on_time_ms,
+                                m_flow_ctx.calibration.coil_off_time_ms);
+    
+    /* Apply PWM current control parameters from calibration */
+    coil_driver_set_electrical_params(&m_coil_ctx,
+                                       m_flow_ctx.calibration.supply_voltage_mv * 10,  /* Stored as /10 */
+                                       m_flow_ctx.calibration.coil_resistance_mo);
+    coil_driver_set_target_current(&m_coil_ctx, 
+                                    m_flow_ctx.calibration.target_current_ma);
+    
+    /* Initialize temperature sensors */
+    if (!temp_sensor_init(&m_temp_ctx)) {
+        SEGGER_RTT_printf(0, "TEMP: Init failed (non-fatal)\n");
+    } else {
+        SEGGER_RTT_printf(0, "TEMP: Board NTC=%s, Pipe TMP102=%s\n",
+                          m_temp_ctx.ntc_valid ? "OK" : "FAIL",
+                          m_temp_ctx.tmp102_present ? "OK" : "NOT FOUND");
+    }
+    
+    /* Set up DRDY callback for interrupt-driven sampling */
+    ads131m02_set_drdy_callback(&m_adc_ctx, adc_drdy_callback, NULL);
+    
+    /* Start flow measurement */
+    flow_calc_start(&m_flow_ctx);
+    
+    /* Apply auto-zero setting from calibration */
+    flow_calc_set_auto_zero(&m_flow_ctx, m_flow_ctx.calibration.auto_zero_enabled);
+    
+    /* Start coil excitation with soft-start to limit inrush current */
+    coil_driver_soft_start(&m_coil_ctx);
+    
+    SEGGER_RTT_printf(0, "ADC: Running at 16kSPS, coil at 2kHz (hardware timer)\n");
     
     TickType_t last_wake = xTaskGetTickCount();
+    flow_state_t flow_state;
+    uint32_t temp_read_counter = 0;
     
     for (;;) {
-        /* Sample at 1kHz, process synchronous detection */
-        /* TODO: Read ADC, apply synchronous detection */
-        /* TODO: Calculate flow rate from electrode signal */
-        /* TODO: Update m_flow_state */
+        /* Process coil duty cycle state machine */
+        bool is_measuring = coil_driver_tick(&m_coil_ctx);
         
-        /* For now, simulate flow data */
-        m_flow_state.flow_rate_lpm = 0.0f;
-        m_flow_state.reverse_flow = false;
+        /* Get current flow state */
+        flow_calc_get_state(&m_flow_ctx, &flow_state);
         
         /* Update global flow data for LoRa task */
-        g_flow_rate_lpm = m_flow_state.flow_rate_lpm;
-        g_total_volume_l = m_flow_state.total_volume_l;
-        g_alarm_flags = m_flow_state.reverse_flow ? 0x01 : 0x00;
+        g_flow_rate_lpm = flow_state.flow_rate_lpm;
+        g_total_volume_l = flow_state.total_volume_l;
         
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(1));
+        /* Set alarm flags */
+        g_alarm_flags = 0;
+        if (flow_state.reverse_flow) g_alarm_flags |= 0x01;
+        if (flow_state.signal_low)   g_alarm_flags |= 0x02;
+        if (flow_state.signal_high)  g_alarm_flags |= 0x04;
+        if (flow_state.coil_fault)   g_alarm_flags |= 0x08;
+        if (!is_measuring)           g_alarm_flags |= 0x10;  /* Coil sleeping */
+        
+        /* Check for auto-zero opportunity (only when measuring and flow stops) */
+        if (is_measuring) {
+            flow_calc_auto_zero_check(&m_flow_ctx);
+        }
+        
+        /* Read temperature sensors every 10 seconds (100 * 100ms) */
+        temp_read_counter++;
+        if (temp_read_counter >= 100) {
+            temp_read_counter = 0;
+            temp_sensor_read_all(&m_temp_ctx);
+            
+            if (m_temp_ctx.ntc_valid && !isnan(m_temp_ctx.board_temp_c)) {
+                SEGGER_RTT_printf(0, "TEMP: Board=%.1f°C", m_temp_ctx.board_temp_c);
+                if (m_temp_ctx.tmp102_present && !isnan(m_temp_ctx.pipe_temp_c)) {
+                    SEGGER_RTT_printf(0, ", Pipe=%.1f°C", m_temp_ctx.pipe_temp_c);
+                }
+                SEGGER_RTT_printf(0, "\n");
+            }
+        }
+        
+        /* Update display with flow data (every 100ms) */
+        /* display_updateFlow(flow_state.flow_rate_lpm, flow_state.total_volume_l); */
+        
+        /* Task runs at 10Hz for state updates (ADC runs via interrupt) */
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(100));
     }
 }
 
@@ -597,13 +1054,50 @@ static void display_task(void *pvParameters)
     
     SEGGER_RTT_printf(0, "Display task started\n");
     
-    /* TODO: Initialize ST7789 display */
-    /* TODO: Initialize LVGL */
-    /* TODO: Create UI screens */
+    /* Initialize LVGL port (ST7789 + LVGL) */
+    if (!lvgl_port_init()) {
+        SEGGER_RTT_printf(0, "Display: LVGL port init failed!\n");
+        vTaskSuspend(NULL);
+    }
+    
+    /* Register button input device */
+    lvgl_port_register_buttons();
+    
+    /* Create initial UI screen */
+    /* TODO: Create main flow display screen */
+    lv_obj_t *screen = lv_screen_active();
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
+    
+    /* Create flow rate label */
+    lv_obj_t *lbl_flow = lv_label_create(screen);
+    lv_label_set_text(lbl_flow, "0.00 LPM");
+    lv_obj_set_style_text_font(lbl_flow, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(lbl_flow, lv_color_hex(0x00FF00), 0);
+    lv_obj_align(lbl_flow, LV_ALIGN_CENTER, 0, -30);
+    
+    /* Create total volume label */
+    lv_obj_t *lbl_total = lv_label_create(screen);
+    lv_label_set_text(lbl_total, "Total: 0.00 L");
+    lv_obj_set_style_text_font(lbl_total, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(lbl_total, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(lbl_total, LV_ALIGN_CENTER, 0, 20);
+    
+    /* Create status label */
+    lv_obj_t *lbl_status = lv_label_create(screen);
+    lv_label_set_text(lbl_status, "Measuring...");
+    lv_obj_set_style_text_font(lbl_status, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(lbl_status, lv_color_hex(0x888888), 0);
+    lv_obj_align(lbl_status, LV_ALIGN_BOTTOM_MID, 0, -10);
     
     TickType_t last_wake = xTaskGetTickCount();
+    TickType_t last_tick = xTaskGetTickCount();
     
     for (;;) {
+        /* Update LVGL tick */
+        TickType_t now = xTaskGetTickCount();
+        lvgl_port_tick((now - last_tick) * portTICK_PERIOD_MS);
+        last_tick = now;
+        
         /* Check pairing mode timeout */
         if (m_pairing_mode) {
             TickType_t elapsed = xTaskGetTickCount() - m_pairing_start_tick;
@@ -619,7 +1113,11 @@ static void display_task(void *pvParameters)
             m_last_activity_tick = xTaskGetTickCount();
             m_display_power = DISPLAY_ACTIVE;
             
-            /* TODO: Handle button event in current screen */
+            /* Wake display if sleeping */
+            if (lvgl_port_is_sleeping()) {
+                lvgl_port_wake();
+            }
+            
             SEGGER_RTT_printf(0, "Button event: %d\n", btn_event);
         }
         
@@ -629,13 +1127,38 @@ static void display_task(void *pvParameters)
             if (idle_time > pdMS_TO_TICKS(AGSYS_DISPLAY_DIM_TIMEOUT_SEC * 1000 + 
                                           AGSYS_DISPLAY_SLEEP_TIMEOUT_SEC * 1000)) {
                 m_display_power = DISPLAY_SLEEP;
+                if (!lvgl_port_is_sleeping()) {
+                    lvgl_port_sleep();
+                }
             } else if (idle_time > pdMS_TO_TICKS(AGSYS_DISPLAY_DIM_TIMEOUT_SEC * 1000)) {
                 m_display_power = DISPLAY_DIM;
+                lvgl_port_set_brightness(30);
+            } else {
+                lvgl_port_set_brightness(100);
             }
         }
         
-        /* TODO: Call lv_timer_handler() for LVGL */
-        /* TODO: Update main screen with flow data */
+        /* Update flow display labels */
+        static char flow_str[32];
+        static char total_str[32];
+        snprintf(flow_str, sizeof(flow_str), "%.2f LPM", g_flow_rate_lpm);
+        snprintf(total_str, sizeof(total_str), "Total: %.2f L", g_total_volume_l);
+        lv_label_set_text(lbl_flow, flow_str);
+        lv_label_set_text(lbl_total, total_str);
+        
+        /* Update status based on alarm flags */
+        if (g_alarm_flags & 0x10) {
+            lv_label_set_text(lbl_status, "Coil sleeping...");
+        } else if (g_alarm_flags & 0x08) {
+            lv_label_set_text(lbl_status, "COIL FAULT!");
+            lv_obj_set_style_text_color(lbl_status, lv_color_hex(0xFF0000), 0);
+        } else {
+            lv_label_set_text(lbl_status, "Measuring...");
+            lv_obj_set_style_text_color(lbl_status, lv_color_hex(0x888888), 0);
+        }
+        
+        /* Run LVGL task handler */
+        lvgl_port_task_handler();
         
         /* Update BLE icon flash animation */
         display_tickBleIcon();

@@ -172,4 +172,45 @@ void agsys_spi_cs_deassert(agsys_spi_handle_t handle);
 agsys_err_t agsys_spi_transfer_raw(agsys_spi_handle_t handle,
                                     const agsys_spi_xfer_t *xfer);
 
+/* ==========================================================================
+ * ASYNC DMA TRANSFERS
+ * ========================================================================== */
+
+/**
+ * @brief Completion callback for async transfers
+ * @param result    Transfer result (AGSYS_OK on success)
+ * @param user_data User-provided context
+ */
+typedef void (*agsys_spi_callback_t)(agsys_err_t result, void *user_data);
+
+/**
+ * @brief Start an async DMA transfer
+ * 
+ * Returns immediately. Callback is invoked when transfer completes.
+ * CS is automatically managed. Mutex is held until callback.
+ * 
+ * @param handle    Peripheral handle
+ * @param xfer      Transfer descriptor
+ * @param callback  Completion callback (NULL for fire-and-forget)
+ * @param user_data User context passed to callback
+ * @return AGSYS_OK if transfer started, error otherwise
+ */
+agsys_err_t agsys_spi_transfer_async(agsys_spi_handle_t handle,
+                                      const agsys_spi_xfer_t *xfer,
+                                      agsys_spi_callback_t callback,
+                                      void *user_data);
+
+/**
+ * @brief Check if an async transfer is in progress
+ * @return true if transfer pending
+ */
+bool agsys_spi_is_busy(void);
+
+/**
+ * @brief Wait for async transfer to complete
+ * @param timeout_ms Maximum wait time
+ * @return AGSYS_OK if completed, AGSYS_ERR_TIMEOUT if still busy
+ */
+agsys_err_t agsys_spi_wait_complete(uint32_t timeout_ms);
+
 #endif /* AGSYS_SPI_H */

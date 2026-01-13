@@ -18,10 +18,14 @@
 
 #include "lora_task.h"
 #include "board_config.h"
+#include "agsys_config.h"
 #include "agsys_device.h"
 #include "agsys_protocol.h"
 #include "agsys_memory_layout.h"
 #include "agsys_fram.h"
+#include "agsys_spi.h"
+#include "flow_calc.h"
+#include "temp_sensor.h"
 
 #include <string.h>
 
@@ -43,8 +47,11 @@ extern agsys_fram_ctx_t m_fram_ctx;
 /* Boot reason - set during startup */
 static uint8_t m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
 
-/* External SPI mutex */
-extern SemaphoreHandle_t g_spi_mutex;
+/* External calibration data for intervals */
+extern flow_calibration_t g_calibration;
+
+/* External temperature sensor */
+extern temp_sensor_ctx_t g_temp_sensor;
 
 /* ==========================================================================
  * RFM95C REGISTER DEFINITIONS
@@ -103,56 +110,21 @@ extern volatile float g_flow_rate_lpm;
 extern volatile float g_total_volume_l;
 extern volatile uint8_t g_alarm_flags;
 
+/* SPI handle for LoRa */
+static agsys_spi_handle_t m_lora_spi_handle = AGSYS_SPI_INVALID_HANDLE;
+
 /* ==========================================================================
- * SPI HELPERS
+ * SPI HELPERS (using shared DMA driver)
  * ========================================================================== */
 
-static bool spi_acquire(TickType_t timeout)
+static void spi_transfer(const uint8_t *tx, uint8_t *rx, size_t len)
 {
-    if (g_spi_mutex == NULL) return true;
-    return xSemaphoreTake(g_spi_mutex, timeout) == pdTRUE;
-}
-
-static void spi_release(void)
-{
-    if (g_spi_mutex != NULL) {
-        xSemaphoreGive(g_spi_mutex);
-    }
-}
-
-static void spi_transfer(uint8_t cs_pin, const uint8_t *tx, uint8_t *rx, size_t len)
-{
-    nrf_gpio_pin_clear(cs_pin);
-    
-    for (size_t i = 0; i < len; i++) {
-        /* Bit-bang SPI - simplified for now */
-        uint8_t tx_byte = tx ? tx[i] : 0x00;
-        uint8_t rx_byte = 0;
-        
-        for (int bit = 7; bit >= 0; bit--) {
-            /* Set MOSI */
-            if (tx_byte & (1 << bit)) {
-                nrf_gpio_pin_set(SPI2_MOSI_PIN);
-            } else {
-                nrf_gpio_pin_clear(SPI2_MOSI_PIN);
-            }
-            
-            /* Clock high */
-            nrf_gpio_pin_set(SPI2_SCK_PIN);
-            
-            /* Read MISO */
-            if (nrf_gpio_pin_read(SPI2_MISO_PIN)) {
-                rx_byte |= (1 << bit);
-            }
-            
-            /* Clock low */
-            nrf_gpio_pin_clear(SPI2_SCK_PIN);
-        }
-        
-        if (rx) rx[i] = rx_byte;
-    }
-    
-    nrf_gpio_pin_set(cs_pin);
+    agsys_spi_xfer_t xfer = {
+        .tx_buf = tx,
+        .rx_buf = rx,
+        .length = len,
+    };
+    agsys_spi_transfer(m_lora_spi_handle, &xfer);
 }
 
 /* ==========================================================================
@@ -162,14 +134,14 @@ static void spi_transfer(uint8_t cs_pin, const uint8_t *tx, uint8_t *rx, size_t 
 static void rfm_write_reg(uint8_t reg, uint8_t value)
 {
     uint8_t tx[2] = { reg | 0x80, value };
-    spi_transfer(SPI_CS_LORA_PIN, tx, NULL, 2);
+    spi_transfer(tx, NULL, 2);
 }
 
 static uint8_t rfm_read_reg(uint8_t reg)
 {
     uint8_t tx[2] = { reg & 0x7F, 0x00 };
     uint8_t rx[2];
-    spi_transfer(SPI_CS_LORA_PIN, tx, rx, 2);
+    spi_transfer(tx, rx, 2);
     return rx[1];
 }
 
@@ -188,12 +160,18 @@ static void rfm_set_frequency(uint32_t freq)
 
 static bool rfm_init(void)
 {
-    /* Configure SPI pins */
-    nrf_gpio_cfg_output(SPI2_SCK_PIN);
-    nrf_gpio_cfg_output(SPI2_MOSI_PIN);
-    nrf_gpio_cfg_input(SPI2_MISO_PIN, NRF_GPIO_PIN_NOPULL);
-    nrf_gpio_cfg_output(SPI_CS_LORA_PIN);
-    nrf_gpio_pin_set(SPI_CS_LORA_PIN);
+    /* Register with SPI manager */
+    agsys_spi_config_t spi_config = {
+        .cs_pin = SPI_CS_LORA_PIN,
+        .cs_active_low = true,
+        .frequency = NRF_SPIM_FREQ_4M,
+        .mode = 0,
+    };
+    
+    if (agsys_spi_register(&spi_config, &m_lora_spi_handle) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "LoRa: Failed to register SPI\n");
+        return false;
+    }
     
     /* Reset */
     nrf_gpio_cfg_output(LORA_RESET_PIN);
@@ -390,7 +368,7 @@ static bool send_meter_report(float flow_rate_lpm, float total_volume_l, uint8_t
     agsys_meter_report_t *report = (agsys_meter_report_t *)(buffer + sizeof(agsys_header_t));
     
     report->timestamp = xTaskGetTickCount() / configTICK_RATE_HZ;  /* Uptime in seconds */
-    report->total_pulses = 0;  /* TODO: Track pulse count */
+    report->total_pulses = 0;  /* Mag meter doesn't use pulses */
     report->total_liters = (uint32_t)total_volume_l;
     report->flow_rate_lpm = (uint16_t)(flow_rate_lpm * 10);  /* 0.1 L/min resolution */
     report->battery_mv = 0;  /* Mains powered, no battery */
@@ -404,13 +382,8 @@ static bool send_meter_report(float flow_rate_lpm, float total_volume_l, uint8_t
     
     uint8_t total_len = sizeof(agsys_header_t) + sizeof(agsys_meter_report_t);
     
-    bool success = false;
-    if (spi_acquire(pdMS_TO_TICKS(1000))) {
-        success = rfm_send(buffer, total_len);
-        spi_release();
-    }
-    
-    return success;
+    /* SPI mutex handled by agsys_spi driver */
+    return rfm_send(buffer, total_len);
 }
 
 static void process_lora_message(const uint8_t *data, uint8_t len, int16_t rssi)
@@ -490,10 +463,7 @@ static void lora_task_func(void *pvParameters)
                       m_device_uid[4], m_device_uid[5], m_device_uid[6], m_device_uid[7]);
     
     /* Initialize RFM95 */
-    if (spi_acquire(pdMS_TO_TICKS(1000))) {
-        m_initialized = rfm_init();
-        spi_release();
-    }
+    m_initialized = rfm_init();
     
     if (!m_initialized) {
         SEGGER_RTT_printf(0, "LoRa: Init failed, task exiting\n");
@@ -501,7 +471,21 @@ static void lora_task_func(void *pvParameters)
         return;
     }
     
-    uint32_t report_interval_ms = LORA_REPORT_INTERVAL_S * 1000;
+    /* Get report interval from calibration data
+     * LoRa interval = display_update_sec * lora_report_mult
+     * Default: 15s * 4 = 60s
+     */
+    uint8_t display_sec = g_calibration.display_update_sec;
+    uint8_t lora_mult = g_calibration.lora_report_mult;
+    
+    /* Use defaults if not configured (0 means use default) */
+    if (display_sec == 0) display_sec = AGSYS_DISPLAY_UPDATE_SEC_DEFAULT;
+    if (lora_mult == 0) lora_mult = AGSYS_LORA_REPORT_MULT_DEFAULT;
+    
+    uint32_t report_interval_ms = (uint32_t)display_sec * lora_mult * 1000;
+    SEGGER_RTT_printf(0, "LoRa: Report interval = %lu ms (%d s * %d)\n", 
+                      report_interval_ms, display_sec, lora_mult);
+    
     TickType_t last_report = xTaskGetTickCount();
     
     for (;;) {
@@ -530,14 +514,10 @@ static void lora_task_func(void *pvParameters)
                 /* Wait for ACK */
                 uint8_t rx_buf[64];
                 int16_t rssi;
+                uint8_t rx_len = rfm_receive(rx_buf, sizeof(rx_buf), &rssi, 2000);
                 
-                if (spi_acquire(pdMS_TO_TICKS(1000))) {
-                    uint8_t rx_len = rfm_receive(rx_buf, sizeof(rx_buf), &rssi, 2000);
-                    spi_release();
-                    
-                    if (rx_len > 0) {
-                        process_lora_message(rx_buf, rx_len, rssi);
-                    }
+                if (rx_len > 0) {
+                    process_lora_message(rx_buf, rx_len, rssi);
                 }
             } else {
                 SEGGER_RTT_printf(0, "LoRa: TX failed\n");

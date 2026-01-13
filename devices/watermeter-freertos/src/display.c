@@ -1091,6 +1091,15 @@ void display_handleButton(ButtonEvent_t event)
                         }
                         display_showLoRaConfig();
                     }
+                } else if (m_currentScreen == SCREEN_CALIBRATION) {
+                    switch (m_submenuSelection) {
+                        case 0: display_showCalZero(); break;
+                        case 1: display_showCalSpan(); break;
+                        case 2: display_showCalPipeSize(); break;
+                        case 3: display_showCalDutyCycle(); break;
+                        case 4: display_showCalView(); break;
+                        case 5: display_showTotalizer(m_totalLiters); break;
+                    }
                 }
             } else if (event == BTN_LEFT_SHORT) {
                 display_showMenu();
@@ -1101,6 +1110,126 @@ void display_handleButton(ButtonEvent_t event)
         case SCREEN_DIAG_ADC:
             if (event == BTN_LEFT_SHORT) {
                 display_showDiagnostics();
+            }
+            break;
+            
+        case SCREEN_CAL_ZERO:
+            if (event == BTN_LEFT_SHORT) {
+                display_showCalibration();
+            } else if (event == BTN_SELECT_SHORT) {
+                /* Trigger zero calibration */
+                if (display_cal_zero_callback()) {
+                    /* Show success briefly, then return to menu */
+                    display_showCalibration();
+                } else {
+                    /* Show error - stay on screen */
+                    display_showCalZero();
+                }
+            }
+            break;
+            
+        case SCREEN_CAL_SPAN:
+            if (event == BTN_LEFT_SHORT) {
+                display_showCalibration();
+            } else if (event == BTN_UP_SHORT) {
+                m_span_cal_flow += 1.0f;
+                if (m_span_cal_flow > 500.0f) m_span_cal_flow = 500.0f;
+                display_showCalSpan();
+            } else if (event == BTN_UP_LONG) {
+                m_span_cal_flow += 10.0f;
+                if (m_span_cal_flow > 500.0f) m_span_cal_flow = 500.0f;
+                display_showCalSpan();
+            } else if (event == BTN_DOWN_SHORT) {
+                m_span_cal_flow -= 1.0f;
+                if (m_span_cal_flow < 1.0f) m_span_cal_flow = 1.0f;
+                display_showCalSpan();
+            } else if (event == BTN_DOWN_LONG) {
+                m_span_cal_flow -= 10.0f;
+                if (m_span_cal_flow < 1.0f) m_span_cal_flow = 1.0f;
+                display_showCalSpan();
+            } else if (event == BTN_SELECT_SHORT) {
+                /* Trigger span calibration */
+                if (display_cal_span_callback(m_span_cal_flow)) {
+                    display_showCalibration();
+                } else {
+                    display_showCalSpan();
+                }
+            }
+            break;
+            
+        case SCREEN_CAL_PIPE_SIZE:
+            if (event == BTN_LEFT_SHORT) {
+                display_showCalibration();
+            } else if (event == BTN_UP_SHORT) {
+                if (m_selected_pipe_size < PIPE_SIZE_COUNT_UI - 1) {
+                    m_selected_pipe_size++;
+                    display_showCalPipeSize();
+                }
+            } else if (event == BTN_DOWN_SHORT) {
+                if (m_selected_pipe_size > 0) {
+                    m_selected_pipe_size--;
+                    display_showCalPipeSize();
+                }
+            } else if (event == BTN_SELECT_SHORT) {
+                /* Save pipe size */
+                display_cal_pipe_size_callback(m_selected_pipe_size);
+                display_showCalibration();
+            }
+            break;
+            
+        case SCREEN_CAL_VIEW:
+            if (event == BTN_LEFT_SHORT) {
+                display_showCalibration();
+            }
+            break;
+            
+        case SCREEN_CAL_DUTY_CYCLE:
+            if (event == BTN_LEFT_SHORT) {
+                display_showCalibration();
+            } else if (event == BTN_RIGHT_SHORT) {
+                /* Toggle between on/off field */
+                m_duty_edit_field = (m_duty_edit_field + 1) % 2;
+                display_showCalDutyCycle();
+            } else if (event == BTN_UP_SHORT) {
+                if (m_duty_edit_field == 0) {
+                    m_duty_on_ms += 100;
+                    if (m_duty_on_ms > 10000) m_duty_on_ms = 10000;
+                } else {
+                    m_duty_off_ms += 1000;
+                    if (m_duty_off_ms > 60000) m_duty_off_ms = 60000;
+                }
+                display_showCalDutyCycle();
+            } else if (event == BTN_UP_LONG) {
+                if (m_duty_edit_field == 0) {
+                    m_duty_on_ms += 500;
+                    if (m_duty_on_ms > 10000) m_duty_on_ms = 10000;
+                } else {
+                    m_duty_off_ms += 5000;
+                    if (m_duty_off_ms > 60000) m_duty_off_ms = 60000;
+                }
+                display_showCalDutyCycle();
+            } else if (event == BTN_DOWN_SHORT) {
+                if (m_duty_edit_field == 0) {
+                    if (m_duty_on_ms > 600) m_duty_on_ms -= 100;
+                    else m_duty_on_ms = 500;
+                } else {
+                    if (m_duty_off_ms >= 1000) m_duty_off_ms -= 1000;
+                    else m_duty_off_ms = 0;
+                }
+                display_showCalDutyCycle();
+            } else if (event == BTN_DOWN_LONG) {
+                if (m_duty_edit_field == 0) {
+                    if (m_duty_on_ms > 1000) m_duty_on_ms -= 500;
+                    else m_duty_on_ms = 500;
+                } else {
+                    if (m_duty_off_ms >= 5000) m_duty_off_ms -= 5000;
+                    else m_duty_off_ms = 0;
+                }
+                display_showCalDutyCycle();
+            } else if (event == BTN_SELECT_SHORT) {
+                /* Save duty cycle */
+                display_cal_set_duty_cycle(m_duty_on_ms, m_duty_off_ms);
+                display_showCalibration();
             }
             break;
             
@@ -1601,13 +1730,17 @@ void display_showCalibration(void)
 {
     m_currentScreen = SCREEN_CALIBRATION;
     m_submenuSelection = 0;
-    m_submenuItemCount = 2;
+    m_submenuItemCount = 6;
     
     m_screen_submenu = create_menu_screen("Calibration");
     m_submenu_list = create_menu_list(m_screen_submenu);
     
     add_menu_item(m_submenu_list, "Zero Calibration", 0, m_submenuSelection);
-    add_menu_item(m_submenu_list, "Reset Totalizer", 1, m_submenuSelection);
+    add_menu_item(m_submenu_list, "Span Calibration", 1, m_submenuSelection);
+    add_menu_item(m_submenu_list, "Set Pipe Size", 2, m_submenuSelection);
+    add_menu_item(m_submenu_list, "Duty Cycle", 3, m_submenuSelection);
+    add_menu_item(m_submenu_list, "View Cal Data", 4, m_submenuSelection);
+    add_menu_item(m_submenu_list, "Reset Totalizer", 5, m_submenuSelection);
     
     lv_obj_t *hint = lv_label_create(m_screen_submenu);
     lv_label_set_text(hint, LV_SYMBOL_LEFT " Back    " LV_SYMBOL_OK " Select");
@@ -1616,6 +1749,241 @@ void display_showCalibration(void)
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -5);
     
     lv_scr_load(m_screen_submenu);
+}
+
+/* ==========================================================================
+ * ZERO CALIBRATION SCREEN
+ * ========================================================================== */
+
+/* Callback for zero calibration - defined in main.c */
+extern bool display_cal_zero_callback(void);
+
+static bool m_cal_in_progress = false;
+static bool m_cal_success = false;
+static char m_cal_status_msg[64] = {0};
+
+void display_showCalZero(void)
+{
+    m_currentScreen = SCREEN_CAL_ZERO;
+    m_cal_in_progress = false;
+    
+    lv_obj_t *screen = create_menu_screen("Zero Calibration");
+    
+    lv_obj_t *info = lv_label_create(screen);
+    lv_label_set_text(info, 
+        "Ensure NO water is flowing.\n"
+        "Wait for signal to stabilize.\n\n"
+        "Press OK to calibrate zero.");
+    lv_obj_set_style_text_font(info, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(info, COLOR_TEXT, 0);
+    lv_obj_set_style_text_align(info, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(info, LV_ALIGN_CENTER, 0, -20);
+    
+    lv_obj_t *hint = lv_label_create(screen);
+    lv_label_set_text(hint, LV_SYMBOL_LEFT " Back    " LV_SYMBOL_OK " Calibrate");
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(hint, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -5);
+    
+    lv_scr_load(screen);
+}
+
+/* ==========================================================================
+ * SPAN CALIBRATION SCREEN
+ * ========================================================================== */
+
+/* Callback for span calibration - defined in main.c */
+extern bool display_cal_span_callback(float known_flow_lpm);
+
+static float m_span_cal_flow = 50.0f;  /* Default 50 L/min */
+
+void display_showCalSpan(void)
+{
+    m_currentScreen = SCREEN_CAL_SPAN;
+    m_cal_in_progress = false;
+    
+    lv_obj_t *screen = create_menu_screen("Span Calibration");
+    
+    lv_obj_t *info = lv_label_create(screen);
+    lv_label_set_text(info, 
+        "Establish steady flow.\n"
+        "Read reference meter.\n"
+        "Enter flow rate below:");
+    lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(info, COLOR_TEXT, 0);
+    lv_obj_set_style_text_align(info, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 35);
+    
+    /* Flow value display */
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.1f L/min", m_span_cal_flow);
+    lv_obj_t *value = lv_label_create(screen);
+    lv_label_set_text(value, buf);
+    lv_obj_set_style_text_font(value, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(value, COLOR_ACCENT, 0);
+    lv_obj_align(value, LV_ALIGN_CENTER, 0, 10);
+    
+    lv_obj_t *hint = lv_label_create(screen);
+    lv_label_set_text(hint, LV_SYMBOL_UP LV_SYMBOL_DOWN " Adjust  " LV_SYMBOL_OK " Calibrate");
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(hint, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -5);
+    
+    lv_scr_load(screen);
+}
+
+/* ==========================================================================
+ * PIPE SIZE SELECTION SCREEN
+ * ========================================================================== */
+
+/* Callback for pipe size change - defined in main.c */
+extern void display_cal_pipe_size_callback(uint8_t pipe_size);
+
+static const char *PIPE_SIZE_NAMES[] = {
+    "1.5\" Sch 80",
+    "2\" Sch 80",
+    "2.5\" Sch 40",
+    "3\" Sch 40",
+    "4\" Sch 40",
+    "5\" Sch 40",
+    "6\" Sch 40"
+};
+#define PIPE_SIZE_COUNT_UI 7
+
+static uint8_t m_selected_pipe_size = 1;  /* Default 2" */
+
+void display_showCalPipeSize(void)
+{
+    m_currentScreen = SCREEN_CAL_PIPE_SIZE;
+    
+    lv_obj_t *screen = create_menu_screen("Pipe Size");
+    
+    lv_obj_t *info = lv_label_create(screen);
+    lv_label_set_text(info, "Select installed pipe size:");
+    lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(info, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 35);
+    
+    /* Pipe size display */
+    lv_obj_t *value = lv_label_create(screen);
+    lv_label_set_text(value, PIPE_SIZE_NAMES[m_selected_pipe_size]);
+    lv_obj_set_style_text_font(value, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(value, COLOR_ACCENT, 0);
+    lv_obj_align(value, LV_ALIGN_CENTER, 0, 0);
+    
+    lv_obj_t *hint = lv_label_create(screen);
+    lv_label_set_text(hint, LV_SYMBOL_UP LV_SYMBOL_DOWN " Select  " LV_SYMBOL_OK " Save");
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(hint, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -5);
+    
+    lv_scr_load(screen);
+}
+
+/* ==========================================================================
+ * DUTY CYCLE CONFIGURATION SCREEN
+ * ========================================================================== */
+
+/* Callbacks for duty cycle - defined in main.c */
+extern void display_cal_get_duty_cycle(uint16_t *on_ms, uint16_t *off_ms);
+extern void display_cal_set_duty_cycle(uint16_t on_ms, uint16_t off_ms);
+
+static uint16_t m_duty_on_ms = 1100;
+static uint16_t m_duty_off_ms = 13900;
+static uint8_t m_duty_edit_field = 0;  /* 0 = on time, 1 = off time */
+
+void display_showCalDutyCycle(void)
+{
+    m_currentScreen = SCREEN_CAL_DUTY_CYCLE;
+    
+    /* Load current values */
+    display_cal_get_duty_cycle(&m_duty_on_ms, &m_duty_off_ms);
+    
+    lv_obj_t *screen = create_menu_screen("Duty Cycle");
+    
+    lv_obj_t *info = lv_label_create(screen);
+    lv_label_set_text(info, "Thermal management settings:");
+    lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(info, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(info, LV_ALIGN_TOP_MID, 0, 35);
+    
+    /* On time */
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Measure: %.1f sec", m_duty_on_ms / 1000.0f);
+    lv_obj_t *on_label = lv_label_create(screen);
+    lv_label_set_text(on_label, buf);
+    lv_obj_set_style_text_font(on_label, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_color(on_label, m_duty_edit_field == 0 ? COLOR_ACCENT : COLOR_TEXT, 0);
+    lv_obj_align(on_label, LV_ALIGN_CENTER, 0, -15);
+    
+    /* Off time */
+    snprintf(buf, sizeof(buf), "Sleep: %.1f sec", m_duty_off_ms / 1000.0f);
+    lv_obj_t *off_label = lv_label_create(screen);
+    lv_label_set_text(off_label, buf);
+    lv_obj_set_style_text_font(off_label, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_color(off_label, m_duty_edit_field == 1 ? COLOR_ACCENT : COLOR_TEXT, 0);
+    lv_obj_align(off_label, LV_ALIGN_CENTER, 0, 15);
+    
+    /* Duty cycle percentage */
+    float total = m_duty_on_ms + m_duty_off_ms;
+    float duty_pct = (total > 0) ? (100.0f * m_duty_on_ms / total) : 0;
+    snprintf(buf, sizeof(buf), "Duty: %.1f%%  Cycle: %.1fs", duty_pct, total / 1000.0f);
+    lv_obj_t *pct_label = lv_label_create(screen);
+    lv_label_set_text(pct_label, buf);
+    lv_obj_set_style_text_font(pct_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(pct_label, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(pct_label, LV_ALIGN_CENTER, 0, 50);
+    
+    lv_obj_t *hint = lv_label_create(screen);
+    lv_label_set_text(hint, LV_SYMBOL_LEFT LV_SYMBOL_RIGHT " Field  " LV_SYMBOL_UP LV_SYMBOL_DOWN " Adjust  " LV_SYMBOL_OK " Save");
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_color(hint, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -5);
+    
+    lv_scr_load(screen);
+}
+
+/* ==========================================================================
+ * VIEW CALIBRATION DATA SCREEN
+ * ========================================================================== */
+
+/* Callback to get cal data - defined in main.c */
+extern void display_cal_get_data(float *zero_uv, float *span, float *diameter_m, uint8_t *pipe_size);
+
+void display_showCalView(void)
+{
+    m_currentScreen = SCREEN_CAL_VIEW;
+    
+    lv_obj_t *screen = create_menu_screen("Calibration Data");
+    
+    float zero_uv = 0, span = 0, diameter = 0;
+    uint8_t pipe_size = 0;
+    display_cal_get_data(&zero_uv, &span, &diameter, &pipe_size);
+    
+    char buf[160];
+    snprintf(buf, sizeof(buf),
+        "Pipe Size: %s\n"
+        "Diameter: %.1f mm\n\n"
+        "Zero Offset: %.1f uV\n"
+        "Span: %.1f uV/(m/s)",
+        (pipe_size < PIPE_SIZE_COUNT_UI) ? PIPE_SIZE_NAMES[pipe_size] : "Unknown",
+        diameter * 1000.0f,
+        zero_uv,
+        span);
+    
+    lv_obj_t *info = lv_label_create(screen);
+    lv_label_set_text(info, buf);
+    lv_obj_set_style_text_font(info, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(info, COLOR_TEXT, 0);
+    lv_obj_align(info, LV_ALIGN_TOP_LEFT, 15, 40);
+    
+    lv_obj_t *hint = lv_label_create(screen);
+    lv_label_set_text(hint, LV_SYMBOL_LEFT " Back");
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(hint, COLOR_TEXT_LABEL, 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -5);
+    
+    lv_scr_load(screen);
 }
 
 /* ==========================================================================

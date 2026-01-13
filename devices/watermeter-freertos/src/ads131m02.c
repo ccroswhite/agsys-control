@@ -1,12 +1,14 @@
 /**
  * @file ads131m02.c
  * @brief ADS131M02 24-bit Delta-Sigma ADC Driver Implementation
+ * 
+ * Uses shared agsys_spi driver for DMA-based SPI transfers.
  */
 
 #include "ads131m02.h"
+#include "agsys_spi.h"
 #include "nrf_gpio.h"
 #include "nrf_delay.h"
-#include "nrf_drv_spi.h"
 #include "nrf_drv_gpiote.h"
 #include "SEGGER_RTT.h"
 #include <string.h>
@@ -16,7 +18,6 @@
  * ========================================================================== */
 
 #define ADS131M02_DEVICE_ID         0x0082  /* Expected device ID */
-#define ADS131M02_SPI_FREQ          NRF_DRV_SPI_FREQ_4M
 #define ADS131M02_WORD_SIZE         3       /* 24-bit words */
 
 /* Sample rates for each OSR (with 8.192 MHz clock) */
@@ -40,34 +41,19 @@ static const uint8_t gain_values[] = {1, 2, 4, 8, 16, 32, 64, 128};
 
 static ads131m02_ctx_t *mp_active_ctx = NULL;
 
-/* External SPI instance - initialized by main.c */
-extern const nrf_drv_spi_t g_spi_adc;
-
 /* ==========================================================================
  * SPI HELPERS
  * ========================================================================== */
 
 static bool spi_transfer(ads131m02_ctx_t *ctx, uint8_t *tx, uint8_t *rx, size_t len)
 {
-    if (ctx->spi_mutex) {
-        if (xSemaphoreTake(ctx->spi_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-            return false;
-        }
-    }
+    agsys_spi_xfer_t xfer = {
+        .tx_buf = tx,
+        .rx_buf = rx,
+        .length = len,
+    };
     
-    nrf_gpio_pin_clear(ctx->cs_pin);
-    nrf_delay_us(1);
-    
-    ret_code_t err = nrf_drv_spi_transfer(&g_spi_adc, tx, len, rx, len);
-    
-    nrf_delay_us(1);
-    nrf_gpio_pin_set(ctx->cs_pin);
-    
-    if (ctx->spi_mutex) {
-        xSemaphoreGive(ctx->spi_mutex);
-    }
-    
-    return (err == NRF_SUCCESS);
+    return (agsys_spi_transfer(ctx->spi_handle, &xfer) == AGSYS_OK);
 }
 
 static uint16_t build_command(uint16_t cmd, uint8_t addr)
@@ -157,19 +143,26 @@ bool ads131m02_init(ads131m02_ctx_t *ctx, const ads131m02_config_t *config)
     
     memset(ctx, 0, sizeof(ads131m02_ctx_t));
     
-    ctx->spi_instance = config->spi_instance;
     ctx->cs_pin = config->cs_pin;
     ctx->drdy_pin = config->drdy_pin;
     ctx->sync_pin = config->sync_pin;
-    ctx->spi_mutex = config->spi_mutex;
     ctx->osr = config->osr;
     ctx->gain_ch0 = config->gain_ch0;
     ctx->gain_ch1 = config->gain_ch1;
     ctx->power_mode = config->power_mode;
     
-    /* Configure CS pin */
-    nrf_gpio_cfg_output(ctx->cs_pin);
-    nrf_gpio_pin_set(ctx->cs_pin);
+    /* Register with SPI manager */
+    agsys_spi_config_t spi_config = {
+        .cs_pin = config->cs_pin,
+        .cs_active_low = true,
+        .frequency = NRF_SPIM_FREQ_4M,
+        .mode = 1,  /* CPOL=0, CPHA=1 for ADS131M02 */
+    };
+    
+    if (agsys_spi_register(&spi_config, &ctx->spi_handle) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "ADS131M02: Failed to register SPI\n");
+        return false;
+    }
     
     /* Configure SYNC/RST pin */
     nrf_gpio_cfg_output(ctx->sync_pin);
