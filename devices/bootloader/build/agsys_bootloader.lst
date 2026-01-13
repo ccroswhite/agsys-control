@@ -1,0 +1,2047 @@
+
+build/agsys_bootloader.elf:     file format elf32-littlearm
+
+Sections:
+Idx Name          Size      VMA       LMA       File off  Algn
+  0 .text         000012ec  00072000  00072000  00001000  2**2
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  1 .data         00000000  2000f000  2000f000  000022ec  2**0
+                  CONTENTS, ALLOC, LOAD, DATA
+  2 .bss          0000021c  2000f000  2000f000  00003000  2**2
+                  ALLOC
+  3 .stack        00000404  2000f21c  2000f21c  00003000  2**0
+                  ALLOC
+  4 .ARM.attributes 00000030  00000000  00000000  000022ec  2**0
+                  CONTENTS, READONLY
+  5 .comment      00000045  00000000  00000000  0000231c  2**0
+                  CONTENTS, READONLY
+  6 .debug_frame  000004c4  00000000  00000000  00002364  2**2
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+  7 .debug_info   00003207  00000000  00000000  00002828  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+  8 .debug_abbrev 00000e61  00000000  00000000  00005a2f  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+  9 .debug_loclists 00000d3b  00000000  00000000  00006890  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+ 10 .debug_aranges 000001d0  00000000  00000000  000075cb  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+ 11 .debug_rnglists 000002d3  00000000  00000000  0000779b  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+ 12 .debug_macro  000022b0  00000000  00000000  00007a6e  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+ 13 .debug_line   000021c1  00000000  00000000  00009d1e  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+ 14 .debug_str    0000899f  00000000  00000000  0000bedf  2**0
+                  CONTENTS, READONLY, DEBUGGING, OCTETS
+
+Disassembly of section .text:
+
+00072000 <vector_table>:
+   72000:	00 00 01 20 55 20 07 00 51 20 07 00 51 20 07 00     ... U ..Q ..Q ..
+   72010:	51 20 07 00 51 20 07 00 51 20 07 00 00 00 00 00     Q ..Q ..Q ......
+	...
+   7202c:	51 20 07 00 51 20 07 00 00 00 00 00 51 20 07 00     Q ..Q ......Q ..
+   7203c:	51 20 07 00                                         Q ..
+
+00072040 <memset>:
+   72040:	4402      	add	r2, r0
+   72042:	4603      	mov	r3, r0
+   72044:	4293      	cmp	r3, r2
+   72046:	d100      	bne.n	7204a <memset+0xa>
+   72048:	4770      	bx	lr
+   7204a:	f803 1b01 	strb.w	r1, [r3], #1
+   7204e:	e7f9      	b.n	72044 <memset+0x4>
+
+00072050 <Default_Handler>:
+ ******************************************************************************/
+
+void Default_Handler(void)
+{
+    /* Hang on unexpected interrupt */
+    while (1);
+   72050:	e7fe      	b.n	72050 <Default_Handler>
+	...
+
+00072054 <Reset_Handler>:
+{
+   72054:	b508      	push	{r3, lr}
+    src = &_sidata;
+   72056:	4a0a      	ldr	r2, [pc, #40]	@ (72080 <Reset_Handler+0x2c>)
+   72058:	4b0a      	ldr	r3, [pc, #40]	@ (72084 <Reset_Handler+0x30>)
+    while (dst < &_edata) {
+   7205a:	490b      	ldr	r1, [pc, #44]	@ (72088 <Reset_Handler+0x34>)
+   7205c:	428b      	cmp	r3, r1
+   7205e:	d307      	bcc.n	72070 <Reset_Handler+0x1c>
+    dst = &_sbss;
+   72060:	4b0a      	ldr	r3, [pc, #40]	@ (7208c <Reset_Handler+0x38>)
+    while (dst < &_ebss) {
+   72062:	4a0b      	ldr	r2, [pc, #44]	@ (72090 <Reset_Handler+0x3c>)
+        *dst++ = 0;
+   72064:	2100      	movs	r1, #0
+    while (dst < &_ebss) {
+   72066:	4293      	cmp	r3, r2
+   72068:	d307      	bcc.n	7207a <Reset_Handler+0x26>
+    main();
+   7206a:	f000 f871 	bl	72150 <main>
+    while (1);
+   7206e:	e7fe      	b.n	7206e <Reset_Handler+0x1a>
+        *dst++ = *src++;
+   72070:	f852 0b04 	ldr.w	r0, [r2], #4
+   72074:	f843 0b04 	str.w	r0, [r3], #4
+   72078:	e7f0      	b.n	7205c <Reset_Handler+0x8>
+        *dst++ = 0;
+   7207a:	f843 1b04 	str.w	r1, [r3], #4
+   7207e:	e7f2      	b.n	72066 <Reset_Handler+0x12>
+   72080:	000732ec 	.word	0x000732ec
+   72084:	2000f000 	.word	0x2000f000
+   72088:	2000f000 	.word	0x2000f000
+   7208c:	2000f000 	.word	0x2000f000
+   72090:	2000f21c 	.word	0x2000f21c
+
+00072094 <bl_fram_read_boot_info>:
+    bl_spi_transfer(&cmd, NULL, 1);
+    bl_fram_deselect();
+}
+
+static bool bl_fram_read_boot_info(bl_boot_info_t *info)
+{
+   72094:	b513      	push	{r0, r1, r4, lr}
+#if BL_FRAM_ADDR_BYTES == 2
+    /* 2-byte address for MB85RS64V (8KB) */
+    uint8_t cmd[3] = {
+   72096:	4b13      	ldr	r3, [pc, #76]	@ (720e4 <bl_fram_read_boot_info+0x50>)
+   72098:	881a      	ldrh	r2, [r3, #0]
+   7209a:	789b      	ldrb	r3, [r3, #2]
+   7209c:	f88d 3006 	strb.w	r3, [sp, #6]
+{
+   720a0:	4604      	mov	r4, r0
+    uint8_t cmd[3] = {
+   720a2:	f8ad 2004 	strh.w	r2, [sp, #4]
+        FRAM_CMD_READ,
+        (uint8_t)(BL_BOOT_INFO_ADDR >> 8),
+        (uint8_t)(BL_BOOT_INFO_ADDR & 0xFF),
+    };
+    bl_fram_select();
+   720a6:	f000 f9a7 	bl	723f8 <bl_fram_select>
+    bl_spi_transfer(cmd, NULL, 3);
+   720aa:	2203      	movs	r2, #3
+   720ac:	2100      	movs	r1, #0
+   720ae:	a801      	add	r0, sp, #4
+   720b0:	f000 f9be 	bl	72430 <bl_spi_transfer>
+        (uint8_t)(AGSYS_FRAM_BOOT_INFO_ADDR & 0xFF),
+    };
+    bl_fram_select();
+    bl_spi_transfer(cmd, NULL, 4);
+#endif
+    bl_spi_transfer(NULL, (uint8_t *)info, sizeof(*info));
+   720b4:	2220      	movs	r2, #32
+   720b6:	4621      	mov	r1, r4
+   720b8:	2000      	movs	r0, #0
+   720ba:	f000 f9b9 	bl	72430 <bl_spi_transfer>
+    bl_fram_deselect();
+   720be:	f000 f9a2 	bl	72406 <bl_fram_deselect>
+    if (info->magic != BL_BOOT_INFO_MAGIC) {
+   720c2:	6822      	ldr	r2, [r4, #0]
+   720c4:	4b08      	ldr	r3, [pc, #32]	@ (720e8 <bl_fram_read_boot_info+0x54>)
+   720c6:	429a      	cmp	r2, r3
+   720c8:	d109      	bne.n	720de <bl_fram_read_boot_info+0x4a>
+    uint32_t calc_crc = bl_crc32(info, sizeof(*info) - sizeof(info->crc32));
+   720ca:	211c      	movs	r1, #28
+   720cc:	4620      	mov	r0, r4
+   720ce:	f000 fa65 	bl	7259c <bl_crc32>
+    return (calc_crc == info->crc32);
+   720d2:	69e3      	ldr	r3, [r4, #28]
+   720d4:	1a1b      	subs	r3, r3, r0
+   720d6:	4258      	negs	r0, r3
+   720d8:	4158      	adcs	r0, r3
+    
+    return bl_boot_info_validate(info);
+}
+   720da:	b002      	add	sp, #8
+   720dc:	bd10      	pop	{r4, pc}
+        return false;
+   720de:	2000      	movs	r0, #0
+   720e0:	e7fb      	b.n	720da <bl_fram_read_boot_info+0x46>
+   720e2:	bf00      	nop
+   720e4:	00072acc 	.word	0x00072acc
+   720e8:	b007b007 	.word	0xb007b007
+
+000720ec <bl_fram_write_boot_info.isra.0>:
+
+static bool bl_fram_write_boot_info(const bl_boot_info_t *info)
+   720ec:	b510      	push	{r4, lr}
+   720ee:	b08a      	sub	sp, #40	@ 0x28
+    uint8_t cmd = FRAM_CMD_WREN;
+   720f0:	2306      	movs	r3, #6
+   720f2:	f88d 3008 	strb.w	r3, [sp, #8]
+static bool bl_fram_write_boot_info(const bl_boot_info_t *info)
+   720f6:	4604      	mov	r4, r0
+    bl_fram_select();
+   720f8:	f000 f97e 	bl	723f8 <bl_fram_select>
+    bl_spi_transfer(&cmd, NULL, 1);
+   720fc:	2100      	movs	r1, #0
+   720fe:	a802      	add	r0, sp, #8
+   72100:	2201      	movs	r2, #1
+   72102:	f000 f995 	bl	72430 <bl_spi_transfer>
+    bl_fram_deselect();
+   72106:	f000 f97e 	bl	72406 <bl_fram_deselect>
+{
+    bl_fram_write_enable();
+    
+#if BL_FRAM_ADDR_BYTES == 2
+    uint8_t cmd[3] = {
+   7210a:	4b10      	ldr	r3, [pc, #64]	@ (7214c <bl_fram_write_boot_info.isra.0+0x60>)
+   7210c:	f8b3 2003 	ldrh.w	r2, [r3, #3]
+   72110:	795b      	ldrb	r3, [r3, #5]
+   72112:	f88d 3006 	strb.w	r3, [sp, #6]
+   72116:	f8ad 2004 	strh.w	r2, [sp, #4]
+        FRAM_CMD_WRITE,
+        (uint8_t)(BL_BOOT_INFO_ADDR >> 8),
+        (uint8_t)(BL_BOOT_INFO_ADDR & 0xFF),
+    };
+    bl_fram_select();
+   7211a:	f000 f96d 	bl	723f8 <bl_fram_select>
+    bl_spi_transfer(cmd, NULL, 3);
+   7211e:	2203      	movs	r2, #3
+   72120:	2100      	movs	r1, #0
+   72122:	a801      	add	r0, sp, #4
+   72124:	f000 f984 	bl	72430 <bl_spi_transfer>
+        (uint8_t)(AGSYS_FRAM_BOOT_INFO_ADDR & 0xFF),
+    };
+    bl_fram_select();
+    bl_spi_transfer(cmd, NULL, 4);
+#endif
+    bl_spi_transfer((const uint8_t *)info, NULL, sizeof(*info));
+   72128:	4620      	mov	r0, r4
+   7212a:	2220      	movs	r2, #32
+   7212c:	2100      	movs	r1, #0
+   7212e:	f000 f97f 	bl	72430 <bl_spi_transfer>
+    bl_fram_deselect();
+   72132:	f000 f968 	bl	72406 <bl_fram_deselect>
+    
+    /* Verify write */
+    bl_boot_info_t verify;
+    return bl_fram_read_boot_info(&verify) && 
+   72136:	a802      	add	r0, sp, #8
+   72138:	f7ff ffac 	bl	72094 <bl_fram_read_boot_info>
+   7213c:	b120      	cbz	r0, 72148 <bl_fram_write_boot_info.isra.0+0x5c>
+           (memcmp(info, &verify, sizeof(*info)) == 0);
+   7213e:	2220      	movs	r2, #32
+   72140:	a902      	add	r1, sp, #8
+   72142:	4620      	mov	r0, r4
+   72144:	f000 fca4 	bl	72a90 <memcmp>
+}
+   72148:	b00a      	add	sp, #40	@ 0x28
+   7214a:	bd10      	pop	{r4, pc}
+   7214c:	00072acc 	.word	0x00072acc
+
+00072150 <main>:
+{
+   72150:	b510      	push	{r4, lr}
+   72152:	b08a      	sub	sp, #40	@ 0x28
+    bl_hal_init();
+   72154:	f000 f8f8 	bl	72348 <bl_hal_init>
+    bl_led_set(true);
+   72158:	2001      	movs	r0, #1
+   7215a:	f000 f935 	bl	723c8 <bl_led_set>
+    bl_delay_ms(50);
+   7215e:	2032      	movs	r0, #50	@ 0x32
+   72160:	f000 f93d 	bl	723de <bl_delay_ms>
+    bl_led_set(false);
+   72164:	2000      	movs	r0, #0
+   72166:	f000 f92f 	bl	723c8 <bl_led_set>
+    bl_log_init();
+   7216a:	f000 fbd3 	bl	72914 <bl_log_init>
+    bl_log_increment_boot_count();
+   7216e:	f000 fc73 	bl	72a58 <bl_log_increment_boot_count>
+    bl_log_write(BL_LOG_BOOT_START, 0, 0);
+   72172:	2200      	movs	r2, #0
+   72174:	4611      	mov	r1, r2
+   72176:	2001      	movs	r0, #1
+   72178:	f000 fc64 	bl	72a44 <bl_log_write>
+    if (!bl_ext_flash_init()) {
+   7217c:	f000 fa48 	bl	72610 <bl_ext_flash_init>
+   72180:	4601      	mov	r1, r0
+   72182:	b918      	cbnz	r0, 7218c <main+0x3c>
+        bl_log_write(BL_LOG_FLASH_ERROR, 0, 0);
+   72184:	4602      	mov	r2, r0
+   72186:	2031      	movs	r0, #49	@ 0x31
+   72188:	f000 fc5c 	bl	72a44 <bl_log_write>
+    if (!bl_fram_read_boot_info(&boot_info)) {
+   7218c:	a802      	add	r0, sp, #8
+   7218e:	f7ff ff81 	bl	72094 <bl_fram_read_boot_info>
+   72192:	4604      	mov	r4, r0
+   72194:	b9c0      	cbnz	r0, 721c8 <main+0x78>
+        bl_log_write(BL_LOG_FRAM_ERROR, 0, 0);
+   72196:	4602      	mov	r2, r0
+   72198:	4601      	mov	r1, r0
+   7219a:	2030      	movs	r0, #48	@ 0x30
+   7219c:	f000 fc52 	bl	72a44 <bl_log_write>
+    memset(info, 0, sizeof(*info));
+   721a0:	2220      	movs	r2, #32
+   721a2:	4621      	mov	r1, r4
+   721a4:	a802      	add	r0, sp, #8
+   721a6:	f7ff ff4b 	bl	72040 <memset>
+    info->version = 1;
+   721aa:	4964      	ldr	r1, [pc, #400]	@ (7233c <main+0x1ec>)
+   721ac:	2301      	movs	r3, #1
+   721ae:	e9cd 1302 	strd	r1, r3, [sp, #8]
+    info->crc32 = bl_crc32(info, sizeof(*info) - sizeof(info->crc32));
+   721b2:	a802      	add	r0, sp, #8
+    info->max_boot_attempts = BL_DEFAULT_MAX_BOOT_ATTEMPTS;
+   721b4:	2303      	movs	r3, #3
+    info->crc32 = bl_crc32(info, sizeof(*info) - sizeof(info->crc32));
+   721b6:	211c      	movs	r1, #28
+    info->max_boot_attempts = BL_DEFAULT_MAX_BOOT_ATTEMPTS;
+   721b8:	f88d 301b 	strb.w	r3, [sp, #27]
+    info->crc32 = bl_crc32(info, sizeof(*info) - sizeof(info->crc32));
+   721bc:	f000 f9ee 	bl	7259c <bl_crc32>
+   721c0:	9009      	str	r0, [sp, #36]	@ 0x24
+        bl_fram_write_boot_info(&boot_info);
+   721c2:	a802      	add	r0, sp, #8
+   721c4:	f7ff ff92 	bl	720ec <bl_fram_write_boot_info.isra.0>
+    if (header->magic != APP_HEADER_MAGIC) {
+   721c8:	4c5d      	ldr	r4, [pc, #372]	@ (72340 <main+0x1f0>)
+   721ca:	4b5e      	ldr	r3, [pc, #376]	@ (72344 <main+0x1f4>)
+   721cc:	6822      	ldr	r2, [r4, #0]
+   721ce:	429a      	cmp	r2, r3
+   721d0:	d12c      	bne.n	7222c <main+0xdc>
+    uint32_t calc_crc = bl_crc32(header, sizeof(*header) - sizeof(header->header_crc));
+   721d2:	212c      	movs	r1, #44	@ 0x2c
+   721d4:	4620      	mov	r0, r4
+   721d6:	f000 f9e1 	bl	7259c <bl_crc32>
+    if (calc_crc != header->header_crc) {
+   721da:	6ae3      	ldr	r3, [r4, #44]	@ 0x2c
+   721dc:	4298      	cmp	r0, r3
+   721de:	d125      	bne.n	7222c <main+0xdc>
+    if (header->firmware_size == 0 || header->firmware_size > BL_FLASH_APP_SIZE) {
+   721e0:	6921      	ldr	r1, [r4, #16]
+   721e2:	1e4b      	subs	r3, r1, #1
+   721e4:	f5b3 2f94 	cmp.w	r3, #303104	@ 0x4a000
+   721e8:	d220      	bcs.n	7222c <main+0xdc>
+    calc_crc = bl_crc32((const void *)BL_FLASH_APP_ADDR, header->firmware_size);
+   721ea:	f44f 3018 	mov.w	r0, #155648	@ 0x26000
+   721ee:	f000 f9d5 	bl	7259c <bl_crc32>
+    if (calc_crc != header->firmware_crc) {
+   721f2:	6963      	ldr	r3, [r4, #20]
+   721f4:	4298      	cmp	r0, r3
+   721f6:	d119      	bne.n	7222c <main+0xdc>
+    switch (info->boot_state) {
+   721f8:	f89d 300d 	ldrb.w	r3, [sp, #13]
+   721fc:	2b02      	cmp	r3, #2
+   721fe:	d06b      	beq.n	722d8 <main+0x188>
+   72200:	d957      	bls.n	722b2 <main+0x162>
+   72202:	3b03      	subs	r3, #3
+   72204:	2b01      	cmp	r3, #1
+   72206:	d954      	bls.n	722b2 <main+0x162>
+    memset(info, 0, sizeof(*info));
+   72208:	2220      	movs	r2, #32
+   7220a:	2100      	movs	r1, #0
+   7220c:	a802      	add	r0, sp, #8
+   7220e:	f7ff ff17 	bl	72040 <memset>
+    info->version = 1;
+   72212:	4a4a      	ldr	r2, [pc, #296]	@ (7233c <main+0x1ec>)
+   72214:	2301      	movs	r3, #1
+   72216:	e9cd 2302 	strd	r2, r3, [sp, #8]
+    info->crc32 = bl_crc32(info, sizeof(*info) - sizeof(info->crc32));
+   7221a:	211c      	movs	r1, #28
+    info->max_boot_attempts = BL_DEFAULT_MAX_BOOT_ATTEMPTS;
+   7221c:	2303      	movs	r3, #3
+    info->crc32 = bl_crc32(info, sizeof(*info) - sizeof(info->crc32));
+   7221e:	a802      	add	r0, sp, #8
+    info->max_boot_attempts = BL_DEFAULT_MAX_BOOT_ATTEMPTS;
+   72220:	f88d 301b 	strb.w	r3, [sp, #27]
+    info->crc32 = bl_crc32(info, sizeof(*info) - sizeof(info->crc32));
+   72224:	f000 f9ba 	bl	7259c <bl_crc32>
+   72228:	9009      	str	r0, [sp, #36]	@ 0x24
+   7222a:	e045      	b.n	722b8 <main+0x168>
+        if (info->boot_state == BL_STATE_OTA_PENDING) {
+   7222c:	f89d 300d 	ldrb.w	r3, [sp, #13]
+   72230:	2b02      	cmp	r3, #2
+   72232:	d137      	bne.n	722a4 <main+0x154>
+            bl_log_write(BL_LOG_ROLLBACK_START, 0, 0);
+   72234:	2200      	movs	r2, #0
+   72236:	2010      	movs	r0, #16
+   72238:	4611      	mov	r1, r2
+   7223a:	f000 fc03 	bl	72a44 <bl_log_write>
+            bl_log_increment_rollback_count();
+   7223e:	f000 fc19 	bl	72a74 <bl_log_increment_rollback_count>
+static bool bl_perform_rollback(bl_boot_info_t *info)
+{
+    (void)info;  /* May use for version info */
+    
+    /* Try slot A first (primary backup) */
+    if (bl_ext_flash_validate_slot(0)) {
+   72242:	2000      	movs	r0, #0
+   72244:	f000 fa44 	bl	726d0 <bl_ext_flash_validate_slot>
+   72248:	b178      	cbz	r0, 7226a <main+0x11a>
+        bl_log_write(BL_LOG_ROLLBACK_START, 0, BL_FLASH_SLOT_A_FW_ADDR);
+   7224a:	2100      	movs	r1, #0
+   7224c:	f44f 5280 	mov.w	r2, #4096	@ 0x1000
+   72250:	2010      	movs	r0, #16
+   72252:	f000 fbf7 	bl	72a44 <bl_log_write>
+        
+        if (bl_ext_flash_restore_firmware(0)) {
+   72256:	2000      	movs	r0, #0
+   72258:	f000 fab0 	bl	727bc <bl_ext_flash_restore_firmware>
+   7225c:	4601      	mov	r1, r0
+   7225e:	2800      	cmp	r0, #0
+   72260:	d14d      	bne.n	722fe <main+0x1ae>
+            return true;
+        }
+        bl_log_write(BL_LOG_NVMC_ERROR, 0, 0);
+   72262:	4602      	mov	r2, r0
+   72264:	2032      	movs	r0, #50	@ 0x32
+   72266:	f000 fbed 	bl	72a44 <bl_log_write>
+    }
+    
+    /* Try slot B (secondary backup) */
+    if (bl_ext_flash_validate_slot(1)) {
+   7226a:	2001      	movs	r0, #1
+   7226c:	f000 fa30 	bl	726d0 <bl_ext_flash_validate_slot>
+   72270:	b170      	cbz	r0, 72290 <main+0x140>
+        bl_log_write(BL_LOG_ROLLBACK_START, 1, BL_FLASH_SLOT_B_FW_ADDR);
+   72272:	f44f 226e 	mov.w	r2, #974848	@ 0xee000
+   72276:	2101      	movs	r1, #1
+   72278:	2010      	movs	r0, #16
+   7227a:	f000 fbe3 	bl	72a44 <bl_log_write>
+        
+        if (bl_ext_flash_restore_firmware(1)) {
+   7227e:	2001      	movs	r0, #1
+   72280:	f000 fa9c 	bl	727bc <bl_ext_flash_restore_firmware>
+   72284:	4602      	mov	r2, r0
+   72286:	bbd0      	cbnz	r0, 722fe <main+0x1ae>
+            return true;
+        }
+        bl_log_write(BL_LOG_NVMC_ERROR, 1, 0);
+   72288:	2101      	movs	r1, #1
+   7228a:	2032      	movs	r0, #50	@ 0x32
+   7228c:	f000 fbda 	bl	72a44 <bl_log_write>
+    }
+    
+    /* No valid backup found */
+    bl_log_write(BL_LOG_APP_INVALID, 0xFF, 0);
+   72290:	2200      	movs	r2, #0
+   72292:	21ff      	movs	r1, #255	@ 0xff
+   72294:	2020      	movs	r0, #32
+   72296:	f000 fbd5 	bl	72a44 <bl_log_write>
+            bl_log_write(BL_LOG_ROLLBACK_FAIL, 0, 0);
+   7229a:	2200      	movs	r2, #0
+   7229c:	4611      	mov	r1, r2
+   7229e:	2012      	movs	r0, #18
+   722a0:	f000 fbd0 	bl	72a44 <bl_log_write>
+            bl_log_write(BL_LOG_PANIC, 0, 0);
+   722a4:	2200      	movs	r2, #0
+   722a6:	4611      	mov	r1, r2
+   722a8:	20ff      	movs	r0, #255	@ 0xff
+   722aa:	f000 fbcb 	bl	72a44 <bl_log_write>
+            bl_panic();
+   722ae:	f000 f939 	bl	72524 <bl_panic>
+            info->boot_reason = BL_REASON_POWER_ON;
+   722b2:	2300      	movs	r3, #0
+            info->boot_reason = BL_REASON_OTA_REBOOT;
+   722b4:	f88d 300e 	strb.w	r3, [sp, #14]
+            bl_fram_write_boot_info(info);
+   722b8:	a802      	add	r0, sp, #8
+   722ba:	f7ff ff17 	bl	720ec <bl_fram_write_boot_info.isra.0>
+            bl_log_write_version(BL_LOG_BOOT_SUCCESS,
+   722be:	2300      	movs	r3, #0
+   722c0:	9300      	str	r3, [sp, #0]
+   722c2:	f89d 2011 	ldrb.w	r2, [sp, #17]
+   722c6:	f89d 3012 	ldrb.w	r3, [sp, #18]
+   722ca:	f89d 1010 	ldrb.w	r1, [sp, #16]
+   722ce:	2002      	movs	r0, #2
+   722d0:	f000 fb76 	bl	729c0 <bl_log_write_version>
+                bl_jump_to_app();
+   722d4:	f000 f916 	bl	72504 <bl_jump_to_app>
+            info->boot_count++;
+   722d8:	f89d 300f 	ldrb.w	r3, [sp, #15]
+            if (info->boot_count > info->max_boot_attempts) {
+   722dc:	f89d 201b 	ldrb.w	r2, [sp, #27]
+            info->boot_count++;
+   722e0:	3301      	adds	r3, #1
+   722e2:	b2db      	uxtb	r3, r3
+            if (info->boot_count > info->max_boot_attempts) {
+   722e4:	429a      	cmp	r2, r3
+            info->boot_count++;
+   722e6:	f88d 300f 	strb.w	r3, [sp, #15]
+            if (info->boot_count > info->max_boot_attempts) {
+   722ea:	d206      	bcs.n	722fa <main+0x1aa>
+                info->boot_reason = BL_REASON_ROLLBACK;
+   722ec:	2304      	movs	r3, #4
+                bl_fram_write_boot_info(info);
+   722ee:	a802      	add	r0, sp, #8
+                info->boot_reason = BL_REASON_ROLLBACK;
+   722f0:	f88d 300e 	strb.w	r3, [sp, #14]
+                bl_fram_write_boot_info(info);
+   722f4:	f7ff fefa 	bl	720ec <bl_fram_write_boot_info.isra.0>
+    switch (decision) {
+   722f8:	e79c      	b.n	72234 <main+0xe4>
+            info->boot_reason = BL_REASON_OTA_REBOOT;
+   722fa:	2303      	movs	r3, #3
+   722fc:	e7da      	b.n	722b4 <main+0x164>
+                bl_log_write_version(BL_LOG_ROLLBACK_SUCCESS,
+   722fe:	2300      	movs	r3, #0
+   72300:	f89d 2015 	ldrb.w	r2, [sp, #21]
+   72304:	f89d 1014 	ldrb.w	r1, [sp, #20]
+   72308:	9300      	str	r3, [sp, #0]
+   7230a:	2011      	movs	r0, #17
+   7230c:	f89d 3016 	ldrb.w	r3, [sp, #22]
+   72310:	f000 fb56 	bl	729c0 <bl_log_write_version>
+                boot_info.boot_state = BL_STATE_ROLLBACK;
+   72314:	2304      	movs	r3, #4
+                memcpy(boot_info.current_version, boot_info.previous_version, 3);
+   72316:	2203      	movs	r2, #3
+   72318:	a905      	add	r1, sp, #20
+   7231a:	a804      	add	r0, sp, #16
+                boot_info.boot_state = BL_STATE_ROLLBACK;
+   7231c:	f88d 300d 	strb.w	r3, [sp, #13]
+                boot_info.boot_reason = BL_REASON_ROLLBACK;
+   72320:	f8ad 300e 	strh.w	r3, [sp, #14]
+                memcpy(boot_info.current_version, boot_info.previous_version, 3);
+   72324:	f000 fbc4 	bl	72ab0 <memcpy>
+    info->crc32 = bl_crc32(info, sizeof(*info) - sizeof(info->crc32));
+   72328:	211c      	movs	r1, #28
+   7232a:	a802      	add	r0, sp, #8
+   7232c:	f000 f936 	bl	7259c <bl_crc32>
+   72330:	9009      	str	r0, [sp, #36]	@ 0x24
+                bl_fram_write_boot_info(&boot_info);
+   72332:	a802      	add	r0, sp, #8
+   72334:	f7ff feda 	bl	720ec <bl_fram_write_boot_info.isra.0>
+   72338:	e7cc      	b.n	722d4 <main+0x184>
+   7233a:	bf00      	nop
+   7233c:	b007b007 	.word	0xb007b007
+   72340:	00026200 	.word	0x00026200
+   72344:	41475359 	.word	0x41475359
+
+00072348 <bl_hal_init>:
+/*******************************************************************************
+ * Initialization
+ ******************************************************************************/
+
+void bl_hal_init(void)
+{
+   72348:	b508      	push	{r3, lr}
+    /* Initialize dummy buffers */
+    memset(spi_tx_dummy, 0xFF, sizeof(spi_tx_dummy));
+   7234a:	f44f 7280 	mov.w	r2, #256	@ 0x100
+   7234e:	21ff      	movs	r1, #255	@ 0xff
+   72350:	481b      	ldr	r0, [pc, #108]	@ (723c0 <bl_hal_init+0x78>)
+   72352:	f7ff fe75 	bl	72040 <memset>
+    NRF_GPIO->PIN_CNF[pin] = GPIO_PIN_CNF_DIR_Output |
+   72356:	f04f 43a0 	mov.w	r3, #1342177280	@ 0x50000000
+   7235a:	2203      	movs	r2, #3
+    NRF_GPIO->OUTCLR = (1UL << pin);
+   7235c:	f44f 3100 	mov.w	r1, #131072	@ 0x20000
+    NRF_GPIO->PIN_CNF[pin] = GPIO_PIN_CNF_DIR_Output |
+   72360:	f8c3 2744 	str.w	r2, [r3, #1860]	@ 0x744
+    NRF_GPIO->OUTSET = (1UL << pin);
+   72364:	f44f 6000 	mov.w	r0, #2048	@ 0x800
+    NRF_GPIO->OUTCLR = (1UL << pin);
+   72368:	f8c3 150c 	str.w	r1, [r3, #1292]	@ 0x50c
+    NRF_GPIO->PIN_CNF[pin] = GPIO_PIN_CNF_DIR_Input |
+   7236c:	2100      	movs	r1, #0
+    NRF_GPIO->PIN_CNF[pin] = GPIO_PIN_CNF_DIR_Output |
+   7236e:	f8c3 2764 	str.w	r2, [r3, #1892]	@ 0x764
+   72372:	f8c3 2760 	str.w	r2, [r3, #1888]	@ 0x760
+    NRF_GPIO->PIN_CNF[pin] = GPIO_PIN_CNF_DIR_Input |
+   72376:	f8c3 175c 	str.w	r1, [r3, #1884]	@ 0x75c
+    NRF_GPIO->PIN_CNF[pin] = GPIO_PIN_CNF_DIR_Output |
+   7237a:	f8c3 272c 	str.w	r2, [r3, #1836]	@ 0x72c
+    NRF_GPIO->OUTSET = (1UL << pin);
+   7237e:	f8c3 0508 	str.w	r0, [r3, #1288]	@ 0x508
+    NRF_GPIO->PIN_CNF[pin] = GPIO_PIN_CNF_DIR_Output |
+   72382:	f8c3 2730 	str.w	r2, [r3, #1840]	@ 0x730
+    NRF_GPIO->OUTSET = (1UL << pin);
+   72386:	f44f 5280 	mov.w	r2, #4096	@ 0x1000
+   7238a:	f8c3 2508 	str.w	r2, [r3, #1288]	@ 0x508
+    gpio_set(BL_PIN_FRAM_CS);
+    gpio_cfg_output(BL_PIN_FLASH_CS);
+    gpio_set(BL_PIN_FLASH_CS);
+    
+    /* Configure SPIM0 */
+    NRF_SPIM0->ENABLE = SPIM_ENABLE_Disabled;
+   7238e:	4b0d      	ldr	r3, [pc, #52]	@ (723c4 <bl_hal_init+0x7c>)
+    
+    NRF_SPIM0->PSEL.SCK = BL_PIN_SPI_SCK;
+   72390:	2219      	movs	r2, #25
+    NRF_SPIM0->ENABLE = SPIM_ENABLE_Disabled;
+   72392:	f8c3 1500 	str.w	r1, [r3, #1280]	@ 0x500
+    NRF_SPIM0->PSEL.SCK = BL_PIN_SPI_SCK;
+   72396:	f8c3 2508 	str.w	r2, [r3, #1288]	@ 0x508
+    NRF_SPIM0->PSEL.MOSI = BL_PIN_SPI_MOSI;
+   7239a:	2218      	movs	r2, #24
+   7239c:	f8c3 250c 	str.w	r2, [r3, #1292]	@ 0x50c
+    NRF_SPIM0->PSEL.MISO = BL_PIN_SPI_MISO;
+   723a0:	2217      	movs	r2, #23
+   723a2:	f8c3 2510 	str.w	r2, [r3, #1296]	@ 0x510
+    
+    NRF_SPIM0->FREQUENCY = SPIM_FREQUENCY_M4;
+   723a6:	f04f 4280 	mov.w	r2, #1073741824	@ 0x40000000
+   723aa:	f8c3 2524 	str.w	r2, [r3, #1316]	@ 0x524
+    NRF_SPIM0->CONFIG = SPIM_CONFIG_ORDER_MsbFirst |
+                        SPIM_CONFIG_CPHA_Leading |
+                        SPIM_CONFIG_CPOL_ActiveHigh;
+    NRF_SPIM0->ORC = 0xFF;  /* Output 0xFF when no TX data */
+   723ae:	22ff      	movs	r2, #255	@ 0xff
+    NRF_SPIM0->CONFIG = SPIM_CONFIG_ORDER_MsbFirst |
+   723b0:	f8c3 1554 	str.w	r1, [r3, #1364]	@ 0x554
+    NRF_SPIM0->ORC = 0xFF;  /* Output 0xFF when no TX data */
+   723b4:	f8c3 25c0 	str.w	r2, [r3, #1472]	@ 0x5c0
+    
+    NRF_SPIM0->ENABLE = SPIM_ENABLE_Enabled;
+   723b8:	2207      	movs	r2, #7
+   723ba:	f8c3 2500 	str.w	r2, [r3, #1280]	@ 0x500
+}
+   723be:	bd08      	pop	{r3, pc}
+   723c0:	2000f100 	.word	0x2000f100
+   723c4:	40003000 	.word	0x40003000
+
+000723c8 <bl_led_set>:
+ * LED Functions
+ ******************************************************************************/
+
+void bl_led_set(bool on)
+{
+    if (on) {
+   723c8:	f04f 43a0 	mov.w	r3, #1342177280	@ 0x50000000
+   723cc:	f44f 3200 	mov.w	r2, #131072	@ 0x20000
+   723d0:	b110      	cbz	r0, 723d8 <bl_led_set+0x10>
+    NRF_GPIO->OUTSET = (1UL << pin);
+   723d2:	f8c3 2508 	str.w	r2, [r3, #1288]	@ 0x508
+}
+   723d6:	4770      	bx	lr
+    NRF_GPIO->OUTCLR = (1UL << pin);
+   723d8:	f8c3 250c 	str.w	r2, [r3, #1292]	@ 0x50c
+        gpio_set(BL_PIN_LED);
+    } else {
+        gpio_clear(BL_PIN_LED);
+    }
+}
+   723dc:	4770      	bx	lr
+
+000723de <bl_delay_ms>:
+/*******************************************************************************
+ * Delay Functions
+ ******************************************************************************/
+
+void bl_delay_ms(uint32_t ms)
+{
+   723de:	b082      	sub	sp, #8
+    /* nRF52832 runs at 64 MHz
+     * Approximate delay using busy loop
+     * Tuned empirically - adjust if needed
+     */
+    volatile uint32_t count = ms * 8000;
+   723e0:	f44f 53fa 	mov.w	r3, #8000	@ 0x1f40
+   723e4:	4358      	muls	r0, r3
+   723e6:	9001      	str	r0, [sp, #4]
+    while (count--) {
+   723e8:	9b01      	ldr	r3, [sp, #4]
+   723ea:	1e5a      	subs	r2, r3, #1
+   723ec:	9201      	str	r2, [sp, #4]
+   723ee:	b90b      	cbnz	r3, 723f4 <bl_delay_ms+0x16>
+        __asm__ volatile ("nop");
+    }
+}
+   723f0:	b002      	add	sp, #8
+   723f2:	4770      	bx	lr
+        __asm__ volatile ("nop");
+   723f4:	bf00      	nop
+   723f6:	e7f7      	b.n	723e8 <bl_delay_ms+0xa>
+
+000723f8 <bl_fram_select>:
+    NRF_GPIO->OUTCLR = (1UL << pin);
+   723f8:	f04f 43a0 	mov.w	r3, #1342177280	@ 0x50000000
+   723fc:	f44f 6200 	mov.w	r2, #2048	@ 0x800
+   72400:	f8c3 250c 	str.w	r2, [r3, #1292]	@ 0x50c
+ ******************************************************************************/
+
+void bl_fram_select(void)
+{
+    gpio_clear(BL_PIN_FRAM_CS);
+}
+   72404:	4770      	bx	lr
+
+00072406 <bl_fram_deselect>:
+    NRF_GPIO->OUTSET = (1UL << pin);
+   72406:	f04f 43a0 	mov.w	r3, #1342177280	@ 0x50000000
+   7240a:	f44f 6200 	mov.w	r2, #2048	@ 0x800
+   7240e:	f8c3 2508 	str.w	r2, [r3, #1288]	@ 0x508
+
+void bl_fram_deselect(void)
+{
+    gpio_set(BL_PIN_FRAM_CS);
+}
+   72412:	4770      	bx	lr
+
+00072414 <bl_flash_select>:
+    NRF_GPIO->OUTCLR = (1UL << pin);
+   72414:	f04f 43a0 	mov.w	r3, #1342177280	@ 0x50000000
+   72418:	f44f 5280 	mov.w	r2, #4096	@ 0x1000
+   7241c:	f8c3 250c 	str.w	r2, [r3, #1292]	@ 0x50c
+
+void bl_flash_select(void)
+{
+    gpio_clear(BL_PIN_FLASH_CS);
+}
+   72420:	4770      	bx	lr
+
+00072422 <bl_flash_deselect>:
+    NRF_GPIO->OUTSET = (1UL << pin);
+   72422:	f04f 43a0 	mov.w	r3, #1342177280	@ 0x50000000
+   72426:	f44f 5280 	mov.w	r2, #4096	@ 0x1000
+   7242a:	f8c3 2508 	str.w	r2, [r3, #1288]	@ 0x508
+
+void bl_flash_deselect(void)
+{
+    gpio_set(BL_PIN_FLASH_CS);
+}
+   7242e:	4770      	bx	lr
+
+00072430 <bl_spi_transfer>:
+
+void bl_spi_transfer(const uint8_t *tx_buf, uint8_t *rx_buf, size_t len)
+{
+    if (len == 0) return;
+   72430:	b312      	cbz	r2, 72478 <bl_spi_transfer+0x48>
+    
+    /* Use dummy buffers if NULL */
+    if (tx_buf == NULL) {
+   72432:	b928      	cbnz	r0, 72440 <bl_spi_transfer+0x10>
+        tx_buf = spi_tx_dummy;
+        if (len > sizeof(spi_tx_dummy)) {
+   72434:	f5b2 7f80 	cmp.w	r2, #256	@ 0x100
+        tx_buf = spi_tx_dummy;
+   72438:	4810      	ldr	r0, [pc, #64]	@ (7247c <bl_spi_transfer+0x4c>)
+        if (len > sizeof(spi_tx_dummy)) {
+   7243a:	bf28      	it	cs
+   7243c:	f44f 7280 	movcs.w	r2, #256	@ 0x100
+            len = sizeof(spi_tx_dummy);
+        }
+    }
+    if (rx_buf == NULL) {
+   72440:	b929      	cbnz	r1, 7244e <bl_spi_transfer+0x1e>
+        rx_buf = spi_rx_dummy;
+        if (len > sizeof(spi_rx_dummy)) {
+   72442:	f5b2 7f80 	cmp.w	r2, #256	@ 0x100
+        rx_buf = spi_rx_dummy;
+   72446:	490e      	ldr	r1, [pc, #56]	@ (72480 <bl_spi_transfer+0x50>)
+        if (len > sizeof(spi_rx_dummy)) {
+   72448:	bf28      	it	cs
+   7244a:	f44f 7280 	movcs.w	r2, #256	@ 0x100
+            len = sizeof(spi_rx_dummy);
+        }
+    }
+    
+    /* Configure DMA */
+    NRF_SPIM0->TXD.PTR = (uint32_t)tx_buf;
+   7244e:	4b0d      	ldr	r3, [pc, #52]	@ (72484 <bl_spi_transfer+0x54>)
+   72450:	f8c3 0544 	str.w	r0, [r3, #1348]	@ 0x544
+    NRF_SPIM0->TXD.MAXCNT = len;
+   72454:	f8c3 2548 	str.w	r2, [r3, #1352]	@ 0x548
+    NRF_SPIM0->RXD.PTR = (uint32_t)rx_buf;
+   72458:	f8c3 1534 	str.w	r1, [r3, #1332]	@ 0x534
+    NRF_SPIM0->RXD.MAXCNT = len;
+   7245c:	f8c3 2538 	str.w	r2, [r3, #1336]	@ 0x538
+    
+    /* Clear events */
+    NRF_SPIM0->EVENTS_END = 0;
+   72460:	2200      	movs	r2, #0
+   72462:	f8c3 2118 	str.w	r2, [r3, #280]	@ 0x118
+    
+    /* Start transfer */
+    NRF_SPIM0->TASKS_START = 1;
+   72466:	2201      	movs	r2, #1
+   72468:	611a      	str	r2, [r3, #16]
+    
+    /* Wait for completion */
+    while (NRF_SPIM0->EVENTS_END == 0) {
+   7246a:	f8d3 2118 	ldr.w	r2, [r3, #280]	@ 0x118
+   7246e:	2a00      	cmp	r2, #0
+   72470:	d0fb      	beq.n	7246a <bl_spi_transfer+0x3a>
+        /* Busy wait */
+    }
+    
+    NRF_SPIM0->EVENTS_END = 0;
+   72472:	2200      	movs	r2, #0
+   72474:	f8c3 2118 	str.w	r2, [r3, #280]	@ 0x118
+}
+   72478:	4770      	bx	lr
+   7247a:	bf00      	nop
+   7247c:	2000f100 	.word	0x2000f100
+   72480:	2000f000 	.word	0x2000f000
+   72484:	40003000 	.word	0x40003000
+
+00072488 <bl_nvmc_erase_page>:
+ ******************************************************************************/
+
+void bl_nvmc_erase_page(uint32_t page_addr)
+{
+    /* Enable erase */
+    NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Een;
+   72488:	4b0b      	ldr	r3, [pc, #44]	@ (724b8 <bl_nvmc_erase_page+0x30>)
+   7248a:	2202      	movs	r2, #2
+   7248c:	f8c3 2504 	str.w	r2, [r3, #1284]	@ 0x504
+    while (NRF_NVMC->READY == 0);
+   72490:	f8d3 2400 	ldr.w	r2, [r3, #1024]	@ 0x400
+   72494:	2a00      	cmp	r2, #0
+   72496:	d0fb      	beq.n	72490 <bl_nvmc_erase_page+0x8>
+    
+    /* Erase page */
+    NRF_NVMC->ERASEPAGE = page_addr;
+   72498:	f8c3 0508 	str.w	r0, [r3, #1288]	@ 0x508
+    while (NRF_NVMC->READY == 0);
+   7249c:	f8d3 2400 	ldr.w	r2, [r3, #1024]	@ 0x400
+   724a0:	2a00      	cmp	r2, #0
+   724a2:	d0fb      	beq.n	7249c <bl_nvmc_erase_page+0x14>
+    
+    /* Return to read mode */
+    NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Ren;
+   724a4:	2200      	movs	r2, #0
+   724a6:	f8c3 2504 	str.w	r2, [r3, #1284]	@ 0x504
+    while (NRF_NVMC->READY == 0);
+   724aa:	4a03      	ldr	r2, [pc, #12]	@ (724b8 <bl_nvmc_erase_page+0x30>)
+   724ac:	f8d2 3400 	ldr.w	r3, [r2, #1024]	@ 0x400
+   724b0:	2b00      	cmp	r3, #0
+   724b2:	d0fb      	beq.n	724ac <bl_nvmc_erase_page+0x24>
+}
+   724b4:	4770      	bx	lr
+   724b6:	bf00      	nop
+   724b8:	4001e000 	.word	0x4001e000
+
+000724bc <bl_nvmc_write>:
+
+void bl_nvmc_write(uint32_t addr, const uint8_t *data, size_t len)
+{
+    /* Enable write */
+    NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Wen;
+   724bc:	4b10      	ldr	r3, [pc, #64]	@ (72500 <bl_nvmc_write+0x44>)
+{
+   724be:	b530      	push	{r4, r5, lr}
+    NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Wen;
+   724c0:	2401      	movs	r4, #1
+   724c2:	f8c3 4504 	str.w	r4, [r3, #1284]	@ 0x504
+    while (NRF_NVMC->READY == 0);
+   724c6:	f8d3 4400 	ldr.w	r4, [r3, #1024]	@ 0x400
+   724ca:	2c00      	cmp	r4, #0
+   724cc:	d0fb      	beq.n	724c6 <bl_nvmc_write+0xa>
+    /* Write word by word */
+    const uint32_t *src = (const uint32_t *)data;
+    volatile uint32_t *dst = (volatile uint32_t *)addr;
+    size_t words = len / 4;
+    
+    for (size_t i = 0; i < words; i++) {
+   724ce:	f022 0203 	bic.w	r2, r2, #3
+   724d2:	4b0b      	ldr	r3, [pc, #44]	@ (72500 <bl_nvmc_write+0x44>)
+   724d4:	440a      	add	r2, r1
+   724d6:	1a40      	subs	r0, r0, r1
+   724d8:	4291      	cmp	r1, r2
+   724da:	d107      	bne.n	724ec <bl_nvmc_write+0x30>
+        *dst++ = *src++;
+        while (NRF_NVMC->READY == 0);
+    }
+    
+    /* Return to read mode */
+    NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Ren;
+   724dc:	2200      	movs	r2, #0
+   724de:	f8c3 2504 	str.w	r2, [r3, #1284]	@ 0x504
+    while (NRF_NVMC->READY == 0);
+   724e2:	f8d3 2400 	ldr.w	r2, [r3, #1024]	@ 0x400
+   724e6:	2a00      	cmp	r2, #0
+   724e8:	d0fb      	beq.n	724e2 <bl_nvmc_write+0x26>
+}
+   724ea:	bd30      	pop	{r4, r5, pc}
+   724ec:	180c      	adds	r4, r1, r0
+        *dst++ = *src++;
+   724ee:	f851 5b04 	ldr.w	r5, [r1], #4
+   724f2:	6025      	str	r5, [r4, #0]
+        while (NRF_NVMC->READY == 0);
+   724f4:	f8d3 4400 	ldr.w	r4, [r3, #1024]	@ 0x400
+   724f8:	2c00      	cmp	r4, #0
+   724fa:	d0fb      	beq.n	724f4 <bl_nvmc_write+0x38>
+   724fc:	e7ec      	b.n	724d8 <bl_nvmc_write+0x1c>
+   724fe:	bf00      	nop
+   72500:	4001e000 	.word	0x4001e000
+
+00072504 <bl_jump_to_app>:
+/*******************************************************************************
+ * Boot Functions
+ ******************************************************************************/
+
+void bl_jump_to_app(void)
+{
+   72504:	b508      	push	{r3, lr}
+    /* Disable SPIM */
+    NRF_SPIM0->ENABLE = SPIM_ENABLE_Disabled;
+   72506:	4b06      	ldr	r3, [pc, #24]	@ (72520 <bl_jump_to_app+0x1c>)
+   72508:	2200      	movs	r2, #0
+   7250a:	f8c3 2500 	str.w	r2, [r3, #1280]	@ 0x500
+    
+    /* Get application's vector table */
+    uint32_t *app_vector = (uint32_t *)BL_FLASH_APP_ADDR;
+    
+    /* Get initial stack pointer and reset handler */
+    uint32_t app_sp = app_vector[0];
+   7250e:	f44f 3318 	mov.w	r3, #155648	@ 0x26000
+    uint32_t app_reset = app_vector[1];
+    
+    /* Set stack pointer */
+    __asm__ volatile ("MSR MSP, %0" : : "r" (app_sp));
+   72512:	681a      	ldr	r2, [r3, #0]
+   72514:	f382 8808 	msr	MSP, r2
+    
+    /* Jump to application reset handler */
+    void (*app_entry)(void) = (void (*)(void))app_reset;
+    app_entry();
+   72518:	685b      	ldr	r3, [r3, #4]
+   7251a:	4798      	blx	r3
+    
+    /* Should never reach here */
+    while (1);
+   7251c:	e7fe      	b.n	7251c <bl_jump_to_app+0x18>
+   7251e:	bf00      	nop
+   72520:	40003000 	.word	0x40003000
+
+00072524 <bl_panic>:
+}
+
+void bl_panic(void)
+{
+   72524:	b508      	push	{r3, lr}
+    NRF_GPIO->OUTSET = (1UL << pin);
+   72526:	f44f 3100 	mov.w	r1, #131072	@ 0x20000
+{
+   7252a:	2403      	movs	r4, #3
+    NRF_GPIO->OUTSET = (1UL << pin);
+   7252c:	f04f 45a0 	mov.w	r5, #1342177280	@ 0x50000000
+    /* SOS pattern: ... --- ... */
+    while (1) {
+        /* S: three short */
+        for (int i = 0; i < 3; i++) {
+            bl_led_set(true);
+            bl_delay_ms(100);
+   72530:	2064      	movs	r0, #100	@ 0x64
+    NRF_GPIO->OUTSET = (1UL << pin);
+   72532:	f8c5 1508 	str.w	r1, [r5, #1288]	@ 0x508
+            bl_delay_ms(100);
+   72536:	f7ff ff52 	bl	723de <bl_delay_ms>
+    NRF_GPIO->OUTCLR = (1UL << pin);
+   7253a:	f8c5 150c 	str.w	r1, [r5, #1292]	@ 0x50c
+            bl_led_set(false);
+            bl_delay_ms(100);
+   7253e:	2064      	movs	r0, #100	@ 0x64
+   72540:	f7ff ff4d 	bl	723de <bl_delay_ms>
+        for (int i = 0; i < 3; i++) {
+   72544:	3c01      	subs	r4, #1
+   72546:	d1f3      	bne.n	72530 <bl_panic+0xc>
+        }
+        bl_delay_ms(200);
+   72548:	20c8      	movs	r0, #200	@ 0xc8
+   7254a:	f7ff ff48 	bl	723de <bl_delay_ms>
+   7254e:	2403      	movs	r4, #3
+    NRF_GPIO->OUTSET = (1UL << pin);
+   72550:	f04f 45a0 	mov.w	r5, #1342177280	@ 0x50000000
+        
+        /* O: three long */
+        for (int i = 0; i < 3; i++) {
+            bl_led_set(true);
+            bl_delay_ms(300);
+   72554:	f44f 7096 	mov.w	r0, #300	@ 0x12c
+    NRF_GPIO->OUTSET = (1UL << pin);
+   72558:	f8c5 1508 	str.w	r1, [r5, #1288]	@ 0x508
+            bl_delay_ms(300);
+   7255c:	f7ff ff3f 	bl	723de <bl_delay_ms>
+    NRF_GPIO->OUTCLR = (1UL << pin);
+   72560:	f8c5 150c 	str.w	r1, [r5, #1292]	@ 0x50c
+            bl_led_set(false);
+            bl_delay_ms(100);
+   72564:	2064      	movs	r0, #100	@ 0x64
+   72566:	f7ff ff3a 	bl	723de <bl_delay_ms>
+        for (int i = 0; i < 3; i++) {
+   7256a:	3c01      	subs	r4, #1
+   7256c:	d1f2      	bne.n	72554 <bl_panic+0x30>
+        }
+        bl_delay_ms(200);
+   7256e:	20c8      	movs	r0, #200	@ 0xc8
+   72570:	f7ff ff35 	bl	723de <bl_delay_ms>
+   72574:	2403      	movs	r4, #3
+    NRF_GPIO->OUTSET = (1UL << pin);
+   72576:	f04f 45a0 	mov.w	r5, #1342177280	@ 0x50000000
+        
+        /* S: three short */
+        for (int i = 0; i < 3; i++) {
+            bl_led_set(true);
+            bl_delay_ms(100);
+   7257a:	2064      	movs	r0, #100	@ 0x64
+    NRF_GPIO->OUTSET = (1UL << pin);
+   7257c:	f8c5 1508 	str.w	r1, [r5, #1288]	@ 0x508
+            bl_delay_ms(100);
+   72580:	f7ff ff2d 	bl	723de <bl_delay_ms>
+    NRF_GPIO->OUTCLR = (1UL << pin);
+   72584:	f8c5 150c 	str.w	r1, [r5, #1292]	@ 0x50c
+            bl_led_set(false);
+            bl_delay_ms(100);
+   72588:	2064      	movs	r0, #100	@ 0x64
+   7258a:	f7ff ff28 	bl	723de <bl_delay_ms>
+        for (int i = 0; i < 3; i++) {
+   7258e:	3c01      	subs	r4, #1
+   72590:	d1f3      	bne.n	7257a <bl_panic+0x56>
+        }
+        
+        /* Long pause */
+        bl_delay_ms(1000);
+   72592:	f44f 707a 	mov.w	r0, #1000	@ 0x3e8
+   72596:	f7ff ff22 	bl	723de <bl_delay_ms>
+        for (int i = 0; i < 3; i++) {
+   7259a:	e7c6      	b.n	7252a <bl_panic+0x6>
+
+0007259c <bl_crc32>:
+/*******************************************************************************
+ * Public Functions
+ ******************************************************************************/
+
+uint32_t bl_crc32(const void *data, size_t len)
+{
+   7259c:	b510      	push	{r4, lr}
+    const uint8_t *p = (const uint8_t *)data;
+    uint32_t crc = 0xFFFFFFFF;
+    
+    while (len--) {
+        crc = crc32_table[(crc ^ *p++) & 0xFF] ^ (crc >> 8);
+   7259e:	4c08      	ldr	r4, [pc, #32]	@ (725c0 <bl_crc32+0x24>)
+   725a0:	4401      	add	r1, r0
+    uint32_t crc = 0xFFFFFFFF;
+   725a2:	f04f 32ff 	mov.w	r2, #4294967295	@ 0xffffffff
+    while (len--) {
+   725a6:	4288      	cmp	r0, r1
+   725a8:	d101      	bne.n	725ae <bl_crc32+0x12>
+    }
+    
+    return crc ^ 0xFFFFFFFF;
+}
+   725aa:	43d0      	mvns	r0, r2
+   725ac:	bd10      	pop	{r4, pc}
+        crc = crc32_table[(crc ^ *p++) & 0xFF] ^ (crc >> 8);
+   725ae:	f810 3b01 	ldrb.w	r3, [r0], #1
+   725b2:	4053      	eors	r3, r2
+   725b4:	b2db      	uxtb	r3, r3
+   725b6:	f854 3023 	ldr.w	r3, [r4, r3, lsl #2]
+   725ba:	ea83 2212 	eor.w	r2, r3, r2, lsr #8
+   725be:	e7f2      	b.n	725a6 <bl_crc32+0xa>
+   725c0:	00072ad4 	.word	0x00072ad4
+
+000725c4 <bl_ext_flash_read_id>:
+    
+    return true;
+}
+
+bool bl_ext_flash_read_id(uint8_t *manufacturer, uint16_t *device)
+{
+   725c4:	b537      	push	{r0, r1, r2, r4, r5, lr}
+    uint8_t cmd = FLASH_CMD_READ_ID;
+   725c6:	239f      	movs	r3, #159	@ 0x9f
+   725c8:	f88d 3003 	strb.w	r3, [sp, #3]
+{
+   725cc:	4605      	mov	r5, r0
+   725ce:	460c      	mov	r4, r1
+    uint8_t id[3];
+    
+    bl_flash_select();
+   725d0:	f7ff ff20 	bl	72414 <bl_flash_select>
+    bl_spi_transfer(&cmd, NULL, 1);
+   725d4:	2201      	movs	r2, #1
+   725d6:	2100      	movs	r1, #0
+   725d8:	f10d 0003 	add.w	r0, sp, #3
+   725dc:	f7ff ff28 	bl	72430 <bl_spi_transfer>
+    bl_spi_transfer(NULL, id, 3);
+   725e0:	2000      	movs	r0, #0
+   725e2:	2203      	movs	r2, #3
+   725e4:	a901      	add	r1, sp, #4
+   725e6:	f7ff ff23 	bl	72430 <bl_spi_transfer>
+    bl_flash_deselect();
+   725ea:	f7ff ff1a 	bl	72422 <bl_flash_deselect>
+    
+    if (manufacturer) *manufacturer = id[0];
+   725ee:	f89d 0004 	ldrb.w	r0, [sp, #4]
+   725f2:	b105      	cbz	r5, 725f6 <bl_ext_flash_read_id+0x32>
+   725f4:	7028      	strb	r0, [r5, #0]
+    if (device) *device = ((uint16_t)id[1] << 8) | id[2];
+   725f6:	b11c      	cbz	r4, 72600 <bl_ext_flash_read_id+0x3c>
+   725f8:	f8bd 3005 	ldrh.w	r3, [sp, #5]
+   725fc:	ba5b      	rev16	r3, r3
+   725fe:	8023      	strh	r3, [r4, #0]
+    
+    /* Check for valid response (not all 0xFF or 0x00) */
+    if (id[0] == 0xFF || id[0] == 0x00) {
+   72600:	3801      	subs	r0, #1
+   72602:	b2c0      	uxtb	r0, r0
+        return false;
+    }
+    
+    return true;
+}
+   72604:	28fd      	cmp	r0, #253	@ 0xfd
+   72606:	bf8c      	ite	hi
+   72608:	2000      	movhi	r0, #0
+   7260a:	2001      	movls	r0, #1
+   7260c:	b003      	add	sp, #12
+   7260e:	bd30      	pop	{r4, r5, pc}
+
+00072610 <bl_ext_flash_init>:
+{
+   72610:	b507      	push	{r0, r1, r2, lr}
+    uint8_t cmd = FLASH_CMD_RELEASE_PD;
+   72612:	23ab      	movs	r3, #171	@ 0xab
+   72614:	f88d 3004 	strb.w	r3, [sp, #4]
+    bl_flash_select();
+   72618:	f7ff fefc 	bl	72414 <bl_flash_select>
+    bl_spi_transfer(&cmd, NULL, 1);
+   7261c:	2100      	movs	r1, #0
+   7261e:	2201      	movs	r2, #1
+   72620:	a801      	add	r0, sp, #4
+   72622:	f7ff ff05 	bl	72430 <bl_spi_transfer>
+    bl_flash_deselect();
+   72626:	f7ff fefc 	bl	72422 <bl_flash_deselect>
+    bl_delay_ms(1);  /* tRES1 = 3us, but be safe */
+   7262a:	2001      	movs	r0, #1
+   7262c:	f7ff fed7 	bl	723de <bl_delay_ms>
+    if (!bl_ext_flash_read_id(&mfr, &dev)) {
+   72630:	f10d 0106 	add.w	r1, sp, #6
+   72634:	f10d 0005 	add.w	r0, sp, #5
+   72638:	f7ff ffc4 	bl	725c4 <bl_ext_flash_read_id>
+   7263c:	b128      	cbz	r0, 7264a <bl_ext_flash_init+0x3a>
+    if (mfr != 0xEF) {
+   7263e:	f89d 0005 	ldrb.w	r0, [sp, #5]
+   72642:	f1a0 03ef 	sub.w	r3, r0, #239	@ 0xef
+   72646:	4258      	negs	r0, r3
+   72648:	4158      	adcs	r0, r3
+}
+   7264a:	b003      	add	sp, #12
+   7264c:	bd00      	pop	{pc}
+
+0007264e <bl_ext_flash_read>:
+
+bool bl_ext_flash_read(uint32_t addr, uint8_t *data, size_t len)
+{
+   7264e:	b537      	push	{r0, r1, r2, r4, r5, lr}
+   72650:	460d      	mov	r5, r1
+   72652:	4614      	mov	r4, r2
+    if (data == NULL || len == 0) {
+   72654:	b1d9      	cbz	r1, 7268e <bl_ext_flash_read+0x40>
+   72656:	b1e2      	cbz	r2, 72692 <bl_ext_flash_read+0x44>
+        return false;
+    }
+    
+    /* Command + 24-bit address */
+    uint8_t cmd[4] = {
+   72658:	2303      	movs	r3, #3
+   7265a:	f88d 3004 	strb.w	r3, [sp, #4]
+        FLASH_CMD_READ_DATA,
+        (uint8_t)(addr >> 16),
+   7265e:	0c03      	lsrs	r3, r0, #16
+    uint8_t cmd[4] = {
+   72660:	ba40      	rev16	r0, r0
+        (uint8_t)(addr >> 16),
+   72662:	f88d 3005 	strb.w	r3, [sp, #5]
+    uint8_t cmd[4] = {
+   72666:	f8ad 0006 	strh.w	r0, [sp, #6]
+        (uint8_t)(addr >> 8),
+        (uint8_t)(addr & 0xFF),
+    };
+    
+    bl_flash_select();
+   7266a:	f7ff fed3 	bl	72414 <bl_flash_select>
+    bl_spi_transfer(cmd, NULL, 4);
+   7266e:	2204      	movs	r2, #4
+   72670:	eb0d 0002 	add.w	r0, sp, r2
+   72674:	2100      	movs	r1, #0
+   72676:	f7ff fedb 	bl	72430 <bl_spi_transfer>
+    bl_spi_transfer(NULL, data, len);
+   7267a:	2000      	movs	r0, #0
+   7267c:	4622      	mov	r2, r4
+   7267e:	4629      	mov	r1, r5
+   72680:	f7ff fed6 	bl	72430 <bl_spi_transfer>
+    bl_flash_deselect();
+   72684:	f7ff fecd 	bl	72422 <bl_flash_deselect>
+    
+    return true;
+   72688:	2001      	movs	r0, #1
+}
+   7268a:	b003      	add	sp, #12
+   7268c:	bd30      	pop	{r4, r5, pc}
+        return false;
+   7268e:	4608      	mov	r0, r1
+   72690:	e7fb      	b.n	7268a <bl_ext_flash_read+0x3c>
+   72692:	4610      	mov	r0, r2
+   72694:	e7f9      	b.n	7268a <bl_ext_flash_read+0x3c>
+	...
+
+00072698 <bl_ext_flash_read_slot_header>:
+    
+    return true;
+}
+
+bool bl_ext_flash_read_slot_header(uint8_t slot, bl_fw_slot_header_t *header)
+{
+   72698:	b510      	push	{r4, lr}
+   7269a:	460c      	mov	r4, r1
+    if (header == NULL || slot > 1) {
+   7269c:	b909      	cbnz	r1, 726a2 <bl_ext_flash_read_slot_header+0xa>
+        return false;
+   7269e:	2000      	movs	r0, #0
+    if (!(header->flags & BL_FW_SLOT_FLAG_VALID)) {
+        return false;
+    }
+    
+    return true;
+}
+   726a0:	bd10      	pop	{r4, pc}
+    if (header == NULL || slot > 1) {
+   726a2:	2801      	cmp	r0, #1
+   726a4:	d8fb      	bhi.n	7269e <bl_ext_flash_read_slot_header+0x6>
+    uint32_t addr = (slot == 0) ? BL_FLASH_SLOT_A_HEADER_ADDR : BL_FLASH_SLOT_B_HEADER_ADDR;
+   726a6:	2800      	cmp	r0, #0
+    if (!bl_ext_flash_read(addr, (uint8_t *)header, sizeof(*header))) {
+   726a8:	bf14      	ite	ne
+   726aa:	f44f 206d 	movne.w	r0, #970752	@ 0xed000
+   726ae:	2000      	moveq	r0, #0
+   726b0:	2238      	movs	r2, #56	@ 0x38
+   726b2:	f7ff ffcc 	bl	7264e <bl_ext_flash_read>
+   726b6:	2800      	cmp	r0, #0
+   726b8:	d0f1      	beq.n	7269e <bl_ext_flash_read_slot_header+0x6>
+    if (header->magic != BL_FW_SLOT_MAGIC) {
+   726ba:	6822      	ldr	r2, [r4, #0]
+   726bc:	4b03      	ldr	r3, [pc, #12]	@ (726cc <bl_ext_flash_read_slot_header+0x34>)
+   726be:	429a      	cmp	r2, r3
+   726c0:	d1ed      	bne.n	7269e <bl_ext_flash_read_slot_header+0x6>
+    if (!(header->flags & BL_FW_SLOT_FLAG_VALID)) {
+   726c2:	7c60      	ldrb	r0, [r4, #17]
+   726c4:	f000 0001 	and.w	r0, r0, #1
+   726c8:	e7ea      	b.n	726a0 <bl_ext_flash_read_slot_header+0x8>
+   726ca:	bf00      	nop
+   726cc:	41475346 	.word	0x41475346
+
+000726d0 <bl_ext_flash_validate_slot>:
+
+bool bl_ext_flash_validate_slot(uint8_t slot)
+{
+   726d0:	e92d 43f0 	stmdb	sp!, {r4, r5, r6, r7, r8, r9, lr}
+   726d4:	b0cf      	sub	sp, #316	@ 0x13c
+    bl_fw_slot_header_t header;
+    
+    if (!bl_ext_flash_read_slot_header(slot, &header)) {
+   726d6:	4669      	mov	r1, sp
+{
+   726d8:	4606      	mov	r6, r0
+    if (!bl_ext_flash_read_slot_header(slot, &header)) {
+   726da:	f7ff ffdd 	bl	72698 <bl_ext_flash_read_slot_header>
+   726de:	b918      	cbnz	r0, 726e8 <bl_ext_flash_validate_slot+0x18>
+        return false;
+   726e0:	2000      	movs	r0, #0
+        remaining -= chunk;
+    }
+    calc_crc ^= 0xFFFFFFFF;
+    
+    return (calc_crc == header.crc32);
+}
+   726e2:	b04f      	add	sp, #316	@ 0x13c
+   726e4:	e8bd 83f0 	ldmia.w	sp!, {r4, r5, r6, r7, r8, r9, pc}
+    if (header.size == 0 || header.size > max_size) {
+   726e8:	9c02      	ldr	r4, [sp, #8]
+   726ea:	1e63      	subs	r3, r4, #1
+   726ec:	f5b3 2f6c 	cmp.w	r3, #966656	@ 0xec000
+   726f0:	d2f6      	bcs.n	726e0 <bl_ext_flash_validate_slot+0x10>
+    uint32_t fw_addr = (slot == 0) ? BL_FLASH_SLOT_A_FW_ADDR : BL_FLASH_SLOT_B_FW_ADDR;
+   726f2:	2e00      	cmp	r6, #0
+   726f4:	4f30      	ldr	r7, [pc, #192]	@ (727b8 <bl_ext_flash_validate_slot+0xe8>)
+   726f6:	bf14      	ite	ne
+   726f8:	f44f 266e 	movne.w	r6, #974848	@ 0xee000
+   726fc:	f44f 5680 	moveq.w	r6, #4096	@ 0x1000
+   72700:	f04f 39ff 	mov.w	r9, #4294967295	@ 0xffffffff
+        size_t chunk = (remaining < sizeof(buf)) ? remaining : sizeof(buf);
+   72704:	f5b4 7f80 	cmp.w	r4, #256	@ 0x100
+   72708:	46a0      	mov	r8, r4
+   7270a:	bf28      	it	cs
+   7270c:	f44f 7880 	movcs.w	r8, #256	@ 0x100
+        if (!bl_ext_flash_read(addr, buf, chunk)) {
+   72710:	4642      	mov	r2, r8
+   72712:	a90e      	add	r1, sp, #56	@ 0x38
+   72714:	4630      	mov	r0, r6
+   72716:	f7ff ff9a 	bl	7264e <bl_ext_flash_read>
+   7271a:	2800      	cmp	r0, #0
+   7271c:	d0e0      	beq.n	726e0 <bl_ext_flash_validate_slot+0x10>
+   7271e:	a90e      	add	r1, sp, #56	@ 0x38
+        for (size_t i = 0; i < chunk; i++) {
+   72720:	2200      	movs	r2, #0
+            calc_crc ^= buf[i];
+   72722:	f811 3b01 	ldrb.w	r3, [r1], #1
+   72726:	ea83 0309 	eor.w	r3, r3, r9
+            for (int j = 0; j < 8; j++) {
+   7272a:	ea4f 4333 	mov.w	r3, r3, ror #16
+   7272e:	ba5b      	rev16	r3, r3
+   72730:	f003 300f 	and.w	r0, r3, #252645135	@ 0xf0f0f0f
+   72734:	f003 33f0 	and.w	r3, r3, #4042322160	@ 0xf0f0f0f0
+   72738:	091b      	lsrs	r3, r3, #4
+   7273a:	ea43 1300 	orr.w	r3, r3, r0, lsl #4
+   7273e:	f003 3033 	and.w	r0, r3, #858993459	@ 0x33333333
+   72742:	f003 33cc 	and.w	r3, r3, #3435973836	@ 0xcccccccc
+   72746:	089b      	lsrs	r3, r3, #2
+   72748:	ea43 0380 	orr.w	r3, r3, r0, lsl #2
+   7274c:	f003 3055 	and.w	r0, r3, #1431655765	@ 0x55555555
+   72750:	f003 33aa 	and.w	r3, r3, #2863311530	@ 0xaaaaaaaa
+   72754:	085b      	lsrs	r3, r3, #1
+   72756:	ea43 0340 	orr.w	r3, r3, r0, lsl #1
+   7275a:	0e18      	lsrs	r0, r3, #24
+        for (size_t i = 0; i < chunk; i++) {
+   7275c:	3201      	adds	r2, #1
+   7275e:	f857 0020 	ldr.w	r0, [r7, r0, lsl #2]
+   72762:	ea80 2303 	eor.w	r3, r0, r3, lsl #8
+   72766:	0c18      	lsrs	r0, r3, #16
+   72768:	0400      	lsls	r0, r0, #16
+   7276a:	0c00      	lsrs	r0, r0, #16
+   7276c:	ea40 4303 	orr.w	r3, r0, r3, lsl #16
+   72770:	ba5b      	rev16	r3, r3
+   72772:	f003 300f 	and.w	r0, r3, #252645135	@ 0xf0f0f0f
+   72776:	f003 33f0 	and.w	r3, r3, #4042322160	@ 0xf0f0f0f0
+   7277a:	091b      	lsrs	r3, r3, #4
+   7277c:	ea43 1300 	orr.w	r3, r3, r0, lsl #4
+   72780:	f003 3033 	and.w	r0, r3, #858993459	@ 0x33333333
+   72784:	f003 33cc 	and.w	r3, r3, #3435973836	@ 0xcccccccc
+   72788:	089b      	lsrs	r3, r3, #2
+   7278a:	ea43 0380 	orr.w	r3, r3, r0, lsl #2
+   7278e:	f003 3055 	and.w	r0, r3, #1431655765	@ 0x55555555
+   72792:	f003 33aa 	and.w	r3, r3, #2863311530	@ 0xaaaaaaaa
+   72796:	085b      	lsrs	r3, r3, #1
+   72798:	4590      	cmp	r8, r2
+   7279a:	ea43 0940 	orr.w	r9, r3, r0, lsl #1
+   7279e:	d1c0      	bne.n	72722 <bl_ext_flash_validate_slot+0x52>
+    while (remaining > 0) {
+   727a0:	ebb4 0408 	subs.w	r4, r4, r8
+        addr += chunk;
+   727a4:	4446      	add	r6, r8
+    while (remaining > 0) {
+   727a6:	d1ad      	bne.n	72704 <bl_ext_flash_validate_slot+0x34>
+    return (calc_crc == header.crc32);
+   727a8:	9803      	ldr	r0, [sp, #12]
+    calc_crc ^= 0xFFFFFFFF;
+   727aa:	ea6f 0909 	mvn.w	r9, r9
+    return (calc_crc == header.crc32);
+   727ae:	eba0 0309 	sub.w	r3, r0, r9
+   727b2:	4258      	negs	r0, r3
+   727b4:	4158      	adcs	r0, r3
+   727b6:	e794      	b.n	726e2 <bl_ext_flash_validate_slot+0x12>
+   727b8:	00072ed4 	.word	0x00072ed4
+
+000727bc <bl_ext_flash_restore_firmware>:
+
+bool bl_ext_flash_restore_firmware(uint8_t slot)
+{
+   727bc:	e92d 41f0 	stmdb	sp!, {r4, r5, r6, r7, r8, lr}
+   727c0:	b0ce      	sub	sp, #312	@ 0x138
+    bl_fw_slot_header_t header;
+    
+    /* Read and validate slot header */
+    if (!bl_ext_flash_read_slot_header(slot, &header)) {
+   727c2:	4669      	mov	r1, sp
+{
+   727c4:	4604      	mov	r4, r0
+    if (!bl_ext_flash_read_slot_header(slot, &header)) {
+   727c6:	f7ff ff67 	bl	72698 <bl_ext_flash_read_slot_header>
+   727ca:	b1e8      	cbz	r0, 72808 <bl_ext_flash_restore_firmware+0x4c>
+        return false;
+    }
+    
+    /* Validate firmware CRC before restore */
+    if (!bl_ext_flash_validate_slot(slot)) {
+   727cc:	4620      	mov	r0, r4
+   727ce:	f7ff ff7f 	bl	726d0 <bl_ext_flash_validate_slot>
+   727d2:	b1c8      	cbz	r0, 72808 <bl_ext_flash_restore_firmware+0x4c>
+    uint32_t dest_addr = BL_FLASH_APP_ADDR;
+    uint32_t remaining = header.size;
+    uint8_t buf[256];
+    
+    /* Erase application area page by page */
+    uint32_t pages_needed = (header.size + BL_FLASH_PAGE_SIZE - 1) / BL_FLASH_PAGE_SIZE;
+   727d4:	9b02      	ldr	r3, [sp, #8]
+    uint32_t fw_addr = (slot == 0) ? BL_FLASH_SLOT_A_FW_ADDR : BL_FLASH_SLOT_B_FW_ADDR;
+   727d6:	2c00      	cmp	r4, #0
+   727d8:	bf14      	ite	ne
+   727da:	f44f 276e 	movne.w	r7, #974848	@ 0xee000
+   727de:	f44f 5780 	moveq.w	r7, #4096	@ 0x1000
+    uint32_t pages_needed = (header.size + BL_FLASH_PAGE_SIZE - 1) / BL_FLASH_PAGE_SIZE;
+   727e2:	f603 75ff 	addw	r5, r3, #4095	@ 0xfff
+    for (uint32_t i = 0; i < pages_needed; i++) {
+   727e6:	2400      	movs	r4, #0
+   727e8:	ebb4 3f15 	cmp.w	r4, r5, lsr #12
+   727ec:	d10f      	bne.n	7280e <bl_ext_flash_restore_firmware+0x52>
+    }
+    
+    /* Copy firmware from external flash to internal flash */
+    uint32_t src_addr = fw_addr;
+    dest_addr = BL_FLASH_APP_ADDR;
+    remaining = header.size;
+   727ee:	9d02      	ldr	r5, [sp, #8]
+    dest_addr = BL_FLASH_APP_ADDR;
+   727f0:	f44f 3818 	mov.w	r8, #155648	@ 0x26000
+    
+    while (remaining > 0) {
+   727f4:	b995      	cbnz	r5, 7281c <bl_ext_flash_restore_firmware+0x60>
+        dest_addr += chunk;
+        remaining -= (remaining < chunk) ? remaining : chunk;
+    }
+    
+    /* Verify restored firmware */
+    uint32_t calc_crc = bl_crc32((const void *)BL_FLASH_APP_ADDR, header.size);
+   727f6:	9902      	ldr	r1, [sp, #8]
+   727f8:	f44f 3018 	mov.w	r0, #155648	@ 0x26000
+   727fc:	f7ff fece 	bl	7259c <bl_crc32>
+    
+    return (calc_crc == header.crc32);
+   72800:	9b03      	ldr	r3, [sp, #12]
+   72802:	1a1b      	subs	r3, r3, r0
+   72804:	4258      	negs	r0, r3
+   72806:	4158      	adcs	r0, r3
+}
+   72808:	b04e      	add	sp, #312	@ 0x138
+   7280a:	e8bd 81f0 	ldmia.w	sp!, {r4, r5, r6, r7, r8, pc}
+        bl_nvmc_erase_page(BL_FLASH_APP_ADDR + (i * BL_FLASH_PAGE_SIZE));
+   7280e:	0320      	lsls	r0, r4, #12
+   72810:	f500 3018 	add.w	r0, r0, #155648	@ 0x26000
+   72814:	f7ff fe38 	bl	72488 <bl_nvmc_erase_page>
+    for (uint32_t i = 0; i < pages_needed; i++) {
+   72818:	3401      	adds	r4, #1
+   7281a:	e7e5      	b.n	727e8 <bl_ext_flash_restore_firmware+0x2c>
+        size_t chunk = (remaining < sizeof(buf)) ? remaining : sizeof(buf);
+   7281c:	f5b5 7f80 	cmp.w	r5, #256	@ 0x100
+   72820:	462c      	mov	r4, r5
+   72822:	bf28      	it	cs
+   72824:	f44f 7480 	movcs.w	r4, #256	@ 0x100
+        chunk = (chunk + 3) & ~3;
+   72828:	3403      	adds	r4, #3
+   7282a:	f024 0403 	bic.w	r4, r4, #3
+        if (chunk > remaining) {
+   7282e:	42a5      	cmp	r5, r4
+   72830:	d208      	bcs.n	72844 <bl_ext_flash_restore_firmware+0x88>
+            memset(buf, 0xFF, sizeof(buf));
+   72832:	f44f 7280 	mov.w	r2, #256	@ 0x100
+   72836:	21ff      	movs	r1, #255	@ 0xff
+   72838:	a80e      	add	r0, sp, #56	@ 0x38
+   7283a:	f7ff fc01 	bl	72040 <memset>
+            chunk = (remaining + 3) & ~3;
+   7283e:	1cec      	adds	r4, r5, #3
+   72840:	f024 0403 	bic.w	r4, r4, #3
+        if (!bl_ext_flash_read(src_addr, buf, chunk)) {
+   72844:	4622      	mov	r2, r4
+   72846:	a90e      	add	r1, sp, #56	@ 0x38
+   72848:	4638      	mov	r0, r7
+   7284a:	f7ff ff00 	bl	7264e <bl_ext_flash_read>
+   7284e:	2800      	cmp	r0, #0
+   72850:	d0da      	beq.n	72808 <bl_ext_flash_restore_firmware+0x4c>
+        bl_nvmc_write(dest_addr, buf, chunk);
+   72852:	4640      	mov	r0, r8
+   72854:	4622      	mov	r2, r4
+   72856:	a90e      	add	r1, sp, #56	@ 0x38
+   72858:	f7ff fe30 	bl	724bc <bl_nvmc_write>
+        remaining -= (remaining < chunk) ? remaining : chunk;
+   7285c:	42a5      	cmp	r5, r4
+        src_addr += chunk;
+   7285e:	4427      	add	r7, r4
+        dest_addr += chunk;
+   72860:	44a0      	add	r8, r4
+        remaining -= (remaining < chunk) ? remaining : chunk;
+   72862:	bf94      	ite	ls
+   72864:	1b6d      	subls	r5, r5, r5
+   72866:	1b2d      	subhi	r5, r5, r4
+   72868:	e7c4      	b.n	727f4 <bl_ext_flash_restore_firmware+0x38>
+
+0007286a <fram_write.isra.0>:
+    bl_spi_transfer(NULL, data, len);
+    bl_fram_deselect();
+    return true;
+}
+
+static bool fram_write(uint32_t addr, const uint8_t *data, size_t len)
+   7286a:	b573      	push	{r0, r1, r4, r5, r6, lr}
+    uint8_t cmd = FRAM_CMD_WREN;
+   7286c:	2306      	movs	r3, #6
+static bool fram_write(uint32_t addr, const uint8_t *data, size_t len)
+   7286e:	4604      	mov	r4, r0
+    uint8_t cmd = FRAM_CMD_WREN;
+   72870:	f88d 3004 	strb.w	r3, [sp, #4]
+static bool fram_write(uint32_t addr, const uint8_t *data, size_t len)
+   72874:	460d      	mov	r5, r1
+   72876:	4616      	mov	r6, r2
+    bl_fram_select();
+   72878:	f7ff fdbe 	bl	723f8 <bl_fram_select>
+    bl_spi_transfer(&cmd, NULL, 1);
+   7287c:	a801      	add	r0, sp, #4
+   7287e:	2201      	movs	r2, #1
+   72880:	2100      	movs	r1, #0
+   72882:	f7ff fdd5 	bl	72430 <bl_spi_transfer>
+    bl_fram_deselect();
+   72886:	f7ff fdbe 	bl	72406 <bl_fram_deselect>
+{
+    fram_write_enable();
+    
+#if BL_FRAM_ADDR_BYTES == 2
+    uint8_t cmd[3] = {
+   7288a:	2302      	movs	r3, #2
+   7288c:	f88d 3004 	strb.w	r3, [sp, #4]
+        FRAM_CMD_WRITE,
+        (uint8_t)(addr >> 8),
+   72890:	0a23      	lsrs	r3, r4, #8
+   72892:	f88d 3005 	strb.w	r3, [sp, #5]
+        (uint8_t)(addr & 0xFF),
+   72896:	f88d 4006 	strb.w	r4, [sp, #6]
+    };
+    bl_fram_select();
+   7289a:	f7ff fdad 	bl	723f8 <bl_fram_select>
+    bl_spi_transfer(cmd, NULL, 3);
+   7289e:	a801      	add	r0, sp, #4
+   728a0:	2203      	movs	r2, #3
+   728a2:	2100      	movs	r1, #0
+   728a4:	f7ff fdc4 	bl	72430 <bl_spi_transfer>
+        (uint8_t)(addr & 0xFF),
+    };
+    bl_fram_select();
+    bl_spi_transfer(cmd, NULL, 4);
+#endif
+    bl_spi_transfer(data, NULL, len);
+   728a8:	4632      	mov	r2, r6
+   728aa:	2100      	movs	r1, #0
+   728ac:	4628      	mov	r0, r5
+   728ae:	f7ff fdbf 	bl	72430 <bl_spi_transfer>
+    bl_fram_deselect();
+   728b2:	f7ff fda8 	bl	72406 <bl_fram_deselect>
+    return true;
+}
+   728b6:	b002      	add	sp, #8
+   728b8:	bd70      	pop	{r4, r5, r6, pc}
+
+000728ba <fram_read.isra.0>:
+static bool fram_read(uint32_t addr, uint8_t *data, size_t len)
+   728ba:	b573      	push	{r0, r1, r4, r5, r6, lr}
+        (uint8_t)(addr >> 8),
+   728bc:	0a03      	lsrs	r3, r0, #8
+    uint8_t cmd[3] = {
+   728be:	2403      	movs	r4, #3
+        (uint8_t)(addr >> 8),
+   728c0:	f88d 3005 	strb.w	r3, [sp, #5]
+static bool fram_read(uint32_t addr, uint8_t *data, size_t len)
+   728c4:	460d      	mov	r5, r1
+   728c6:	4616      	mov	r6, r2
+        (uint8_t)(addr & 0xFF),
+   728c8:	f88d 0006 	strb.w	r0, [sp, #6]
+    uint8_t cmd[3] = {
+   728cc:	f88d 4004 	strb.w	r4, [sp, #4]
+    bl_fram_select();
+   728d0:	f7ff fd92 	bl	723f8 <bl_fram_select>
+    bl_spi_transfer(cmd, NULL, 3);
+   728d4:	4622      	mov	r2, r4
+   728d6:	a801      	add	r0, sp, #4
+   728d8:	2100      	movs	r1, #0
+   728da:	f7ff fda9 	bl	72430 <bl_spi_transfer>
+    bl_spi_transfer(NULL, data, len);
+   728de:	4632      	mov	r2, r6
+   728e0:	4629      	mov	r1, r5
+   728e2:	2000      	movs	r0, #0
+   728e4:	f7ff fda4 	bl	72430 <bl_spi_transfer>
+    bl_fram_deselect();
+   728e8:	f7ff fd8d 	bl	72406 <bl_fram_deselect>
+}
+   728ec:	b002      	add	sp, #8
+   728ee:	bd70      	pop	{r4, r5, r6, pc}
+
+000728f0 <save_header.isra.0>:
+    log_header.boot_count = 0;
+    log_header.rollback_count = 0;
+    update_header_crc();
+}
+
+static bool save_header(void)
+   728f0:	b510      	push	{r4, lr}
+    log_header.crc32 = bl_crc32(&log_header, 
+   728f2:	4c07      	ldr	r4, [pc, #28]	@ (72910 <save_header.isra.0+0x20>)
+   728f4:	2110      	movs	r1, #16
+   728f6:	4620      	mov	r0, r4
+   728f8:	f7ff fe50 	bl	7259c <bl_crc32>
+   728fc:	6120      	str	r0, [r4, #16]
+{
+    update_header_crc();
+    return fram_write(BL_LOG_FRAM_ADDR, (const uint8_t *)&log_header, sizeof(log_header));
+   728fe:	4621      	mov	r1, r4
+   72900:	2214      	movs	r2, #20
+}
+   72902:	e8bd 4010 	ldmia.w	sp!, {r4, lr}
+    return fram_write(BL_LOG_FRAM_ADDR, (const uint8_t *)&log_header, sizeof(log_header));
+   72906:	f44f 7080 	mov.w	r0, #256	@ 0x100
+   7290a:	f7ff bfae 	b.w	7286a <fram_write.isra.0>
+   7290e:	bf00      	nop
+   72910:	2000f208 	.word	0x2000f208
+
+00072914 <bl_log_init>:
+/*******************************************************************************
+ * Public Functions
+ ******************************************************************************/
+
+bool bl_log_init(void)
+{
+   72914:	b510      	push	{r4, lr}
+    /* Read header from FRAM */
+    if (!fram_read(BL_LOG_FRAM_ADDR, (uint8_t *)&log_header, sizeof(log_header))) {
+   72916:	4c26      	ldr	r4, [pc, #152]	@ (729b0 <bl_log_init+0x9c>)
+   72918:	2214      	movs	r2, #20
+{
+   7291a:	b088      	sub	sp, #32
+    if (!fram_read(BL_LOG_FRAM_ADDR, (uint8_t *)&log_header, sizeof(log_header))) {
+   7291c:	4621      	mov	r1, r4
+   7291e:	f44f 7080 	mov.w	r0, #256	@ 0x100
+   72922:	f7ff ffca 	bl	728ba <fram_read.isra.0>
+    if (log_header.magic != BL_LOG_HEADER_MAGIC) {
+   72926:	6822      	ldr	r2, [r4, #0]
+   72928:	4b22      	ldr	r3, [pc, #136]	@ (729b4 <bl_log_init+0xa0>)
+   7292a:	429a      	cmp	r2, r3
+   7292c:	d035      	beq.n	7299a <bl_log_init+0x86>
+    memset(&log_header, 0, sizeof(log_header));
+   7292e:	2214      	movs	r2, #20
+   72930:	2100      	movs	r1, #0
+   72932:	481f      	ldr	r0, [pc, #124]	@ (729b0 <bl_log_init+0x9c>)
+   72934:	f7ff fb84 	bl	72040 <memset>
+    log_header.magic = BL_LOG_HEADER_MAGIC;
+   72938:	2247      	movs	r2, #71	@ 0x47
+   7293a:	7022      	strb	r2, [r4, #0]
+   7293c:	224c      	movs	r2, #76	@ 0x4c
+   7293e:	2300      	movs	r3, #0
+   72940:	7062      	strb	r2, [r4, #1]
+   72942:	70a2      	strb	r2, [r4, #2]
+    log_header.crc32 = bl_crc32(&log_header, 
+   72944:	481a      	ldr	r0, [pc, #104]	@ (729b0 <bl_log_init+0x9c>)
+    log_header.write_index = 0;
+   72946:	7123      	strb	r3, [r4, #4]
+    log_header.magic = BL_LOG_HEADER_MAGIC;
+   72948:	2242      	movs	r2, #66	@ 0x42
+    log_header.crc32 = bl_crc32(&log_header, 
+   7294a:	2110      	movs	r1, #16
+    log_header.magic = BL_LOG_HEADER_MAGIC;
+   7294c:	70e2      	strb	r2, [r4, #3]
+    log_header.write_index = 0;
+   7294e:	7163      	strb	r3, [r4, #5]
+    log_header.entry_count = 0;
+   72950:	71a3      	strb	r3, [r4, #6]
+   72952:	71e3      	strb	r3, [r4, #7]
+    log_header.boot_count = 0;
+   72954:	7223      	strb	r3, [r4, #8]
+   72956:	7263      	strb	r3, [r4, #9]
+   72958:	72a3      	strb	r3, [r4, #10]
+   7295a:	72e3      	strb	r3, [r4, #11]
+    log_header.rollback_count = 0;
+   7295c:	7323      	strb	r3, [r4, #12]
+   7295e:	7363      	strb	r3, [r4, #13]
+   72960:	73a3      	strb	r3, [r4, #14]
+   72962:	73e3      	strb	r3, [r4, #15]
+    log_header.crc32 = bl_crc32(&log_header, 
+   72964:	f7ff fe1a 	bl	7259c <bl_crc32>
+   72968:	6120      	str	r0, [r4, #16]
+    }
+    
+    /* Validate or initialize */
+    if (!validate_header()) {
+        init_header();
+        if (!save_header()) {
+   7296a:	f7ff ffc1 	bl	728f0 <save_header.isra.0>
+            return false;
+        }
+    }
+    
+    /* Set sequence number to continue from last entry */
+    if (log_header.entry_count > 0) {
+   7296e:	88e3      	ldrh	r3, [r4, #6]
+   72970:	b173      	cbz	r3, 72990 <bl_log_init+0x7c>
+        uint16_t last_index = (log_header.write_index == 0) ? 
+   72972:	88a0      	ldrh	r0, [r4, #4]
+   72974:	b1c8      	cbz	r0, 729aa <bl_log_init+0x96>
+   72976:	3801      	subs	r0, #1
+   72978:	b280      	uxth	r0, r0
+    return BL_LOG_FRAM_ADDR + sizeof(bl_log_header_t) + (index * BL_LOG_ENTRY_SIZE);
+   7297a:	0140      	lsls	r0, r0, #5
+                              (BL_LOG_MAX_ENTRIES - 1) : (log_header.write_index - 1);
+        bl_log_entry_t last_entry;
+        uint32_t addr = get_entry_addr(last_index);
+        fram_read(addr, (uint8_t *)&last_entry, sizeof(last_entry));
+   7297c:	2220      	movs	r2, #32
+   7297e:	4669      	mov	r1, sp
+   72980:	f500 708a 	add.w	r0, r0, #276	@ 0x114
+   72984:	f7ff ff99 	bl	728ba <fram_read.isra.0>
+        sequence_num = last_entry.sequence + 1;
+   72988:	9b00      	ldr	r3, [sp, #0]
+   7298a:	4a0b      	ldr	r2, [pc, #44]	@ (729b8 <bl_log_init+0xa4>)
+   7298c:	3301      	adds	r3, #1
+   7298e:	6013      	str	r3, [r2, #0]
+    }
+    
+    log_initialized = true;
+   72990:	4b0a      	ldr	r3, [pc, #40]	@ (729bc <bl_log_init+0xa8>)
+   72992:	2001      	movs	r0, #1
+   72994:	7018      	strb	r0, [r3, #0]
+    return true;
+}
+   72996:	b008      	add	sp, #32
+   72998:	bd10      	pop	{r4, pc}
+    uint32_t calc_crc = bl_crc32(&log_header, 
+   7299a:	2110      	movs	r1, #16
+   7299c:	4620      	mov	r0, r4
+   7299e:	f7ff fdfd 	bl	7259c <bl_crc32>
+    return (calc_crc == log_header.crc32);
+   729a2:	6923      	ldr	r3, [r4, #16]
+    if (!validate_header()) {
+   729a4:	4298      	cmp	r0, r3
+   729a6:	d0e2      	beq.n	7296e <bl_log_init+0x5a>
+   729a8:	e7c1      	b.n	7292e <bl_log_init+0x1a>
+        uint16_t last_index = (log_header.write_index == 0) ? 
+   729aa:	200f      	movs	r0, #15
+   729ac:	e7e5      	b.n	7297a <bl_log_init+0x66>
+   729ae:	bf00      	nop
+   729b0:	2000f208 	.word	0x2000f208
+   729b4:	424c4c47 	.word	0x424c4c47
+   729b8:	2000f204 	.word	0x2000f204
+   729bc:	2000f200 	.word	0x2000f200
+
+000729c0 <bl_log_write_version>:
+}
+
+void bl_log_write_version(bl_log_type_t type, 
+                          uint8_t major, uint8_t minor, uint8_t patch,
+                          uint32_t error_code)
+{
+   729c0:	b5f0      	push	{r4, r5, r6, r7, lr}
+   729c2:	461d      	mov	r5, r3
+    if (!log_initialized) {
+   729c4:	4b1c      	ldr	r3, [pc, #112]	@ (72a38 <bl_log_write_version+0x78>)
+   729c6:	781b      	ldrb	r3, [r3, #0]
+{
+   729c8:	b089      	sub	sp, #36	@ 0x24
+   729ca:	4604      	mov	r4, r0
+   729cc:	460f      	mov	r7, r1
+   729ce:	4616      	mov	r6, r2
+    if (!log_initialized) {
+   729d0:	b383      	cbz	r3, 72a34 <bl_log_write_version+0x74>
+        return;
+    }
+    
+    bl_log_entry_t entry;
+    memset(&entry, 0, sizeof(entry));
+   729d2:	2220      	movs	r2, #32
+   729d4:	2100      	movs	r1, #0
+   729d6:	4668      	mov	r0, sp
+   729d8:	f7ff fb32 	bl	72040 <memset>
+    
+    entry.sequence = sequence_num++;
+   729dc:	4917      	ldr	r1, [pc, #92]	@ (72a3c <bl_log_write_version+0x7c>)
+    entry.timestamp = 0;  /* No RTC in bootloader */
+    entry.type = type;
+   729de:	f88d 4008 	strb.w	r4, [sp, #8]
+    entry.sequence = sequence_num++;
+   729e2:	680a      	ldr	r2, [r1, #0]
+    entry.boot_state = 0;  /* Could be passed in */
+    entry.boot_count = (uint8_t)log_header.boot_count;
+   729e4:	4c16      	ldr	r4, [pc, #88]	@ (72a40 <bl_log_write_version+0x80>)
+    entry.sequence = sequence_num++;
+   729e6:	9200      	str	r2, [sp, #0]
+   729e8:	1c53      	adds	r3, r2, #1
+    entry.timestamp = 0;  /* No RTC in bootloader */
+   729ea:	2200      	movs	r2, #0
+    entry.sequence = sequence_num++;
+   729ec:	600b      	str	r3, [r1, #0]
+    entry.timestamp = 0;  /* No RTC in bootloader */
+   729ee:	9201      	str	r2, [sp, #4]
+    entry.boot_state = 0;  /* Could be passed in */
+   729f0:	f88d 2009 	strb.w	r2, [sp, #9]
+    entry.boot_count = (uint8_t)log_header.boot_count;
+   729f4:	68a3      	ldr	r3, [r4, #8]
+   729f6:	f88d 300a 	strb.w	r3, [sp, #10]
+    entry.version[0] = major;
+    entry.version[1] = minor;
+    entry.version[2] = patch;
+    entry.error_code = error_code;
+   729fa:	9b0e      	ldr	r3, [sp, #56]	@ 0x38
+    entry.version[0] = major;
+   729fc:	f88d 700c 	strb.w	r7, [sp, #12]
+    entry.error_addr = 0;
+   72a00:	e9cd 3204 	strd	r3, r2, [sp, #16]
+    entry.version[1] = minor;
+   72a04:	f88d 600d 	strb.w	r6, [sp, #13]
+    entry.version[2] = patch;
+   72a08:	f88d 500e 	strb.w	r5, [sp, #14]
+    return BL_LOG_FRAM_ADDR + sizeof(bl_log_header_t) + (index * BL_LOG_ENTRY_SIZE);
+   72a0c:	88a0      	ldrh	r0, [r4, #4]
+   72a0e:	0140      	lsls	r0, r0, #5
+    
+    /* Write entry */
+    uint32_t addr = get_entry_addr(log_header.write_index);
+    fram_write(addr, (const uint8_t *)&entry, sizeof(entry));
+   72a10:	2220      	movs	r2, #32
+   72a12:	4669      	mov	r1, sp
+   72a14:	f500 708a 	add.w	r0, r0, #276	@ 0x114
+   72a18:	f7ff ff27 	bl	7286a <fram_write.isra.0>
+    
+    /* Update header */
+    log_header.write_index = (log_header.write_index + 1) % BL_LOG_MAX_ENTRIES;
+   72a1c:	88a3      	ldrh	r3, [r4, #4]
+   72a1e:	3301      	adds	r3, #1
+   72a20:	f003 030f 	and.w	r3, r3, #15
+   72a24:	80a3      	strh	r3, [r4, #4]
+    if (log_header.entry_count < BL_LOG_MAX_ENTRIES) {
+   72a26:	88e3      	ldrh	r3, [r4, #6]
+   72a28:	2b0f      	cmp	r3, #15
+        log_header.entry_count++;
+   72a2a:	bf9c      	itt	ls
+   72a2c:	3301      	addls	r3, #1
+   72a2e:	80e3      	strhls	r3, [r4, #6]
+    }
+    save_header();
+   72a30:	f7ff ff5e 	bl	728f0 <save_header.isra.0>
+}
+   72a34:	b009      	add	sp, #36	@ 0x24
+   72a36:	bdf0      	pop	{r4, r5, r6, r7, pc}
+   72a38:	2000f200 	.word	0x2000f200
+   72a3c:	2000f204 	.word	0x2000f204
+   72a40:	2000f208 	.word	0x2000f208
+
+00072a44 <bl_log_write>:
+{
+   72a44:	b507      	push	{r0, r1, r2, lr}
+    bl_log_write_version(type, 0, 0, 0, error_code);
+   72a46:	2300      	movs	r3, #0
+   72a48:	9100      	str	r1, [sp, #0]
+   72a4a:	461a      	mov	r2, r3
+   72a4c:	4619      	mov	r1, r3
+   72a4e:	f7ff ffb7 	bl	729c0 <bl_log_write_version>
+}
+   72a52:	b003      	add	sp, #12
+   72a54:	bd00      	pop	{pc}
+	...
+
+00072a58 <bl_log_increment_boot_count>:
+
+void bl_log_increment_boot_count(void)
+{
+    if (!log_initialized) {
+   72a58:	4b04      	ldr	r3, [pc, #16]	@ (72a6c <bl_log_increment_boot_count+0x14>)
+   72a5a:	781b      	ldrb	r3, [r3, #0]
+   72a5c:	b12b      	cbz	r3, 72a6a <bl_log_increment_boot_count+0x12>
+        return;
+    }
+    
+    log_header.boot_count++;
+   72a5e:	4a04      	ldr	r2, [pc, #16]	@ (72a70 <bl_log_increment_boot_count+0x18>)
+   72a60:	6893      	ldr	r3, [r2, #8]
+   72a62:	3301      	adds	r3, #1
+   72a64:	6093      	str	r3, [r2, #8]
+    save_header();
+   72a66:	f7ff bf43 	b.w	728f0 <save_header.isra.0>
+}
+   72a6a:	4770      	bx	lr
+   72a6c:	2000f200 	.word	0x2000f200
+   72a70:	2000f208 	.word	0x2000f208
+
+00072a74 <bl_log_increment_rollback_count>:
+
+void bl_log_increment_rollback_count(void)
+{
+    if (!log_initialized) {
+   72a74:	4b04      	ldr	r3, [pc, #16]	@ (72a88 <bl_log_increment_rollback_count+0x14>)
+   72a76:	781b      	ldrb	r3, [r3, #0]
+   72a78:	b12b      	cbz	r3, 72a86 <bl_log_increment_rollback_count+0x12>
+        return;
+    }
+    
+    log_header.rollback_count++;
+   72a7a:	4a04      	ldr	r2, [pc, #16]	@ (72a8c <bl_log_increment_rollback_count+0x18>)
+   72a7c:	68d3      	ldr	r3, [r2, #12]
+   72a7e:	3301      	adds	r3, #1
+   72a80:	60d3      	str	r3, [r2, #12]
+    save_header();
+   72a82:	f7ff bf35 	b.w	728f0 <save_header.isra.0>
+}
+   72a86:	4770      	bx	lr
+   72a88:	2000f200 	.word	0x2000f200
+   72a8c:	2000f208 	.word	0x2000f208
+
+00072a90 <memcmp>:
+   72a90:	b510      	push	{r4, lr}
+   72a92:	3901      	subs	r1, #1
+   72a94:	4402      	add	r2, r0
+   72a96:	4290      	cmp	r0, r2
+   72a98:	d101      	bne.n	72a9e <memcmp+0xe>
+   72a9a:	2000      	movs	r0, #0
+   72a9c:	e005      	b.n	72aaa <memcmp+0x1a>
+   72a9e:	7803      	ldrb	r3, [r0, #0]
+   72aa0:	f811 4f01 	ldrb.w	r4, [r1, #1]!
+   72aa4:	42a3      	cmp	r3, r4
+   72aa6:	d001      	beq.n	72aac <memcmp+0x1c>
+   72aa8:	1b18      	subs	r0, r3, r4
+   72aaa:	bd10      	pop	{r4, pc}
+   72aac:	3001      	adds	r0, #1
+   72aae:	e7f2      	b.n	72a96 <memcmp+0x6>
+
+00072ab0 <memcpy>:
+   72ab0:	440a      	add	r2, r1
+   72ab2:	4291      	cmp	r1, r2
+   72ab4:	f100 33ff 	add.w	r3, r0, #4294967295	@ 0xffffffff
+   72ab8:	d100      	bne.n	72abc <memcpy+0xc>
+   72aba:	4770      	bx	lr
+   72abc:	b510      	push	{r4, lr}
+   72abe:	f811 4b01 	ldrb.w	r4, [r1], #1
+   72ac2:	f803 4f01 	strb.w	r4, [r3, #1]!
+   72ac6:	4291      	cmp	r1, r2
+   72ac8:	d1f9      	bne.n	72abe <memcpy+0xe>
+   72aca:	bd10      	pop	{r4, pc}
+   72acc:	02100003 	.word	0x02100003
+   72ad0:	00001000 	.word	0x00001000
+
+00072ad4 <crc32_table>:
+   72ad4:	00000000 77073096 ee0e612c 990951ba     .....0.w,a...Q..
+   72ae4:	076dc419 706af48f e963a535 9e6495a3     ..m...jp5.c...d.
+   72af4:	0edb8832 79dcb8a4 e0d5e91e 97d2d988     2......y........
+   72b04:	09b64c2b 7eb17cbd e7b82d07 90bf1d91     +L...|.~.-......
+   72b14:	1db71064 6ab020f2 f3b97148 84be41de     d.... .jHq...A..
+   72b24:	1adad47d 6ddde4eb f4d4b551 83d385c7     }......mQ.......
+   72b34:	136c9856 646ba8c0 fd62f97a 8a65c9ec     V.l...kdz.b...e.
+   72b44:	14015c4f 63066cd9 fa0f3d63 8d080df5     O\...l.cc=......
+   72b54:	3b6e20c8 4c69105e d56041e4 a2677172     . n;^.iL.A`.rqg.
+   72b64:	3c03e4d1 4b04d447 d20d85fd a50ab56b     ...<G..K....k...
+   72b74:	35b5a8fa 42b2986c dbbbc9d6 acbcf940     ...5l..B....@...
+   72b84:	32d86ce3 45df5c75 dcd60dcf abd13d59     .l.2u\.E....Y=..
+   72b94:	26d930ac 51de003a c8d75180 bfd06116     .0.&:..Q.Q...a..
+   72ba4:	21b4f4b5 56b3c423 cfba9599 b8bda50f     ...!#..V........
+   72bb4:	2802b89e 5f058808 c60cd9b2 b10be924     ...(..._....$...
+   72bc4:	2f6f7c87 58684c11 c1611dab b6662d3d     .|o/.LhX..a.=-f.
+   72bd4:	76dc4190 01db7106 98d220bc efd5102a     .A.v.q... ..*...
+   72be4:	71b18589 06b6b51f 9fbfe4a5 e8b8d433     ...q........3...
+   72bf4:	7807c9a2 0f00f934 9609a88e e10e9818     ...x4...........
+   72c04:	7f6a0dbb 086d3d2d 91646c97 e6635c01     ..j.-=m..ld..\c.
+   72c14:	6b6b51f4 1c6c6162 856530d8 f262004e     .Qkkbal..0e.N.b.
+   72c24:	6c0695ed 1b01a57b 8208f4c1 f50fc457     ...l{.......W...
+   72c34:	65b0d9c6 12b7e950 8bbeb8ea fcb9887c     ...eP.......|...
+   72c44:	62dd1ddf 15da2d49 8cd37cf3 fbd44c65     ...bI-...|..eL..
+   72c54:	4db26158 3ab551ce a3bc0074 d4bb30e2     Xa.M.Q.:t....0..
+   72c64:	4adfa541 3dd895d7 a4d1c46d d3d6f4fb     A..J...=m.......
+   72c74:	4369e96a 346ed9fc ad678846 da60b8d0     j.iC..n4F.g...`.
+   72c84:	44042d73 33031de5 aa0a4c5f dd0d7cc9     s-.D...3_L...|..
+   72c94:	5005713c 270241aa be0b1010 c90c2086     <q.P.A.'..... ..
+   72ca4:	5768b525 206f85b3 b966d409 ce61e49f     %.hW..o ..f...a.
+   72cb4:	5edef90e 29d9c998 b0d09822 c7d7a8b4     ...^...)".......
+   72cc4:	59b33d17 2eb40d81 b7bd5c3b c0ba6cad     .=.Y....;\...l..
+   72cd4:	edb88320 9abfb3b6 03b6e20c 74b1d29a      ..............t
+   72ce4:	ead54739 9dd277af 04db2615 73dc1683     9G...w...&.....s
+   72cf4:	e3630b12 94643b84 0d6d6a3e 7a6a5aa8     ..c..;d.>jm..Zjz
+   72d04:	e40ecf0b 9309ff9d 0a00ae27 7d079eb1     ........'......}
+   72d14:	f00f9344 8708a3d2 1e01f268 6906c2fe     D.......h......i
+   72d24:	f762575d 806567cb 196c3671 6e6b06e7     ]Wb..ge.q6l...kn
+   72d34:	fed41b76 89d32be0 10da7a5a 67dd4acc     v....+..Zz...J.g
+   72d44:	f9b9df6f 8ebeeff9 17b7be43 60b08ed5     o.......C......`
+   72d54:	d6d6a3e8 a1d1937e 38d8c2c4 4fdff252     ....~......8R..O
+   72d64:	d1bb67f1 a6bc5767 3fb506dd 48b2364b     .g..gW.....?K6.H
+   72d74:	d80d2bda af0a1b4c 36034af6 41047a60     .+..L....J.6`z.A
+   72d84:	df60efc3 a867df55 316e8eef 4669be79     ..`.U.g...n1y.iF
+   72d94:	cb61b38c bc66831a 256fd2a0 5268e236     ..a...f...o%6.hR
+   72da4:	cc0c7795 bb0b4703 220216b9 5505262f     .w...G....."/&.U
+   72db4:	c5ba3bbe b2bd0b28 2bb45a92 5cb36a04     .;..(....Z.+.j.\
+   72dc4:	c2d7ffa7 b5d0cf31 2cd99e8b 5bdeae1d     ....1......,...[
+   72dd4:	9b64c2b0 ec63f226 756aa39c 026d930a     ..d.&.c...ju..m.
+   72de4:	9c0906a9 eb0e363f 72076785 05005713     ....?6...g.r.W..
+   72df4:	95bf4a82 e2b87a14 7bb12bae 0cb61b38     .J...z...+.{8...
+   72e04:	92d28e9b e5d5be0d 7cdcefb7 0bdbdf21     ...........|!...
+   72e14:	86d3d2d4 f1d4e242 68ddb3f8 1fda836e     ....B......hn...
+   72e24:	81be16cd f6b9265b 6fb077e1 18b74777     ....[&...w.owG..
+   72e34:	88085ae6 ff0f6a70 66063bca 11010b5c     .Z..pj...;.f\...
+   72e44:	8f659eff f862ae69 616bffd3 166ccf45     ..e.i.b...kaE.l.
+   72e54:	a00ae278 d70dd2ee 4e048354 3903b3c2     x.......T..N...9
+   72e64:	a7672661 d06016f7 4969474d 3e6e77db     a&g...`.MGiI.wn>
+   72e74:	aed16a4a d9d65adc 40df0b66 37d83bf0     Jj...Z..f..@.;.7
+   72e84:	a9bcae53 debb9ec5 47b2cf7f 30b5ffe9     S..........G...0
+   72e94:	bdbdf21c cabac28a 53b39330 24b4a3a6     ........0..S...$
+   72ea4:	bad03605 cdd70693 54de5729 23d967bf     .6......)W.T.g.#
+   72eb4:	b3667a2e c4614ab8 5d681b02 2a6f2b94     .zf..Ja...h].+o*
+   72ec4:	b40bbe37 c30c8ea1 5a05df1b 2d02ef8d     7..........Z...-
+   72ed4:	00000000 04c11db7 09823b6e 0d4326d9     ........n;...&C.
+   72ee4:	130476dc 17c56b6b 1a864db2 1e475005     .v..kk...M...PG.
+   72ef4:	2608edb8 22c9f00f 2f8ad6d6 2b4bcb61     ...&...".../a.K+
+   72f04:	350c9b64 31cd86d3 3c8ea00a 384fbdbd     d..5...1...<..O8
+   72f14:	4c11db70 48d0c6c7 4593e01e 4152fda9     p..L...H...E..RA
+   72f24:	5f15adac 5bd4b01b 569796c2 52568b75     ..._...[...Vu.VR
+   72f34:	6a1936c8 6ed82b7f 639b0da6 675a1011     .6.j.+.n...c..Zg
+   72f44:	791d4014 7ddc5da3 709f7b7a 745e66cd     .@.y.].}z{.p.f^t
+   72f54:	9823b6e0 9ce2ab57 91a18d8e 95609039     ..#.W.......9.`.
+   72f64:	8b27c03c 8fe6dd8b 82a5fb52 8664e6e5     <.'.....R.....d.
+   72f74:	be2b5b58 baea46ef b7a96036 b3687d81     X[+..F..6`...}h.
+   72f84:	ad2f2d84 a9ee3033 a4ad16ea a06c0b5d     .-/.30......].l.
+   72f94:	d4326d90 d0f37027 ddb056fe d9714b49     .m2.'p...V..IKq.
+   72fa4:	c7361b4c c3f706fb ceb42022 ca753d95     L.6....." ...=u.
+   72fb4:	f23a8028 f6fb9d9f fbb8bb46 ff79a6f1     (.:.....F.....y.
+   72fc4:	e13ef6f4 e5ffeb43 e8bccd9a ec7dd02d     ..>.C.......-.}.
+   72fd4:	34867077 30476dc0 3d044b19 39c556ae     wp.4.mG0.K.=.V.9
+   72fe4:	278206ab 23431b1c 2e003dc5 2ac12072     ...'..C#.=..r .*
+   72ff4:	128e9dcf 164f8078 1b0ca6a1 1fcdbb16     ....x.O.........
+   73004:	018aeb13 054bf6a4 0808d07d 0cc9cdca     ......K.}.......
+   73014:	7897ab07 7c56b6b0 71159069 75d48dde     ...x..V|i..q...u
+   73024:	6b93dddb 6f52c06c 6211e6b5 66d0fb02     ...kl.Ro...b...f
+   73034:	5e9f46bf 5a5e5b08 571d7dd1 53dc6066     .F.^.[^Z.}.Wf`.S
+   73044:	4d9b3063 495a2dd4 44190b0d 40d816ba     c0.M.-ZI...D...@
+   73054:	aca5c697 a864db20 a527fdf9 a1e6e04e     .... .d...'.N...
+   73064:	bfa1b04b bb60adfc b6238b25 b2e29692     K.....`.%.#.....
+   73074:	8aad2b2f 8e6c3698 832f1041 87ee0df6     /+...6l.A./.....
+   73084:	99a95df3 9d684044 902b669d 94ea7b2a     .]..D@h..f+.*{..
+   73094:	e0b41de7 e4750050 e9362689 edf73b3e     ....P.u..&6.>;..
+   730a4:	f3b06b3b f771768c fa325055 fef34de2     ;k...vq.UP2..M..
+   730b4:	c6bcf05f c27dede8 cf3ecb31 cbffd686     _.....}.1.>.....
+   730c4:	d5b88683 d1799b34 dc3abded d8fba05a     ....4.y...:.Z...
+   730d4:	690ce0ee 6dcdfd59 608edb80 644fc637     ...iY..m...`7.Od
+   730e4:	7a089632 7ec98b85 738aad5c 774bb0eb     2..z...~\..s..Kw
+   730f4:	4f040d56 4bc510e1 46863638 42472b8f     V..O...K86.F.+GB
+   73104:	5c007b8a 58c1663d 558240e4 51435d53     .{.\=f.X.@.US]CQ
+   73114:	251d3b9e 21dc2629 2c9f00f0 285e1d47     .;.%)&.!...,G.^(
+   73124:	36194d42 32d850f5 3f9b762c 3b5a6b9b     BM.6.P.2,v.?.kZ;
+   73134:	0315d626 07d4cb91 0a97ed48 0e56f0ff     &.......H.....V.
+   73144:	1011a0fa 14d0bd4d 19939b94 1d528623     ....M.......#.R.
+   73154:	f12f560e f5ee4bb9 f8ad6d60 fc6c70d7     .V/..K..`m...pl.
+   73164:	e22b20d2 e6ea3d65 eba91bbc ef68060b     . +.e=........h.
+   73174:	d727bbb6 d3e6a601 dea580d8 da649d6f     ..'.........o.d.
+   73184:	c423cd6a c0e2d0dd cda1f604 c960ebb3     j.#...........`.
+   73194:	bd3e8d7e b9ff90c9 b4bcb610 b07daba7     ~.>...........}.
+   731a4:	ae3afba2 aafbe615 a7b8c0cc a379dd7b     ..:.........{.y.
+   731b4:	9b3660c6 9ff77d71 92b45ba8 9675461f     .`6.q}...[...Fu.
+   731c4:	8832161a 8cf30bad 81b02d74 857130c3     ..2.....t-...0q.
+   731d4:	5d8a9099 594b8d2e 5408abf7 50c9b640     ...]..KY...T@..P
+   731e4:	4e8ee645 4a4ffbf2 470cdd2b 43cdc09c     E..N..OJ+..G...C
+   731f4:	7b827d21 7f436096 7200464f 76c15bf8     !}.{.`C.OF.r.[.v
+   73204:	68860bfd 6c47164a 61043093 65c52d24     ...hJ.Gl.0.a$-.e
+   73214:	119b4be9 155a565e 18197087 1cd86d30     .K..^VZ..p..0m..
+   73224:	029f3d35 065e2082 0b1d065b 0fdc1bec     5=... ^.[.......
+   73234:	3793a651 3352bbe6 3e119d3f 3ad08088     Q..7..R3?..>...:
+   73244:	2497d08d 2056cd3a 2d15ebe3 29d4f654     ...$:.V ...-T..)
+   73254:	c5a92679 c1683bce cc2b1d17 c8ea00a0     y&...;h...+.....
+   73264:	d6ad50a5 d26c4d12 df2f6bcb dbee767c     .P...Ml..k/.|v..
+   73274:	e3a1cbc1 e760d676 ea23f0af eee2ed18     ....v.`...#.....
+   73284:	f0a5bd1d f464a0aa f9278673 fde69bc4     ......d.s.'.....
+   73294:	89b8fd09 8d79e0be 803ac667 84fbdbd0     ......y.g.:.....
+   732a4:	9abc8bd5 9e7d9662 933eb0bb 97ffad0c     ....b.}...>.....
+   732b4:	afb010b1 ab710d06 a6322bdf a2f33668     ......q..+2.h6..
+   732c4:	bcb4666d b8757bda b5365d03 b1f740b4     mf...{u..]6..@..
+
+000732d4 <_init>:
+   732d4:	b5f8      	push	{r3, r4, r5, r6, r7, lr}
+   732d6:	bf00      	nop
+   732d8:	bcf8      	pop	{r3, r4, r5, r6, r7}
+   732da:	bc08      	pop	{r3}
+   732dc:	469e      	mov	lr, r3
+   732de:	4770      	bx	lr
+
+000732e0 <_fini>:
+   732e0:	b5f8      	push	{r3, r4, r5, r6, r7, lr}
+   732e2:	bf00      	nop
+   732e4:	bcf8      	pop	{r3, r4, r5, r6, r7}
+   732e6:	bc08      	pop	{r3}
+   732e8:	469e      	mov	lr, r3
+   732ea:	4770      	bx	lr

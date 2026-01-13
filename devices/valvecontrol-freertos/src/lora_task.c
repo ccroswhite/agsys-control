@@ -20,11 +20,28 @@
 #include "board_config.h"
 #include "agsys_device.h"
 #include "agsys_protocol.h"
+#include "agsys_memory_layout.h"
+#include "agsys_fram.h"
 
 #include <string.h>
 
+/* Firmware version - should match build */
+#ifndef FW_VERSION_MAJOR
+#define FW_VERSION_MAJOR    1
+#endif
+#ifndef FW_VERSION_MINOR
+#define FW_VERSION_MINOR    0
+#endif
+#ifndef FW_VERSION_PATCH
+#define FW_VERSION_PATCH    0
+#endif
+
 /* External device context for logging */
 extern agsys_device_ctx_t m_device_ctx;
+extern agsys_fram_ctx_t m_fram_ctx;
+
+/* Boot reason - set during startup */
+static uint8_t m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
 
 /* ==========================================================================
  * RFM95C REGISTER DEFINITIONS
@@ -396,9 +413,57 @@ static void lora_int_handler(nrfx_gpiote_pin_t pin, nrf_gpiote_polarity_t action
  * LORA TASK
  * ========================================================================== */
 
+static void load_boot_reason_from_fram(void)
+{
+    agsys_ota_fram_state_t ota_state;
+    
+    if (agsys_fram_read(&m_fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR, 
+                        (uint8_t *)&ota_state, sizeof(ota_state)) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "LoRa: Failed to read OTA state from FRAM\n");
+        return;
+    }
+    
+    if (ota_state.magic != AGSYS_OTA_FRAM_MAGIC) {
+        m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
+        return;
+    }
+    
+    switch (ota_state.state) {
+        case AGSYS_OTA_STATE_SUCCESS:
+            m_boot_reason = AGSYS_BOOT_REASON_OTA_SUCCESS;
+            SEGGER_RTT_printf(0, "LoRa: Boot after successful OTA to v%d.%d.%d\n",
+                              ota_state.target_version[0],
+                              ota_state.target_version[1],
+                              ota_state.target_version[2]);
+            break;
+            
+        case AGSYS_OTA_STATE_ROLLED_BACK:
+        case AGSYS_OTA_STATE_FAILED:
+            m_boot_reason = AGSYS_BOOT_REASON_OTA_ROLLBACK;
+            SEGGER_RTT_printf(0, "LoRa: Boot after OTA rollback (error=%d)\n",
+                              ota_state.error_code);
+            break;
+            
+        default:
+            m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
+            break;
+    }
+    
+    /* Clear OTA state after reading */
+    if (ota_state.state == AGSYS_OTA_STATE_SUCCESS || 
+        ota_state.state == AGSYS_OTA_STATE_ROLLED_BACK ||
+        ota_state.state == AGSYS_OTA_STATE_FAILED) {
+        ota_state.state = AGSYS_OTA_STATE_NONE;
+        ota_state.magic = 0;
+        agsys_fram_write(&m_fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR,
+                         (uint8_t *)&ota_state, sizeof(ota_state));
+    }
+}
+
 bool lora_task_init(void)
 {
     get_device_uid();
+    load_boot_reason_from_fram();
     return true;
 }
 
@@ -481,29 +546,40 @@ void lora_send_status_report(void)
     build_header(hdr, AGSYS_MSG_VALVE_STATUS);
     
     uint8_t *payload = buffer + sizeof(agsys_header_t);
+    
+    /* Controller info first: fw_version (3 bytes) + boot_reason (1 byte) + actuator_count (1 byte) */
+    payload[0] = FW_VERSION_MAJOR;
+    payload[1] = FW_VERSION_MINOR;
+    payload[2] = FW_VERSION_PATCH;
+    payload[3] = m_boot_reason;
+    
     uint8_t count = 0;
+    uint8_t *actuator_data = payload + 5;  /* Skip header bytes */
     
     /* Add actuator statuses */
     for (uint8_t addr = ACTUATOR_ADDR_MIN; addr <= ACTUATOR_ADDR_MAX && count < 20; addr++) {
         if (can_is_actuator_online(addr)) {
             const actuator_status_t *act = can_get_actuator(addr);
-            payload[count * 4 + 0] = addr;
-            payload[count * 4 + 1] = act->status_flags;
-            payload[count * 4 + 2] = (act->current_ma >> 8) & 0xFF;
-            payload[count * 4 + 3] = act->current_ma & 0xFF;
+            actuator_data[count * 4 + 0] = addr;
+            actuator_data[count * 4 + 1] = act->status_flags;
+            actuator_data[count * 4 + 2] = (act->current_ma >> 8) & 0xFF;
+            actuator_data[count * 4 + 3] = act->current_ma & 0xFF;
             count++;
         }
     }
     
-    /* Prepend count */
-    memmove(payload + 1, payload, count * 4);
-    payload[0] = count;
+    payload[4] = count;  /* Actuator count */
     
-    uint8_t total_len = sizeof(agsys_header_t) + 1 + (count * 4);
+    uint8_t total_len = sizeof(agsys_header_t) + 5 + (count * 4);
     
     if (spi_acquire(pdMS_TO_TICKS(1000))) {
         if (rfm_send(buffer, total_len)) {
             SEGGER_RTT_printf(0, "Status report sent: %d actuators\n", count);
+            
+            /* Clear boot reason after first successful report */
+            if (m_boot_reason != AGSYS_BOOT_REASON_NORMAL) {
+                m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
+            }
         }
         rfm_start_receive();
         spi_release();

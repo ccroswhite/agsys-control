@@ -20,11 +20,28 @@
 #include "board_config.h"
 #include "agsys_device.h"
 #include "agsys_protocol.h"
+#include "agsys_memory_layout.h"
+#include "agsys_fram.h"
 
 #include <string.h>
 
+/* Firmware version - should match build */
+#ifndef FW_VERSION_MAJOR
+#define FW_VERSION_MAJOR    1
+#endif
+#ifndef FW_VERSION_MINOR
+#define FW_VERSION_MINOR    0
+#endif
+#ifndef FW_VERSION_PATCH
+#define FW_VERSION_PATCH    0
+#endif
+
 /* External device context for logging */
 extern agsys_device_ctx_t m_device_ctx;
+extern agsys_fram_ctx_t m_fram_ctx;
+
+/* Boot reason - set during startup */
+static uint8_t m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
 
 /* ==========================================================================
  * RFM95C REGISTER DEFINITIONS
@@ -315,7 +332,72 @@ static uint8_t build_sensor_report(uint8_t *buffer, size_t max_len,
         }
     }
     
+    /* Firmware version and boot reason */
+    report->fw_version[0] = FW_VERSION_MAJOR;
+    report->fw_version[1] = FW_VERSION_MINOR;
+    report->fw_version[2] = FW_VERSION_PATCH;
+    report->boot_reason = m_boot_reason;
+    
     return (uint8_t)total_len;
+}
+
+/* ==========================================================================
+ * BOOT REASON AND OTA STATE
+ * ========================================================================== */
+
+static void load_boot_reason_from_fram(void)
+{
+    agsys_ota_fram_state_t ota_state;
+    
+    if (agsys_fram_read(&m_fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR, 
+                        (uint8_t *)&ota_state, sizeof(ota_state)) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "LoRa: Failed to read OTA state from FRAM\n");
+        return;
+    }
+    
+    /* Check if OTA state is valid */
+    if (ota_state.magic != AGSYS_OTA_FRAM_MAGIC) {
+        /* No valid OTA state - normal boot */
+        m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
+        return;
+    }
+    
+    /* Determine boot reason based on OTA state */
+    switch (ota_state.state) {
+        case AGSYS_OTA_STATE_SUCCESS:
+            m_boot_reason = AGSYS_BOOT_REASON_OTA_SUCCESS;
+            SEGGER_RTT_printf(0, "LoRa: Boot after successful OTA to v%d.%d.%d\n",
+                              ota_state.target_version[0],
+                              ota_state.target_version[1],
+                              ota_state.target_version[2]);
+            break;
+            
+        case AGSYS_OTA_STATE_ROLLED_BACK:
+            m_boot_reason = AGSYS_BOOT_REASON_OTA_ROLLBACK;
+            SEGGER_RTT_printf(0, "LoRa: Boot after OTA rollback (error=%d)\n",
+                              ota_state.error_code);
+            break;
+            
+        case AGSYS_OTA_STATE_FAILED:
+            m_boot_reason = AGSYS_BOOT_REASON_OTA_ROLLBACK;
+            SEGGER_RTT_printf(0, "LoRa: Boot after OTA failure (error=%d)\n",
+                              ota_state.error_code);
+            break;
+            
+        default:
+            m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
+            break;
+    }
+    
+    /* Clear OTA state after reading (will be reported in next sensor report) */
+    if (ota_state.state == AGSYS_OTA_STATE_SUCCESS || 
+        ota_state.state == AGSYS_OTA_STATE_ROLLED_BACK ||
+        ota_state.state == AGSYS_OTA_STATE_FAILED) {
+        ota_state.state = AGSYS_OTA_STATE_NONE;
+        ota_state.magic = 0;  /* Invalidate */
+        agsys_fram_write(&m_fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR,
+                         (uint8_t *)&ota_state, sizeof(ota_state));
+    }
 }
 
 /* ==========================================================================
@@ -324,6 +406,9 @@ static uint8_t build_sensor_report(uint8_t *buffer, size_t max_len,
 
 bool lora_task_init(void)
 {
+    /* Load boot reason from FRAM OTA state */
+    load_boot_reason_from_fram();
+    
     return true;
 }
 
@@ -398,17 +483,32 @@ bool lora_send_sensor_report(const uint8_t *device_uid,
             
             spi_release();
             
-            if (rx_len > 0) {
+            if (rx_len > (int)sizeof(agsys_header_t)) {
                 agsys_header_t *hdr = (agsys_header_t *)rx_buf;
                 if (hdr->magic[0] == AGSYS_MAGIC_BYTE1 && hdr->magic[1] == AGSYS_MAGIC_BYTE2 &&
                     hdr->msg_type == AGSYS_MSG_ACK) {
-                    SEGGER_RTT_printf(0, "LoRa: ACK received (RSSI=%d)\n", rssi);
+                    
+                    /* Parse ACK payload */
+                    agsys_ack_t *ack = (agsys_ack_t *)(rx_buf + sizeof(agsys_header_t));
+                    SEGGER_RTT_printf(0, "LoRa: ACK received (RSSI=%d, flags=0x%02X)\n", rssi, ack->flags);
+                    
+                    /* Check for OTA pending flag */
+                    if (ack->flags & AGSYS_ACK_FLAG_OTA_PENDING) {
+                        SEGGER_RTT_printf(0, "LoRa: OTA update available, initiating OTA\n");
+                        /* TODO: Initiate OTA request flow */
+                        /* For now, just log - full OTA implementation is separate task */
+                    }
                     
                     /* Sync any pending logs on successful TX */
                     uint32_t pending = agsys_device_log_pending_count(&m_device_ctx);
                     if (pending > 0) {
                         SEGGER_RTT_printf(0, "LoRa: %lu pending logs to sync\n", pending);
                         /* TODO: Send pending logs to property controller */
+                    }
+                    
+                    /* Clear boot reason after first successful report */
+                    if (m_boot_reason != AGSYS_BOOT_REASON_NORMAL) {
+                        m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
                     }
                     
                     return true;

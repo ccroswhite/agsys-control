@@ -13,6 +13,7 @@ import (
 
 	"github.com/agsys/property-controller/internal/cloud"
 	"github.com/agsys/property-controller/internal/lora"
+	"github.com/agsys/property-controller/internal/ota"
 	"github.com/agsys/property-controller/internal/protocol"
 	"github.com/agsys/property-controller/internal/storage"
 	controllerv1 "github.com/ccroswhite/agsys-api/gen/go/proto/controller/v1"
@@ -56,6 +57,7 @@ type Engine struct {
 	db        *storage.DB
 	lora      *lora.Driver
 	cloud     *cloud.GRPCClient
+	ota       *ota.Manager
 	stopChan  chan struct{}
 	wg        sync.WaitGroup
 	mu        sync.RWMutex
@@ -63,6 +65,9 @@ type Engine struct {
 
 	// Registered devices (from cloud)
 	registeredDevices map[string]*storage.Device
+
+	// Device firmware versions (updated from reports)
+	deviceVersions map[string]ota.Version
 }
 
 // New creates a new engine instance
@@ -94,13 +99,30 @@ func New(config Config) (*Engine, error) {
 	cloudClient := cloud.NewGRPCClient(grpcConfig)
 	cloudClient.SetFirmwareVersion(config.FirmwareVersion)
 
+	// Create firmware client for OTA downloads
+	firmwareClient := cloud.NewFirmwareClient(grpcConfig)
+
+	// Create OTA manager
+	otaConfig := ota.DefaultConfig()
+	otaSendFunc := func(deviceUID [8]byte, msgType uint8, payload []byte) error {
+		return loraDriver.SendToDevice(deviceUID, msgType, payload)
+	}
+	otaManager, err := ota.New(otaConfig, otaSendFunc, firmwareClient)
+	if err != nil {
+		db.Close()
+		loraDriver.Stop()
+		return nil, fmt.Errorf("failed to create OTA manager: %w", err)
+	}
+
 	return &Engine{
 		config:            config,
 		db:                db,
 		lora:              loraDriver,
 		cloud:             cloudClient,
+		ota:               otaManager,
 		stopChan:          make(chan struct{}),
 		registeredDevices: make(map[string]*storage.Device),
+		deviceVersions:    make(map[string]ota.Version),
 	}, nil
 }
 
@@ -118,6 +140,11 @@ func (e *Engine) Start(ctx context.Context) error {
 	// Start LoRa driver
 	if err := e.lora.Start(); err != nil {
 		return fmt.Errorf("failed to start LoRa driver: %w", err)
+	}
+
+	// Start OTA manager
+	if err := e.ota.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start OTA manager: %w", err)
 	}
 
 	// Connect to cloud (with automatic reconnection)
@@ -145,6 +172,9 @@ func (e *Engine) Stop() error {
 	if err := e.cloud.Close(); err != nil {
 		log.Printf("Error stopping cloud client: %v", err)
 	}
+
+	// Stop OTA manager
+	e.ota.Stop()
 
 	if err := e.lora.Stop(); err != nil {
 		log.Printf("Error stopping LoRa driver: %v", err)
@@ -204,6 +234,21 @@ func (e *Engine) handleLoRaMessage(msg *protocol.LoRaMessage) {
 
 	case protocol.MsgTypeHeartbeat:
 		log.Printf("Heartbeat from %s, RSSI: %d", deviceUID, msg.RSSI)
+
+	case protocol.MsgTypeOTARequest:
+		if err := e.ota.HandleOTARequest(deviceUID, msg.Header.DeviceType, msg.Payload); err != nil {
+			log.Printf("Failed to handle OTA request from %s: %v", deviceUID, err)
+		}
+
+	case protocol.MsgTypeOTAReady:
+		if err := e.ota.HandleOTAReady(deviceUID, msg.Payload); err != nil {
+			log.Printf("Failed to handle OTA ready from %s: %v", deviceUID, err)
+		}
+
+	case protocol.MsgTypeOTAStatus:
+		if err := e.ota.HandleOTAStatus(deviceUID, msg.Payload); err != nil {
+			log.Printf("Failed to handle OTA status from %s: %v", deviceUID, err)
+		}
 
 	default:
 		log.Printf("Unknown message type 0x%02X from %s", msg.Header.MsgType, deviceUID)
@@ -337,10 +382,20 @@ func (e *Engine) sendAlarmToCloud(deviceUID string, alarm *storage.MeterAlarm) {
 }
 
 // SendAck sends an acknowledgment to a device
-func (e *Engine) SendAck(deviceUID string, sequence uint16, status uint8, flags uint8) error {
+func (e *Engine) SendAck(deviceUID string, deviceType uint8, sequence uint16, status uint8, flags uint8) error {
 	uid, err := lora.ParseDeviceUID(deviceUID)
 	if err != nil {
 		return fmt.Errorf("invalid device UID: %w", err)
+	}
+
+	// Check if OTA is pending for this device
+	e.mu.RLock()
+	currentVersion, hasVersion := e.deviceVersions[deviceUID]
+	e.mu.RUnlock()
+
+	if hasVersion && e.ota.ShouldSetOTAPending(deviceUID, deviceType, currentVersion) {
+		flags |= protocol.AckFlagOTAPending
+		log.Printf("Setting OTA_PENDING flag for device %s", deviceUID)
 	}
 
 	ack := &protocol.AckPayload{

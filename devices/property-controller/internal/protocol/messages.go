@@ -44,6 +44,37 @@ const (
 	MsgTypeOTAAnnounce       = lora.MsgTypeOTAAnnounce
 	MsgTypeOTAChunk          = lora.MsgTypeOTAChunk
 	MsgTypeOTAStatus         = lora.MsgTypeOTAStatus
+	MsgTypeOTARequest        = lora.MsgTypeOTARequest
+	MsgTypeOTAReady          = lora.MsgTypeOTAReady
+	MsgTypeOTAFinish         = lora.MsgTypeOTAFinish
+)
+
+// Re-export boot reason codes from shared package
+const (
+	BootReasonNormal      = lora.BootReasonNormal
+	BootReasonPowerCycle  = lora.BootReasonPowerCycle
+	BootReasonWatchdog    = lora.BootReasonWatchdog
+	BootReasonOTASuccess  = lora.BootReasonOTASuccess
+	BootReasonOTARollback = lora.BootReasonOTARollback
+	BootReasonHardFault   = lora.BootReasonHardFault
+)
+
+// Re-export OTA payload types from shared package
+type (
+	OTAAnnouncePayload = lora.OTAAnnouncePayload
+	OTARequestPayload  = lora.OTARequestPayload
+	OTAReadyPayload    = lora.OTAReadyPayload
+	OTAChunkPayload    = lora.OTAChunkPayload
+	OTAFinishPayload   = lora.OTAFinishPayload
+	OTAStatusPayload   = lora.OTAStatusPayload
+)
+
+// Re-export OTA decode functions
+var (
+	DecodeOTAAnnounce = lora.DecodeOTAAnnounce
+	DecodeOTARequest  = lora.DecodeOTARequest
+	DecodeOTAReady    = lora.DecodeOTAReady
+	DecodeOTAStatus   = lora.DecodeOTAStatus
 
 	// Legacy aliases
 	MsgTypeSensorReport     = lora.MsgTypeSensorReport
@@ -330,10 +361,10 @@ type AckPayload struct {
 
 // ACK flags
 const (
-	AckFlagSendLogs       uint8 = 1 << 0 // Request pending logs
-	AckFlagConfigAvail    uint8 = 1 << 1 // New config available
-	AckFlagTimeSync       uint8 = 1 << 2 // Time sync follows
-	AckFlagScheduleUpdate uint8 = 1 << 3 // Schedule update follows
+	AckFlagSendLogs    uint8 = 1 << 0 // Request pending logs
+	AckFlagConfigAvail uint8 = 1 << 1 // New config available
+	AckFlagTimeSync    uint8 = 1 << 2 // Time sync follows
+	AckFlagOTAPending  uint8 = 1 << 3 // OTA update available, device should stay awake
 )
 
 // Encode serializes ack payload

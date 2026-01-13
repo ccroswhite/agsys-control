@@ -53,6 +53,14 @@ All BOMs updated with complete passive component lists:
 
 ## Outstanding TODOs
 
+### BLE / Mobile (from Jan 11 session)
+
+- [ ] Test BLE icon on hardware (verify appearance and flash rates)
+- [ ] Add BLE pairing to other devices (valve controller, soil moisture LED only)
+- [ ] Flutter app BLE integration (scan, connect, PIN entry UI)
+- [ ] Device configuration via BLE (CONFIG_CHANGED, COMMAND_RECEIVED events)
+- [ ] Order display connector - Hirose FH12S-40S-0.5SH(55)
+
 ### Hardware (Low Priority - Schematics Complete)
 
 - [ ] Convert water meter markdown schematic to Eagle format

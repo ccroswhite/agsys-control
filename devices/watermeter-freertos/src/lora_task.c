@@ -20,11 +20,28 @@
 #include "board_config.h"
 #include "agsys_device.h"
 #include "agsys_protocol.h"
+#include "agsys_memory_layout.h"
+#include "agsys_fram.h"
 
 #include <string.h>
 
+/* Firmware version - should match build */
+#ifndef FW_VERSION_MAJOR
+#define FW_VERSION_MAJOR    1
+#endif
+#ifndef FW_VERSION_MINOR
+#define FW_VERSION_MINOR    0
+#endif
+#ifndef FW_VERSION_PATCH
+#define FW_VERSION_PATCH    0
+#endif
+
 /* External device context for logging */
 extern agsys_device_ctx_t m_device_ctx;
+extern agsys_fram_ctx_t m_fram_ctx;
+
+/* Boot reason - set during startup */
+static uint8_t m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
 
 /* External SPI mutex */
 extern SemaphoreHandle_t g_spi_mutex;
@@ -369,27 +386,23 @@ static bool send_meter_report(float flow_rate_lpm, float total_volume_l, uint8_t
     agsys_header_t *hdr = (agsys_header_t *)buffer;
     build_header(hdr, AGSYS_MSG_METER_REPORT);
     
-    /* Build payload */
-    uint8_t *payload = buffer + sizeof(agsys_header_t);
+    /* Build payload using canonical structure */
+    agsys_meter_report_t *report = (agsys_meter_report_t *)(buffer + sizeof(agsys_header_t));
     
-    /* Flow rate in mL/min (32-bit) */
-    uint32_t flow_mlpm = (uint32_t)(flow_rate_lpm * 1000);
-    payload[0] = (flow_mlpm >> 24) & 0xFF;
-    payload[1] = (flow_mlpm >> 16) & 0xFF;
-    payload[2] = (flow_mlpm >> 8) & 0xFF;
-    payload[3] = flow_mlpm & 0xFF;
+    report->timestamp = xTaskGetTickCount() / configTICK_RATE_HZ;  /* Uptime in seconds */
+    report->total_pulses = 0;  /* TODO: Track pulse count */
+    report->total_liters = (uint32_t)total_volume_l;
+    report->flow_rate_lpm = (uint16_t)(flow_rate_lpm * 10);  /* 0.1 L/min resolution */
+    report->battery_mv = 0;  /* Mains powered, no battery */
+    report->flags = alarm_flags;
     
-    /* Total volume in mL (32-bit) */
-    uint32_t total_ml = (uint32_t)(total_volume_l * 1000);
-    payload[4] = (total_ml >> 24) & 0xFF;
-    payload[5] = (total_ml >> 16) & 0xFF;
-    payload[6] = (total_ml >> 8) & 0xFF;
-    payload[7] = total_ml & 0xFF;
+    /* Firmware version and boot reason */
+    report->fw_version[0] = FW_VERSION_MAJOR;
+    report->fw_version[1] = FW_VERSION_MINOR;
+    report->fw_version[2] = FW_VERSION_PATCH;
+    report->boot_reason = m_boot_reason;
     
-    /* Alarm flags */
-    payload[8] = alarm_flags;
-    
-    uint8_t total_len = sizeof(agsys_header_t) + 9;
+    uint8_t total_len = sizeof(agsys_header_t) + sizeof(agsys_meter_report_t);
     
     bool success = false;
     if (spi_acquire(pdMS_TO_TICKS(1000))) {
@@ -420,7 +433,23 @@ static void process_lora_message(const uint8_t *data, uint8_t len, int16_t rssi)
     
     switch (hdr->msg_type) {
         case AGSYS_MSG_ACK:
-            SEGGER_RTT_printf(0, "LoRa: ACK received\n");
+            if (payload_len >= sizeof(agsys_ack_t)) {
+                agsys_ack_t *ack = (agsys_ack_t *)payload;
+                SEGGER_RTT_printf(0, "LoRa: ACK received (flags=0x%02X)\n", ack->flags);
+                
+                /* Check for OTA pending flag */
+                if (ack->flags & AGSYS_ACK_FLAG_OTA_PENDING) {
+                    SEGGER_RTT_printf(0, "LoRa: OTA update available, initiating OTA\n");
+                    /* TODO: Initiate OTA request flow */
+                }
+                
+                /* Clear boot reason after first successful report */
+                if (m_boot_reason != AGSYS_BOOT_REASON_NORMAL) {
+                    m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
+                }
+            } else {
+                SEGGER_RTT_printf(0, "LoRa: ACK received\n");
+            }
             break;
             
         case AGSYS_MSG_TIME_SYNC:
@@ -528,6 +557,59 @@ static void lora_task_func(void *pvParameters)
 }
 
 /* ==========================================================================
+ * BOOT REASON AND OTA STATE
+ * ========================================================================== */
+
+static void load_boot_reason_from_fram(void)
+{
+    agsys_ota_fram_state_t ota_state;
+    
+    if (agsys_fram_read(&m_fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR, 
+                        (uint8_t *)&ota_state, sizeof(ota_state)) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "LoRa: Failed to read OTA state from FRAM\n");
+        return;
+    }
+    
+    /* Check if OTA state is valid */
+    if (ota_state.magic != AGSYS_OTA_FRAM_MAGIC) {
+        m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
+        return;
+    }
+    
+    /* Determine boot reason based on OTA state */
+    switch (ota_state.state) {
+        case AGSYS_OTA_STATE_SUCCESS:
+            m_boot_reason = AGSYS_BOOT_REASON_OTA_SUCCESS;
+            SEGGER_RTT_printf(0, "LoRa: Boot after successful OTA to v%d.%d.%d\n",
+                              ota_state.target_version[0],
+                              ota_state.target_version[1],
+                              ota_state.target_version[2]);
+            break;
+            
+        case AGSYS_OTA_STATE_ROLLED_BACK:
+        case AGSYS_OTA_STATE_FAILED:
+            m_boot_reason = AGSYS_BOOT_REASON_OTA_ROLLBACK;
+            SEGGER_RTT_printf(0, "LoRa: Boot after OTA rollback (error=%d)\n",
+                              ota_state.error_code);
+            break;
+            
+        default:
+            m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
+            break;
+    }
+    
+    /* Clear OTA state after reading */
+    if (ota_state.state == AGSYS_OTA_STATE_SUCCESS || 
+        ota_state.state == AGSYS_OTA_STATE_ROLLED_BACK ||
+        ota_state.state == AGSYS_OTA_STATE_FAILED) {
+        ota_state.state = AGSYS_OTA_STATE_NONE;
+        ota_state.magic = 0;
+        agsys_fram_write(&m_fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR,
+                         (uint8_t *)&ota_state, sizeof(ota_state));
+    }
+}
+
+/* ==========================================================================
  * PUBLIC API
  * ========================================================================== */
 
@@ -536,6 +618,9 @@ void lora_task_init(void)
     /* Configure LED */
     nrf_gpio_cfg_output(LED_LORA_PIN);
     nrf_gpio_pin_clear(LED_LORA_PIN);
+    
+    /* Load boot reason from FRAM OTA state */
+    load_boot_reason_from_fram();
 }
 
 void lora_task_start(void)

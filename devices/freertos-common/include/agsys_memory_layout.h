@@ -114,6 +114,8 @@ extern "C" {
 #define AGSYS_FRAM_BOOT_COUNT_SIZE          4
 #define AGSYS_FRAM_LAST_ERROR_ADDR          (AGSYS_FRAM_BOOT_INFO_ADDR + 0x0054)
 #define AGSYS_FRAM_LAST_ERROR_SIZE          2
+#define AGSYS_FRAM_OTA_STATE_ADDR           (AGSYS_FRAM_BOOT_INFO_ADDR + 0x0060)
+#define AGSYS_FRAM_OTA_STATE_SIZE           32
 
 /* Crypto keys within Config region */
 #define AGSYS_FRAM_CRYPTO_ADDR              (AGSYS_FRAM_CONFIG_ADDR + 0x0380)
@@ -205,6 +207,54 @@ typedef struct __attribute__((packed)) {
 #define AGSYS_FW_SLOT_FLAG_VALID    0x01
 #define AGSYS_FW_SLOT_FLAG_ACTIVE   0x02
 #define AGSYS_FW_SLOT_FLAG_PENDING  0x04
+
+/* ==========================================================================
+ * OTA STATE STRUCTURE (stored in FRAM Boot Info region)
+ * 
+ * Persists OTA state across reboots for:
+ * - Tracking OTA progress if interrupted
+ * - Reporting OTA result (success/rollback) after reboot
+ * - Providing error details for failed updates
+ * ========================================================================== */
+
+/**
+ * @brief OTA state values
+ */
+#define AGSYS_OTA_STATE_NONE            0x00  /**< No OTA in progress or pending */
+#define AGSYS_OTA_STATE_IN_PROGRESS     0x01  /**< OTA transfer in progress */
+#define AGSYS_OTA_STATE_PENDING_REBOOT  0x02  /**< OTA complete, pending reboot */
+#define AGSYS_OTA_STATE_PENDING_CONFIRM 0x03  /**< Rebooted, awaiting confirmation */
+#define AGSYS_OTA_STATE_SUCCESS         0x04  /**< OTA confirmed successful */
+#define AGSYS_OTA_STATE_FAILED          0x05  /**< OTA failed */
+#define AGSYS_OTA_STATE_ROLLED_BACK     0x06  /**< Rolled back to previous firmware */
+
+/**
+ * @brief OTA state structure - stored in FRAM at AGSYS_FRAM_OTA_STATE_ADDR
+ * 
+ * This structure survives reboots and allows the device to:
+ * - Resume interrupted OTA transfers
+ * - Report OTA outcome (success/failure/rollback) on next wake
+ * - Provide error details for debugging
+ * 
+ * Size: 32 bytes (must fit in AGSYS_FRAM_OTA_STATE_SIZE)
+ */
+typedef struct __attribute__((packed)) {
+    uint32_t magic;                 /**< 0x4F544153 ("OTAS") - validates structure */
+    uint8_t  state;                 /**< AGSYS_OTA_STATE_* */
+    uint8_t  error_code;            /**< Error code if state is FAILED */
+    uint8_t  target_version[3];     /**< Target firmware version (major, minor, patch) */
+    uint8_t  previous_version[3];   /**< Previous firmware version (for rollback reporting) */
+    uint16_t chunks_received;       /**< Number of chunks received (for resume) */
+    uint16_t total_chunks;          /**< Total chunks expected */
+    uint32_t firmware_size;         /**< Expected firmware size */
+    uint32_t firmware_crc;          /**< Expected firmware CRC */
+    uint32_t timestamp;             /**< When OTA started (uptime or Unix time) */
+    uint8_t  reserved[4];           /**< Reserved for future use */
+} agsys_ota_fram_state_t;
+
+#define AGSYS_OTA_FRAM_MAGIC        0x4F544153  /* "OTAS" */
+
+_Static_assert(sizeof(agsys_ota_fram_state_t) <= 32, "OTA state must fit in 32 bytes");
 
 /* ==========================================================================
  * LAYOUT MIGRATION API
