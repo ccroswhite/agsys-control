@@ -16,53 +16,13 @@
 #include "SEGGER_RTT.h"
 
 #include "can_task.h"
-#include "spi_driver.h"
+#include "agsys_can.h"
+#include "agsys_spi.h"
 #include "board_config.h"
 
 #include <string.h>
 
-/* ==========================================================================
- * MCP2515 DEFINITIONS
- * ========================================================================== */
-
-/* SPI Commands */
-#define MCP_RESET           0xC0
-#define MCP_READ            0x03
-#define MCP_WRITE           0x02
-#define MCP_RTS_TX0         0x81
-#define MCP_READ_STATUS     0xA0
-#define MCP_RX_STATUS       0xB0
-#define MCP_BIT_MODIFY      0x05
-#define MCP_READ_RX0        0x90
-
-/* Registers */
-#define MCP_CANSTAT         0x0E
-#define MCP_CANCTRL         0x0F
-#define MCP_CNF3            0x28
-#define MCP_CNF2            0x29
-#define MCP_CNF1            0x2A
-#define MCP_CANINTE         0x2B
-#define MCP_CANINTF         0x2C
-#define MCP_TXB0CTRL        0x30
-#define MCP_TXB0SIDH        0x31
-#define MCP_TXB0D0          0x36
-#define MCP_RXB0CTRL        0x60
-
-/* Modes */
-#define MCP_MODE_NORMAL     0x00
-#define MCP_MODE_CONFIG     0x80
-
-/* Interrupt flags */
-#define MCP_RX0IF           0x01
-#define MCP_RX1IF           0x02
-
-/* CAN IDs for actuator communication */
-#define CAN_ID_CMD_BASE         0x100
-#define CAN_ID_STATUS_BASE      0x180
-#define CAN_ID_UID_RESP_BASE    0x190
-#define CAN_ID_DISCOVER         0x1F0
-#define CAN_ID_DISCOVER_RESP    0x1F1   /* Discovery response from actuators */
-#define CAN_ID_EMERGENCY        0x1FF
+/* Constants from shared agsys_can.h via can_task.h */
 
 /* ==========================================================================
  * PRIVATE DATA
@@ -72,123 +32,11 @@ static actuator_status_t m_actuators[ACTUATOR_ADDR_MAX + 1];
 static QueueHandle_t m_cmd_queue = NULL;
 static TaskHandle_t m_task_handle = NULL;
 
-/* CAN frame structure */
-typedef struct {
-    uint16_t id;
-    uint8_t dlc;
-    uint8_t data[8];
-} can_frame_t;
+/* CAN controller context */
+static agsys_can_ctx_t m_can_ctx;
 
-/* ==========================================================================
- * MCP2515 LOW-LEVEL FUNCTIONS
- * ========================================================================== */
-
-static void mcp_write_reg(uint8_t reg, uint8_t value)
-{
-    uint8_t tx[3] = { MCP_WRITE, reg, value };
-    spi_transfer(SPI_CS_CAN_PIN, tx, NULL, 3);
-}
-
-static uint8_t mcp_read_reg(uint8_t reg)
-{
-    uint8_t tx[3] = { MCP_READ, reg, 0x00 };
-    uint8_t rx[3];
-    spi_transfer(SPI_CS_CAN_PIN, tx, rx, 3);
-    return rx[2];
-}
-
-static void mcp_bit_modify(uint8_t reg, uint8_t mask, uint8_t value)
-{
-    uint8_t tx[4] = { MCP_BIT_MODIFY, reg, mask, value };
-    spi_transfer(SPI_CS_CAN_PIN, tx, NULL, 4);
-}
-
-static void mcp_reset(void)
-{
-    uint8_t cmd = MCP_RESET;
-    spi_transfer(SPI_CS_CAN_PIN, &cmd, NULL, 1);
-    vTaskDelay(pdMS_TO_TICKS(10));
-}
-
-static bool mcp_set_mode(uint8_t mode)
-{
-    mcp_bit_modify(MCP_CANCTRL, 0xE0, mode);
-    
-    for (int i = 0; i < 10; i++) {
-        if ((mcp_read_reg(MCP_CANSTAT) & 0xE0) == mode) {
-            return true;
-        }
-        vTaskDelay(pdMS_TO_TICKS(1));
-    }
-    return false;
-}
-
-static void mcp_init(void)
-{
-    mcp_reset();
-    mcp_set_mode(MCP_MODE_CONFIG);
-
-    /* Configure for 1 Mbps with 16 MHz crystal */
-    mcp_write_reg(MCP_CNF1, 0x00);
-    mcp_write_reg(MCP_CNF2, 0x90);
-    mcp_write_reg(MCP_CNF3, 0x02);
-
-    /* Receive all messages */
-    mcp_write_reg(MCP_RXB0CTRL, 0x60);
-
-    /* Enable RX interrupts */
-    mcp_write_reg(MCP_CANINTE, MCP_RX0IF | MCP_RX1IF);
-    mcp_write_reg(MCP_CANINTF, 0x00);
-
-    mcp_set_mode(MCP_MODE_NORMAL);
-    SEGGER_RTT_printf(0, "MCP2515 initialized\n");
-}
-
-static bool mcp_read_message(can_frame_t *frame)
-{
-    uint8_t status = mcp_read_reg(MCP_CANINTF);
-    
-    if (status & MCP_RX0IF) {
-        uint8_t tx[14] = { MCP_READ_RX0 };
-        uint8_t rx[14];
-        spi_transfer(SPI_CS_CAN_PIN, tx, rx, 14);
-
-        frame->id = ((uint16_t)rx[1] << 3) | (rx[2] >> 5);
-        frame->dlc = rx[5] & 0x0F;
-        if (frame->dlc > 8) frame->dlc = 8;
-        memcpy(frame->data, &rx[6], frame->dlc);
-
-        mcp_bit_modify(MCP_CANINTF, MCP_RX0IF, 0x00);
-        return true;
-    }
-    return false;
-}
-
-static bool mcp_send_message(const can_frame_t *frame)
-{
-    /* Wait for TX buffer */
-    for (int i = 0; i < 10; i++) {
-        if ((mcp_read_reg(MCP_TXB0CTRL) & 0x08) == 0) break;
-        vTaskDelay(pdMS_TO_TICKS(1));
-    }
-
-    uint8_t sidh = (frame->id >> 3) & 0xFF;
-    uint8_t sidl = (frame->id << 5) & 0xE0;
-
-    mcp_write_reg(MCP_TXB0SIDH, sidh);
-    mcp_write_reg(MCP_TXB0SIDH + 1, sidl);
-    mcp_write_reg(MCP_TXB0SIDH + 2, 0);
-    mcp_write_reg(MCP_TXB0SIDH + 3, 0);
-    mcp_write_reg(MCP_TXB0SIDH + 4, frame->dlc);
-
-    for (int i = 0; i < frame->dlc; i++) {
-        mcp_write_reg(MCP_TXB0D0 + i, frame->data[i]);
-    }
-
-    uint8_t cmd = MCP_RTS_TX0;
-    spi_transfer(SPI_CS_CAN_PIN, &cmd, NULL, 1);
-    return true;
-}
+/* CAN frame type alias for local use */
+typedef agsys_can_frame_t can_frame_t;
 
 /* ==========================================================================
  * ACTUATOR MANAGEMENT
@@ -247,17 +95,17 @@ static void process_discovery_response(const uint8_t *data, uint8_t len)
 static void process_can_message(const can_frame_t *frame)
 {
     /* Discovery response: 0x1F1 */
-    if (frame->id == CAN_ID_DISCOVER_RESP) {
+    if (frame->id == AGSYS_CAN_ID_DISCOVER_RESP) {
         process_discovery_response(frame->data, frame->dlc);
     }
     /* Status response: 0x180 + address */
-    else if (frame->id >= CAN_ID_STATUS_BASE && frame->id < CAN_ID_STATUS_BASE + 0x40) {
-        uint8_t addr = frame->id - CAN_ID_STATUS_BASE;
+    else if (frame->id >= AGSYS_CAN_ID_STATUS_BASE && frame->id < AGSYS_CAN_ID_STATUS_BASE + 0x40) {
+        uint8_t addr = frame->id - AGSYS_CAN_ID_STATUS_BASE;
         process_status_response(addr, frame->data, frame->dlc);
     }
     /* UID response: 0x190 + address */
-    else if (frame->id >= CAN_ID_UID_RESP_BASE && frame->id < CAN_ID_UID_RESP_BASE + 0x40) {
-        uint8_t addr = frame->id - CAN_ID_UID_RESP_BASE;
+    else if (frame->id >= AGSYS_CAN_ID_UID_RESP_BASE && frame->id < AGSYS_CAN_ID_UID_RESP_BASE + 0x40) {
+        uint8_t addr = frame->id - AGSYS_CAN_ID_UID_RESP_BASE;
         process_uid_response(addr, frame->data, frame->dlc);
     }
 }
@@ -265,38 +113,29 @@ static void process_can_message(const can_frame_t *frame)
 static void send_valve_command(uint8_t address, uint8_t cmd)
 {
     can_frame_t frame;
-    frame.id = CAN_ID_CMD_BASE + cmd;
+    frame.id = AGSYS_CAN_ID_CMD_BASE + cmd;
     frame.dlc = 1;
     frame.data[0] = address;
     
-    if (spi_acquire(pdMS_TO_TICKS(100))) {
-        mcp_send_message(&frame);
-        spi_release();
-    }
+    agsys_can_send(&m_can_ctx, &frame);
 }
 
 static void send_discover_broadcast(void)
 {
     can_frame_t frame;
-    frame.id = CAN_ID_DISCOVER;
+    frame.id = AGSYS_CAN_ID_DISCOVER;
     frame.dlc = 0;
     
-    if (spi_acquire(pdMS_TO_TICKS(100))) {
-        mcp_send_message(&frame);
-        spi_release();
-    }
+    agsys_can_send(&m_can_ctx, &frame);
 }
 
 static void send_emergency_close(void)
 {
     can_frame_t frame;
-    frame.id = CAN_ID_EMERGENCY;
+    frame.id = AGSYS_CAN_ID_EMERGENCY;
     frame.dlc = 0;
     
-    if (spi_acquire(pdMS_TO_TICKS(100))) {
-        mcp_send_message(&frame);
-        spi_release();
-    }
+    agsys_can_send(&m_can_ctx, &frame);
     
     SEGGER_RTT_printf(0, "EMERGENCY CLOSE broadcast sent\n");
 }
@@ -340,13 +179,27 @@ void can_task(void *pvParameters)
     
     SEGGER_RTT_printf(0, "CAN task started\n");
     
-    /* Initialize SPI */
-    spi_init();
+    /* Register with SPI manager on bus 0 (Peripherals bus) */
+    agsys_spi_config_t spi_config = {
+        .cs_pin = SPI_CS_CAN_PIN,
+        .cs_active_low = true,
+        .frequency = NRF_SPIM_FREQ_4M,
+        .mode = 0,
+        .bus = AGSYS_SPI_BUS_0,
+    };
     
-    /* Initialize MCP2515 */
-    if (spi_acquire(pdMS_TO_TICKS(1000))) {
-        mcp_init();
-        spi_release();
+    agsys_spi_handle_t spi_handle;
+    if (agsys_spi_register(&spi_config, &spi_handle) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "CAN: Failed to register SPI\n");
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    /* Initialize MCP2515 using shared CAN driver */
+    if (!agsys_can_init(&m_can_ctx, spi_handle)) {
+        SEGGER_RTT_printf(0, "CAN: Failed to initialize MCP2515\n");
+        vTaskDelete(NULL);
+        return;
     }
     
     /* Configure CAN interrupt pin */
@@ -372,11 +225,8 @@ void can_task(void *pvParameters)
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
         
         /* Process incoming CAN messages */
-        if (spi_acquire(pdMS_TO_TICKS(50))) {
-            while (mcp_read_message(&frame)) {
-                process_can_message(&frame);
-            }
-            spi_release();
+        while (agsys_can_read(&m_can_ctx, &frame)) {
+            process_can_message(&frame);
         }
         
         /* Process command queue */
@@ -401,7 +251,7 @@ void can_task(void *pvParameters)
                     break;
                     
                 case CAN_CMD_QUERY:
-                    send_valve_command(cmd.address, CAN_WIRE_CMD_STATUS);
+                    send_valve_command(cmd.address, AGSYS_CAN_WIRE_CMD_STATUS);
                     break;
                     
                 case CAN_CMD_DISCOVER_ALL:
@@ -412,14 +262,14 @@ void can_task(void *pvParameters)
         
         /* Periodic heartbeat/discovery */
         TickType_t now = xTaskGetTickCount();
-        if (now - last_heartbeat >= pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS)) {
+        if (now - last_heartbeat >= pdMS_TO_TICKS(AGSYS_CAN_HEARTBEAT_INTERVAL_MS)) {
             send_discover_broadcast();
             last_heartbeat = now;
             
             /* Mark stale actuators as offline */
             for (int i = ACTUATOR_ADDR_MIN; i <= ACTUATOR_ADDR_MAX; i++) {
                 if (m_actuators[i].online && 
-                    (now - m_actuators[i].last_seen) > pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS * 3)) {
+                    (now - m_actuators[i].last_seen) > pdMS_TO_TICKS(AGSYS_CAN_HEARTBEAT_INTERVAL_MS * 3)) {
                     m_actuators[i].online = false;
                     SEGGER_RTT_printf(0, "Actuator %d offline\n", i);
                 }

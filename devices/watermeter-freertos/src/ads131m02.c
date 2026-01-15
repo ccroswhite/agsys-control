@@ -151,12 +151,13 @@ bool ads131m02_init(ads131m02_ctx_t *ctx, const ads131m02_config_t *config)
     ctx->gain_ch1 = config->gain_ch1;
     ctx->power_mode = config->power_mode;
     
-    /* Register with SPI manager */
+    /* Register with SPI manager on bus 0 (ADC bus) */
     agsys_spi_config_t spi_config = {
         .cs_pin = config->cs_pin,
         .cs_active_low = true,
         .frequency = NRF_SPIM_FREQ_4M,
         .mode = 1,  /* CPOL=0, CPHA=1 for ADS131M02 */
+        .bus = AGSYS_SPI_BUS_0,
     };
     
     if (agsys_spi_register(&spi_config, &ctx->spi_handle) != AGSYS_OK) {

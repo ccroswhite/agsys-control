@@ -5,10 +5,15 @@
 
 #include "temp_sensor.h"
 #include "agsys_config.h"
+#include "nrf_gpio.h"
 #include "nrf_drv_saadc.h"
-#include "nrf_drv_twi.h"
+/* TWI disabled for now - TMP102 not populated on current boards */
+/* #include "nrf_drv_twi.h" */
 #include "SEGGER_RTT.h"
 #include <math.h>
+
+/* Stub out TWI functionality until boards have TMP102 populated */
+#define TWI_DISABLED 1
 
 /* ==========================================================================
  * CONSTANTS
@@ -34,8 +39,10 @@
  * STATIC VARIABLES
  * ========================================================================== */
 
+#if !TWI_DISABLED
 static const nrf_drv_twi_t m_twi = NRF_DRV_TWI_INSTANCE(0);
 static bool s_twi_initialized = false;
+#endif
 static nrf_saadc_channel_config_t s_ntc_channel_config;
 
 /* ==========================================================================
@@ -68,6 +75,7 @@ static float ntc_adc_to_temp(uint16_t adc_raw)
     return temp_k - KELVIN_OFFSET;
 }
 
+#if !TWI_DISABLED
 /**
  * @brief Initialize I2C for TMP102
  */
@@ -97,7 +105,9 @@ static bool init_twi(void)
     SEGGER_RTT_printf(0, "TEMP: TWI initialized\n");
     return true;
 }
+#endif
 
+#if !TWI_DISABLED
 /**
  * @brief Read TMP102 temperature register
  */
@@ -137,6 +147,7 @@ static bool tmp102_read_temp(float *temp_c)
     *temp_c = (float)raw * 0.0625f;
     return true;
 }
+#endif /* !TWI_DISABLED */
 
 /* ==========================================================================
  * PUBLIC API
@@ -179,6 +190,7 @@ bool temp_sensor_init(temp_sensor_ctx_t *ctx)
     ctx->ntc_valid = true;
     SEGGER_RTT_printf(0, "TEMP: NTC initialized on AIN5\n");
     
+#if !TWI_DISABLED
     /* Initialize I2C for TMP102 */
     if (init_twi()) {
         /* Check if TMP102 is present */
@@ -191,6 +203,9 @@ bool temp_sensor_init(temp_sensor_ctx_t *ctx)
             SEGGER_RTT_printf(0, "TEMP: TMP102 not detected\n");
         }
     }
+#else
+    SEGGER_RTT_printf(0, "TEMP: TMP102 disabled (TWI not configured)\n");
+#endif
     
     ctx->initialized = true;
     return true;
@@ -225,11 +240,13 @@ float temp_sensor_read_pipe(temp_sensor_ctx_t *ctx)
         return NAN;
     }
     
+#if !TWI_DISABLED
     float temp;
     if (tmp102_read_temp(&temp)) {
         ctx->pipe_temp_c = temp;
         return temp;
     }
+#endif
     
     return NAN;
 }

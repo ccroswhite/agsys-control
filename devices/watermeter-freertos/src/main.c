@@ -34,6 +34,7 @@
 #include <math.h>
 
 #include "agsys_config.h"
+#include "agsys_spi.h"
 #include "agsys_device.h"
 #include "agsys_protocol.h"
 #include "agsys_approtect.h"
@@ -44,6 +45,7 @@
 #include "board_config.h"
 #include "lora_task.h"
 #include "display.h"
+#include "lvgl/lvgl.h"
 #include "flow_calc.h"
 #include "coil_driver.h"
 #include "temp_sensor.h"
@@ -76,8 +78,8 @@ static char m_ota_version_str[16] = {0};
 
 static ads131m02_ctx_t m_adc_ctx;
 static flow_calc_ctx_t m_flow_ctx;
-static coil_driver_ctx_t m_coil_ctx;
-static temp_sensor_ctx_t m_temp_ctx;
+coil_driver_ctx_t m_coil_ctx;  /* Non-static for flow_calc access */
+temp_sensor_ctx_t g_temp_sensor;  /* Non-static for LoRa task access */
 
 /* Global flow data for LoRa task access */
 volatile float g_flow_rate_lpm = 0.0f;
@@ -86,6 +88,9 @@ volatile uint8_t g_alarm_flags = 0;
 
 /* Calibration state - set true if device needs calibration */
 volatile bool g_needs_calibration = false;
+
+/* Global pointer to calibration data for LoRa task access */
+flow_calibration_t *g_calibration_ptr = NULL;
 
 /* ==========================================================================
  * ALARM STATE (types defined in ui_types.h)
@@ -870,9 +875,51 @@ static void adc_task(void *pvParameters)
     
     SEGGER_RTT_printf(0, "ADC task started\n");
     
+    /* Initialize SPI buses with DMA support
+     * Water meter uses 4 SPI buses:
+     * Bus 0 (SPIM0): ADC (ADS131M02)
+     * Bus 1 (SPIM1): Display (ST7789)  
+     * Bus 2 (SPIM2): LoRa (RFM95C)
+     * Bus 3 (SPIM3): Memory (FRAM + Flash)
+     */
+    agsys_spi_bus_config_t adc_bus = {
+        .sck_pin = SPI0_SCK_PIN,
+        .mosi_pin = SPI0_MOSI_PIN,
+        .miso_pin = SPI0_MISO_PIN,
+        .spim_instance = 0,
+    };
+    if (agsys_spi_bus_init(AGSYS_SPI_BUS_0, &adc_bus) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "SPI: Bus 0 (ADC) init failed!\n");
+        vTaskSuspend(NULL);
+    }
+    
+    agsys_spi_bus_config_t display_bus = {
+        .sck_pin = SPI1_SCK_PIN,
+        .mosi_pin = SPI1_MOSI_PIN,
+        .miso_pin = SPI1_MISO_PIN,
+        .spim_instance = 1,
+    };
+    if (agsys_spi_bus_init(AGSYS_SPI_BUS_1, &display_bus) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "SPI: Bus 1 (Display) init failed!\n");
+        vTaskSuspend(NULL);
+    }
+    
+    agsys_spi_bus_config_t lora_bus = {
+        .sck_pin = SPI2_SCK_PIN,
+        .mosi_pin = SPI2_MOSI_PIN,
+        .miso_pin = SPI2_MISO_PIN,
+        .spim_instance = 2,
+    };
+    if (agsys_spi_bus_init(AGSYS_SPI_BUS_2, &lora_bus) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "SPI: Bus 2 (LoRa) init failed!\n");
+        vTaskSuspend(NULL);
+    }
+    
+    SEGGER_RTT_printf(0, "SPI: 3 buses initialized with DMA\n");
+    
     /* Initialize ADS131M02 ADC */
     ads131m02_config_t adc_config = {
-        .spi_cs_pin = AGSYS_ADC_CS_PIN,
+        .cs_pin = AGSYS_ADC_CS_PIN,
         .drdy_pin = AGSYS_ADC_DRDY_PIN,
         .sync_pin = AGSYS_ADC_SYNC_PIN,
         .osr = ADS131M02_OSR_256,       /* 16 kSPS (OSR=256 with 8.192MHz clock) */
@@ -911,6 +958,9 @@ static void adc_task(void *pvParameters)
     /* Step 2: Try to load calibration from FRAM */
     bool cal_loaded = flow_calc_load_calibration(&m_flow_ctx);
     bool needs_calibration = false;
+    
+    /* Export calibration pointer for LoRa task */
+    g_calibration_ptr = &m_flow_ctx.calibration;
     
     if (!cal_loaded) {
         /* No valid calibration - first boot or corrupted */
@@ -971,12 +1021,12 @@ static void adc_task(void *pvParameters)
                                     m_flow_ctx.calibration.target_current_ma);
     
     /* Initialize temperature sensors */
-    if (!temp_sensor_init(&m_temp_ctx)) {
+    if (!temp_sensor_init(&g_temp_sensor)) {
         SEGGER_RTT_printf(0, "TEMP: Init failed (non-fatal)\n");
     } else {
         SEGGER_RTT_printf(0, "TEMP: Board NTC=%s, Pipe TMP102=%s\n",
-                          m_temp_ctx.ntc_valid ? "OK" : "FAIL",
-                          m_temp_ctx.tmp102_present ? "OK" : "NOT FOUND");
+                          g_temp_sensor.ntc_valid ? "OK" : "FAIL",
+                          g_temp_sensor.tmp102_present ? "OK" : "NOT FOUND");
     }
     
     /* Set up DRDY callback for interrupt-driven sampling */
@@ -1025,12 +1075,12 @@ static void adc_task(void *pvParameters)
         temp_read_counter++;
         if (temp_read_counter >= 100) {
             temp_read_counter = 0;
-            temp_sensor_read_all(&m_temp_ctx);
+            temp_sensor_read_all(&g_temp_sensor);
             
-            if (m_temp_ctx.ntc_valid && !isnan(m_temp_ctx.board_temp_c)) {
-                SEGGER_RTT_printf(0, "TEMP: Board=%.1f°C", m_temp_ctx.board_temp_c);
-                if (m_temp_ctx.tmp102_present && !isnan(m_temp_ctx.pipe_temp_c)) {
-                    SEGGER_RTT_printf(0, ", Pipe=%.1f°C", m_temp_ctx.pipe_temp_c);
+            if (g_temp_sensor.ntc_valid && !isnan(g_temp_sensor.board_temp_c)) {
+                SEGGER_RTT_printf(0, "TEMP: Board=%.1f°C", g_temp_sensor.board_temp_c);
+                if (g_temp_sensor.tmp102_present && !isnan(g_temp_sensor.pipe_temp_c)) {
+                    SEGGER_RTT_printf(0, ", Pipe=%.1f°C", g_temp_sensor.pipe_temp_c);
                 }
                 SEGGER_RTT_printf(0, "\n");
             }

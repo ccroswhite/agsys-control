@@ -16,7 +16,12 @@
  * CONFIGURATION
  * ========================================================================== */
 
-/* Maximum number of SPI peripherals that can be registered */
+/* Maximum number of SPI buses (SPIM instances) */
+#ifndef AGSYS_SPI_MAX_BUSES
+#define AGSYS_SPI_MAX_BUSES         3
+#endif
+
+/* Maximum number of SPI peripherals that can be registered per bus */
 #ifndef AGSYS_SPI_MAX_PERIPHERALS
 #define AGSYS_SPI_MAX_PERIPHERALS   6
 #endif
@@ -38,6 +43,15 @@ typedef uint8_t agsys_spi_handle_t;
 #define AGSYS_SPI_INVALID_HANDLE    0xFF
 
 /**
+ * @brief SPI bus identifier
+ */
+typedef uint8_t agsys_spi_bus_t;
+
+#define AGSYS_SPI_BUS_0     0
+#define AGSYS_SPI_BUS_1     1
+#define AGSYS_SPI_BUS_2     2
+
+/**
  * @brief SPI peripheral configuration
  */
 typedef struct {
@@ -45,6 +59,7 @@ typedef struct {
     bool        cs_active_low;  /* true = active low (most common) */
     uint32_t    frequency;      /* SPI clock frequency (NRF_SPIM_FREQ_*) */
     uint8_t     mode;           /* SPI mode (0-3) */
+    agsys_spi_bus_t bus;        /* Which SPI bus (default 0) */
 } agsys_spi_config_t;
 
 /**
@@ -61,10 +76,31 @@ typedef struct {
  * ========================================================================== */
 
 /**
- * @brief Initialize the SPI bus manager
+ * @brief SPI bus configuration
+ */
+typedef struct {
+    uint8_t     sck_pin;        /* SPI clock pin */
+    uint8_t     mosi_pin;       /* SPI MOSI pin */
+    uint8_t     miso_pin;       /* SPI MISO pin */
+    uint8_t     spim_instance;  /* SPIM instance (0, 1, 2, or 3) */
+} agsys_spi_bus_config_t;
+
+/**
+ * @brief Initialize a SPI bus
  * 
- * Must be called before any other SPI functions.
- * Creates the SPI mutex and initializes the SPIM peripheral.
+ * Must be called before registering peripherals on this bus.
+ * Creates mutex and initializes the SPIM peripheral with DMA.
+ * 
+ * @param bus       Bus identifier (AGSYS_SPI_BUS_0, etc.)
+ * @param config    Bus configuration (pins, instance)
+ * @return AGSYS_OK on success
+ */
+agsys_err_t agsys_spi_bus_init(agsys_spi_bus_t bus, const agsys_spi_bus_config_t *config);
+
+/**
+ * @brief Initialize the default SPI bus (bus 0)
+ * 
+ * Convenience function for single-bus devices.
  * 
  * @param sck_pin   SPI clock pin
  * @param mosi_pin  SPI MOSI pin

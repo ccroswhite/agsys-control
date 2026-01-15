@@ -85,7 +85,17 @@ typedef struct {
  * ========================================================================== */
 
 /**
- * @brief Initialize the FRAM driver
+ * @brief Initialize the FRAM driver on a specific SPI bus
+ * 
+ * @param ctx       FRAM context
+ * @param cs_pin    Chip select GPIO pin
+ * @param bus       SPI bus (AGSYS_SPI_BUS_0, AGSYS_SPI_BUS_1, etc.)
+ * @return AGSYS_OK on success
+ */
+agsys_err_t agsys_fram_init_on_bus(agsys_fram_ctx_t *ctx, uint8_t cs_pin, agsys_spi_bus_t bus);
+
+/**
+ * @brief Initialize the FRAM driver (uses default bus 0)
  * 
  * @param ctx       FRAM context
  * @param cs_pin    Chip select GPIO pin

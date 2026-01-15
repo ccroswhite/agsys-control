@@ -67,6 +67,7 @@ typedef struct {
     uint8_t     device_type;    /**< Device type (AGSYS_DEVICE_TYPE_*) */
     uint8_t     fram_cs_pin;    /**< FRAM chip select pin */
     uint8_t     flash_cs_pin;   /**< Flash chip select pin (0 to skip flash init) */
+    uint8_t     memory_spi_bus; /**< SPI bus for FRAM/Flash (default 0) */
     agsys_ble_evt_handler_t evt_handler;  /**< Optional BLE event handler */
 } agsys_device_init_t;
 

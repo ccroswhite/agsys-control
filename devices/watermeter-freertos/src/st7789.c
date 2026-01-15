@@ -71,12 +71,13 @@ bool st7789_init(void)
     nrf_gpio_cfg_output(DISPLAY_BACKLIGHT_PIN);
     nrf_gpio_pin_clear(DISPLAY_BACKLIGHT_PIN);
     
-    /* Register with SPI manager */
+    /* Register with SPI manager on bus 1 (Display bus) */
     agsys_spi_config_t spi_config = {
         .cs_pin = SPI_CS_DISPLAY_PIN,
         .cs_active_low = true,
         .frequency = NRF_SPIM_FREQ_8M,
         .mode = 0,
+        .bus = AGSYS_SPI_BUS_1,
     };
     
     if (agsys_spi_register(&spi_config, &m_spi_handle) != AGSYS_OK) {

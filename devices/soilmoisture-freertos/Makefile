@@ -61,10 +61,11 @@ SRC_FILES += \
   $(SDK_ROOT)/components/ble/common/ble_advdata.c \
   $(SDK_ROOT)/components/ble/common/ble_srv_common.c \
   $(PROJ_DIR)/src/main.c \
-  $(PROJ_DIR)/src/spi_driver.c \
   $(PROJ_DIR)/src/lora_task.c \
   $(PROJ_DIR)/src/freq_counter.c \
   $(PROJ_DIR)/src/sleep_manager.c \
+  $(PROJ_DIR)/src/app_header.c \
+  $(COMMON_DIR)/src/agsys_app_header.c \
   $(SDK_ROOT)/modules/nrfx/drivers/src/nrfx_timer.c \
   $(COMMON_DIR)/src/agsys_ble.c \
   $(COMMON_DIR)/src/agsys_ble_auth.c \
@@ -74,8 +75,10 @@ SRC_FILES += \
   $(COMMON_DIR)/src/agsys_flash_backup.c \
   $(COMMON_DIR)/src/agsys_fram.c \
   $(COMMON_DIR)/src/agsys_spi.c \
+  $(COMMON_DIR)/src/agsys_lora.c \
   $(COMMON_DIR)/src/agsys_ota.c \
   $(COMMON_DIR)/src/agsys_ble_ota.c \
+  $(COMMON_DIR)/src/syscalls.c \
   $(SDK_ROOT)/modules/nrfx/hal/nrf_nvmc.c \
 
 # Include folders
@@ -210,9 +213,16 @@ CMSIS_CONFIG_TOOL := $(SDK_ROOT)/external_tools/cmsisconfig/CMSIS_Configuration_
 sdk_config:
 	java -jar $(CMSIS_CONFIG_TOOL) $(SDK_CONFIG_FILE)
 
-# Build with proper output naming
+# Build with proper output naming and patch app header
 .PHONY: release
-release: default
+release: default patch_header
 	@mv $(OUTPUT_DIRECTORY)/nrf52832_xxaa.hex $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).hex
 	@mv $(OUTPUT_DIRECTORY)/nrf52832_xxaa.bin $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).bin
 	@echo "Built: $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).hex"
+
+# Patch application header with firmware size and CRC
+.PHONY: patch_header
+patch_header: default
+	@echo "Patching application header..."
+	@python3 $(COMMON_DIR)/scripts/patch_app_header.py $(OUTPUT_DIRECTORY)/nrf52832_xxaa.bin
+	@$(OBJCOPY) -I binary -O ihex $(OUTPUT_DIRECTORY)/nrf52832_xxaa.bin $(OUTPUT_DIRECTORY)/nrf52832_xxaa.hex

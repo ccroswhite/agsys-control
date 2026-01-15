@@ -798,15 +798,24 @@ uint16_t flow_calc_measure_coil_resistance(flow_calc_ctx_t *ctx)
     SEGGER_RTT_printf(0, "FLOW: Measuring coil resistance...\n");
     
     /* We need to:
-     * 1. Turn on coil at 100% duty (no PWM)
-     * 2. Wait for current to stabilize (~100ms)
+     * 1. Turn on coil at 100% duty (no PWM limiting)
+     * 2. Wait for current to stabilize (~200ms)
      * 3. Read I_SENSE ADC channel
      * 4. Calculate R = V_supply / I_measured
+     * 
+     * Note: This function requires the coil driver context to be passed.
+     * For now, we use the external global coil context.
      */
     
-    /* Turn on coil at full duty */
-    coil_driver_set_duty(255);  /* 100% duty */
-    coil_driver_enable(true);
+    /* Get coil driver context (external) */
+    extern coil_driver_ctx_t m_coil_ctx;
+    
+    /* Save current target and set to max for resistance measurement */
+    uint32_t saved_target = m_coil_ctx.target_current_ma;
+    coil_driver_set_target_current(&m_coil_ctx, 2000);  /* 2A max for measurement */
+    
+    /* Start coil */
+    coil_driver_start(&m_coil_ctx);
     
     /* Wait for current to stabilize */
     vTaskDelay(pdMS_TO_TICKS(200));
@@ -824,8 +833,9 @@ uint16_t flow_calc_measure_coil_resistance(flow_calc_ctx_t *ctx)
         vTaskDelay(pdMS_TO_TICKS(1));
     }
     
-    /* Turn off coil */
-    coil_driver_enable(false);
+    /* Stop coil and restore target */
+    coil_driver_stop(&m_coil_ctx);
+    coil_driver_set_target_current(&m_coil_ctx, saved_target);
     
     if (count == 0) {
         SEGGER_RTT_printf(0, "FLOW: No valid ADC samples for resistance measurement\n");

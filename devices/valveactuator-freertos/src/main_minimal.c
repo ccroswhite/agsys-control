@@ -24,6 +24,10 @@
 #include "led_task.h"
 #include "agsys_device.h"
 #include "agsys_approtect.h"
+#include "agsys_ota.h"
+#include "agsys_ble_ota.h"
+#include "agsys_flash.h"
+#include "agsys_flash_backup.h"
 
 /* Task handles */
 static TaskHandle_t m_can_task_handle = NULL;
@@ -32,6 +36,12 @@ static TaskHandle_t m_led_task_handle = NULL;
 
 /* Device context (BLE, FRAM, auth) */
 static agsys_device_ctx_t m_device_ctx;
+
+/* OTA contexts */
+static agsys_flash_ctx_t m_flash_ctx;
+static agsys_backup_ctx_t m_backup_ctx;
+static agsys_ota_ctx_t m_ota_ctx;
+static agsys_ble_ota_t m_ble_ota_ctx;
 
 /* Pairing mode (non-static for LED task access) */
 bool g_pairing_mode = false;
@@ -140,6 +150,53 @@ void exit_pairing_mode(void)
 }
 
 /* ==========================================================================
+ * OTA INITIALIZATION
+ * ========================================================================== */
+
+static bool init_ota(void)
+{
+    /* Initialize external flash */
+    if (!agsys_flash_init(&m_flash_ctx, SPI_CS_FLASH_PIN)) {
+        SEGGER_RTT_printf(0, "OTA: Flash init failed\n");
+        return false;
+    }
+    
+    /* Initialize backup system */
+    if (!agsys_backup_init(&m_backup_ctx, &m_flash_ctx)) {
+        SEGGER_RTT_printf(0, "OTA: Backup init failed\n");
+        return false;
+    }
+    
+    /* Check for rollback from previous failed update */
+    if (agsys_backup_check_rollback(&m_backup_ctx)) {
+        SEGGER_RTT_printf(0, "OTA: Rollback occurred from failed update\n");
+    }
+    
+    /* Initialize OTA module */
+    if (!agsys_ota_init(&m_ota_ctx, &m_flash_ctx, &m_backup_ctx)) {
+        SEGGER_RTT_printf(0, "OTA: OTA init failed\n");
+        return false;
+    }
+    
+    /* Initialize BLE OTA service */
+    uint32_t err_code = agsys_ble_ota_init(&m_ble_ota_ctx, &m_ota_ctx);
+    if (err_code != NRF_SUCCESS) {
+        SEGGER_RTT_printf(0, "OTA: BLE OTA init failed (err=%lu)\n", err_code);
+    } else {
+        SEGGER_RTT_printf(0, "OTA: BLE OTA enabled\n");
+    }
+    
+    /* Confirm firmware if pending from previous OTA */
+    if (agsys_ota_is_confirm_pending(&m_ota_ctx)) {
+        SEGGER_RTT_printf(0, "OTA: Confirming firmware after successful boot\n");
+        agsys_ota_confirm(&m_ota_ctx);
+    }
+    
+    SEGGER_RTT_printf(0, "OTA: Initialized\n");
+    return true;
+}
+
+/* ==========================================================================
  * SOFTDEVICE INIT
  * ========================================================================== */
 
@@ -225,6 +282,11 @@ int main(void)
                 NULL, TASK_PRIORITY_LED, &m_led_task_handle);
     
     SEGGER_RTT_printf(0, "Tasks created\n");
+    
+    /* Initialize OTA after tasks are created */
+    if (!init_ota()) {
+        SEGGER_RTT_printf(0, "WARNING: OTA init failed, updates disabled\n");
+    }
     
     /* Start SoftDevice FreeRTOS thread */
     nrf_sdh_freertos_init(NULL, NULL);

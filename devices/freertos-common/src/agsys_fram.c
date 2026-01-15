@@ -44,23 +44,24 @@ static uint16_t crc16_ccitt(const uint8_t *data, size_t len)
  * INITIALIZATION
  * ========================================================================== */
 
-agsys_err_t agsys_fram_init(agsys_fram_ctx_t *ctx, uint8_t cs_pin)
+agsys_err_t agsys_fram_init_on_bus(agsys_fram_ctx_t *ctx, uint8_t cs_pin, agsys_spi_bus_t bus)
 {
     if (ctx == NULL) {
         return AGSYS_ERR_INVALID_PARAM;
     }
 
-    /* Register with SPI manager */
+    /* Register with SPI manager on specified bus */
     agsys_spi_config_t spi_config = {
         .cs_pin = cs_pin,
         .cs_active_low = true,
         .frequency = NRF_SPIM_FREQ_4M,
         .mode = 0,
+        .bus = bus,
     };
 
     agsys_err_t err = agsys_spi_register(&spi_config, &ctx->spi_handle);
     if (err != AGSYS_OK) {
-        AGSYS_LOG_ERROR("FRAM: Failed to register SPI");
+        AGSYS_LOG_ERROR("FRAM: Failed to register SPI on bus %d", bus);
         return err;
     }
 
@@ -73,8 +74,14 @@ agsys_err_t agsys_fram_init(agsys_fram_ctx_t *ctx, uint8_t cs_pin)
         /* Don't fail init - device might be absent in some configurations */
     }
 
-    AGSYS_LOG_INFO("FRAM: Initialized (CS=%d)", cs_pin);
+    AGSYS_LOG_INFO("FRAM: Initialized (CS=%d, bus=%d)", cs_pin, bus);
     return AGSYS_OK;
+}
+
+agsys_err_t agsys_fram_init(agsys_fram_ctx_t *ctx, uint8_t cs_pin)
+{
+    /* Default to bus 0 for backward compatibility */
+    return agsys_fram_init_on_bus(ctx, cs_pin, AGSYS_SPI_BUS_0);
 }
 
 void agsys_fram_deinit(agsys_fram_ctx_t *ctx)

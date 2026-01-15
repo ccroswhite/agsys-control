@@ -41,6 +41,7 @@ static UserSettings_t *m_userSettings = NULL;
 #define COLOR_ALARM_CRITICAL lv_color_hex(0xCC0000)
 #define COLOR_ALARM_WARNING  lv_color_hex(0xCC6600)
 #define COLOR_BLE_ACTIVE     lv_color_hex(0x0082FC)  /* Bluetooth blue */
+#define COLOR_ACCENT         lv_color_hex(0x0066CC)  /* Accent color for highlights */
 
 /* Main screen UI elements */
 static lv_obj_t *m_screen_main = NULL;
@@ -77,6 +78,22 @@ static int8_t m_pinDigitIndex = 0;
 /* Display power state */
 static DisplayPowerState_t m_displayPowerState = DISPLAY_ACTIVE;
 static uint32_t m_lastInputMs = 0;
+
+/* Calibration screen state (forward declarations for use in button handler) */
+static float m_span_cal_flow = 50.0f;
+static uint8_t m_selected_pipe_size = 1;
+static uint16_t m_duty_on_ms = 1100;
+static uint16_t m_duty_off_ms = 13900;
+static uint8_t m_duty_edit_field = 0;
+static bool m_cal_in_progress = false;
+#define PIPE_SIZE_COUNT_UI 7
+
+/* Calibration callbacks - implemented in main.c */
+extern bool display_cal_zero_callback(void);
+extern bool display_cal_span_callback(float known_flow_lpm);
+extern void display_cal_pipe_size_callback(uint8_t pipe_size);
+extern void display_cal_get_duty_cycle(uint16_t *on_ms, uint16_t *off_ms);
+extern void display_cal_set_duty_cycle(uint16_t on_ms, uint16_t off_ms);
 
 /* Menu elements */
 static lv_obj_t *m_screen_menu = NULL;
@@ -1755,13 +1772,6 @@ void display_showCalibration(void)
  * ZERO CALIBRATION SCREEN
  * ========================================================================== */
 
-/* Callback for zero calibration - defined in main.c */
-extern bool display_cal_zero_callback(void);
-
-static bool m_cal_in_progress = false;
-static bool m_cal_success = false;
-static char m_cal_status_msg[64] = {0};
-
 void display_showCalZero(void)
 {
     m_currentScreen = SCREEN_CAL_ZERO;
@@ -1791,11 +1801,6 @@ void display_showCalZero(void)
 /* ==========================================================================
  * SPAN CALIBRATION SCREEN
  * ========================================================================== */
-
-/* Callback for span calibration - defined in main.c */
-extern bool display_cal_span_callback(float known_flow_lpm);
-
-static float m_span_cal_flow = 50.0f;  /* Default 50 L/min */
 
 void display_showCalSpan(void)
 {
@@ -1836,10 +1841,7 @@ void display_showCalSpan(void)
  * PIPE SIZE SELECTION SCREEN
  * ========================================================================== */
 
-/* Callback for pipe size change - defined in main.c */
-extern void display_cal_pipe_size_callback(uint8_t pipe_size);
-
-static const char *PIPE_SIZE_NAMES[] = {
+static const char * const PIPE_SIZE_NAMES[] = {
     "1.5\" Sch 80",
     "2\" Sch 80",
     "2.5\" Sch 40",
@@ -1848,9 +1850,6 @@ static const char *PIPE_SIZE_NAMES[] = {
     "5\" Sch 40",
     "6\" Sch 40"
 };
-#define PIPE_SIZE_COUNT_UI 7
-
-static uint8_t m_selected_pipe_size = 1;  /* Default 2" */
 
 void display_showCalPipeSize(void)
 {
@@ -1883,14 +1882,6 @@ void display_showCalPipeSize(void)
 /* ==========================================================================
  * DUTY CYCLE CONFIGURATION SCREEN
  * ========================================================================== */
-
-/* Callbacks for duty cycle - defined in main.c */
-extern void display_cal_get_duty_cycle(uint16_t *on_ms, uint16_t *off_ms);
-extern void display_cal_set_duty_cycle(uint16_t on_ms, uint16_t off_ms);
-
-static uint16_t m_duty_on_ms = 1100;
-static uint16_t m_duty_off_ms = 13900;
-static uint8_t m_duty_edit_field = 0;  /* 0 = on time, 1 = off time */
 
 void display_showCalDutyCycle(void)
 {

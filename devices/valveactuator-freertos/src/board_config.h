@@ -96,25 +96,6 @@
 #define TASK_PRIORITY_LED       1
 
 /* ==========================================================================
- * CAN CONFIGURATION
- * ========================================================================== */
-
-#define CAN_BASE_ID             0x100
-#define CAN_CMD_OPEN            0x01
-#define CAN_CMD_CLOSE           0x02
-#define CAN_CMD_STOP            0x03
-#define CAN_CMD_EMERGENCY       0x04
-#define CAN_CMD_STATUS          0x10
-#define CAN_CMD_DISCOVER        0x20
-
-/* Special CAN IDs */
-#define CAN_ID_DISCOVER         0x1F0   /* Broadcast discovery - all actuators respond */
-#define CAN_ID_EMERGENCY        0x1FF   /* Emergency close all */
-
-/* Discovery response timing */
-#define CAN_DISCOVERY_DELAY_MS  5       /* Delay per address to stagger responses */
-
-/* ==========================================================================
  * VALVE CONFIGURATION
  * ========================================================================== */
 

@@ -68,6 +68,13 @@ SRC_FILES += \
   $(PROJ_DIR)/src/st7789.c \
   $(PROJ_DIR)/src/display.c \
   $(PROJ_DIR)/src/lora_task.c \
+  $(PROJ_DIR)/src/flow_calc.c \
+  $(PROJ_DIR)/src/coil_driver.c \
+  $(PROJ_DIR)/src/temp_sensor.c \
+  $(PROJ_DIR)/src/lvgl_port.c \
+  $(PROJ_DIR)/src/nrf_sdh_freertos_wrapper.c \
+  $(PROJ_DIR)/src/app_header.c \
+  $(COMMON_DIR)/src/agsys_app_header.c \
   $(COMMON_DIR)/src/agsys_ble.c \
   $(COMMON_DIR)/src/agsys_ble_auth.c \
   $(COMMON_DIR)/src/agsys_device.c \
@@ -76,6 +83,7 @@ SRC_FILES += \
   $(COMMON_DIR)/src/agsys_flash_backup.c \
   $(COMMON_DIR)/src/agsys_fram.c \
   $(COMMON_DIR)/src/agsys_spi.c \
+  $(COMMON_DIR)/src/agsys_lora.c \
   $(wildcard $(LVGL_DIR)/src/*.c) \
   $(wildcard $(LVGL_DIR)/src/core/*.c) \
   $(wildcard $(LVGL_DIR)/src/display/*.c) \
@@ -86,6 +94,7 @@ SRC_FILES += \
   $(wildcard $(LVGL_DIR)/src/indev/*.c) \
   $(wildcard $(LVGL_DIR)/src/layouts/*.c) \
   $(wildcard $(LVGL_DIR)/src/layouts/flex/*.c) \
+  $(wildcard $(LVGL_DIR)/src/libs/bin_decoder/*.c) \
   $(wildcard $(LVGL_DIR)/src/libs/freetype/*.c) \
   $(wildcard $(LVGL_DIR)/src/misc/*.c) \
   $(wildcard $(LVGL_DIR)/src/misc/cache/*.c) \
@@ -108,6 +117,7 @@ SRC_FILES += \
   $(wildcard $(LVGL_DIR)/src/widgets/spinner/*.c) \
   $(COMMON_DIR)/src/agsys_ota.c \
   $(COMMON_DIR)/src/agsys_ble_ota.c \
+  $(COMMON_DIR)/src/syscalls.c \
 
 # Include folders
 INC_FOLDERS += \

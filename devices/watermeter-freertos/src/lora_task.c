@@ -1,31 +1,27 @@
 /**
  * @file lora_task.c
- * @brief LoRa task implementation for Water Meter (Magmeter)
+ * @brief LoRa task implementation for Water Meter
  * 
  * Handles RFM95C communication with property controller using AgSys protocol.
- * Uses the canonical protocol definition from agsys-api.
+ * Uses the shared agsys_lora driver from freertos-common.
  */
 
 #include "sdk_config.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "semphr.h"
 
 #include "nrf.h"
 #include "nrf_gpio.h"
-#include "nrfx_gpiote.h"
 #include "SEGGER_RTT.h"
 
 #include "lora_task.h"
+#include "agsys_lora.h"
 #include "board_config.h"
-#include "agsys_config.h"
 #include "agsys_device.h"
 #include "agsys_protocol.h"
 #include "agsys_memory_layout.h"
 #include "agsys_fram.h"
-#include "agsys_spi.h"
 #include "flow_calc.h"
-#include "temp_sensor.h"
 
 #include <string.h>
 
@@ -42,59 +38,35 @@
 
 /* External device context for logging */
 extern agsys_device_ctx_t m_device_ctx;
-extern agsys_fram_ctx_t m_fram_ctx;
+
+/* External flow data from main.c */
+extern volatile float g_flow_rate_lpm;
+extern volatile float g_total_volume_l;
+extern volatile uint8_t g_alarm_flags;
+extern flow_calibration_t *g_calibration_ptr;
 
 /* Boot reason - set during startup */
 static uint8_t m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
 
-/* External calibration data for intervals */
-extern flow_calibration_t g_calibration;
-
-/* External temperature sensor */
-extern temp_sensor_ctx_t g_temp_sensor;
-
 /* ==========================================================================
- * RFM95C REGISTER DEFINITIONS
+ * LORA CONFIGURATION
  * ========================================================================== */
 
-#define REG_FIFO                0x00
-#define REG_OP_MODE             0x01
-#define REG_FRF_MSB             0x06
-#define REG_FRF_MID             0x07
-#define REG_FRF_LSB             0x08
-#define REG_PA_CONFIG           0x09
-#define REG_LNA                 0x0C
-#define REG_FIFO_ADDR_PTR       0x0D
-#define REG_FIFO_TX_BASE        0x0E
-#define REG_FIFO_RX_BASE        0x0F
-#define REG_FIFO_RX_CURRENT     0x10
-#define REG_IRQ_FLAGS           0x12
-#define REG_RX_NB_BYTES         0x13
-#define REG_PKT_SNR             0x19
-#define REG_PKT_RSSI            0x1A
-#define REG_MODEM_CONFIG_1      0x1D
-#define REG_MODEM_CONFIG_2      0x1E
-#define REG_PREAMBLE_MSB        0x20
-#define REG_PREAMBLE_LSB        0x21
-#define REG_PAYLOAD_LENGTH      0x22
-#define REG_MODEM_CONFIG_3      0x26
-#define REG_SYNC_WORD           0x39
-#define REG_DIO_MAPPING_1       0x40
-#define REG_VERSION             0x42
-#define REG_PA_DAC              0x4D
+#define LORA_FREQUENCY          915000000
+#ifndef LORA_SPREADING_FACTOR
+#define LORA_SPREADING_FACTOR   10
+#endif
+#define LORA_BANDWIDTH          125000
+#define LORA_CODING_RATE        5
+#define LORA_TX_POWER           20
 
-/* Operating modes */
-#define MODE_SLEEP              0x00
-#define MODE_STDBY              0x01
-#define MODE_TX                 0x03
-#define MODE_RX_CONTINUOUS      0x05
-#define MODE_RX_SINGLE          0x06
-#define MODE_LORA               0x80
-
-/* IRQ flags */
-#define IRQ_TX_DONE             0x08
-#define IRQ_RX_DONE             0x40
-#define IRQ_PAYLOAD_CRC_ERROR   0x20
+/* Task configuration */
+#ifndef TASK_STACK_LORA
+#define TASK_STACK_LORA         512
+#endif
+#ifndef TASK_PRIORITY_LORA
+#define TASK_PRIORITY_LORA      2
+#endif
 
 /* ==========================================================================
  * PRIVATE DATA
@@ -102,234 +74,14 @@ extern temp_sensor_ctx_t g_temp_sensor;
 
 static TaskHandle_t m_task_handle = NULL;
 static bool m_initialized = false;
-static uint16_t m_sequence = 0;
 static uint8_t m_device_uid[8];
+static uint8_t m_sequence = 0;
 
-/* Flow data from main.c */
-extern volatile float g_flow_rate_lpm;
-extern volatile float g_total_volume_l;
-extern volatile uint8_t g_alarm_flags;
-
-/* SPI handle for LoRa */
-static agsys_spi_handle_t m_lora_spi_handle = AGSYS_SPI_INVALID_HANDLE;
+/* Shared LoRa driver context */
+static agsys_lora_ctx_t m_lora_ctx;
 
 /* ==========================================================================
- * SPI HELPERS (using shared DMA driver)
- * ========================================================================== */
-
-static void spi_transfer(const uint8_t *tx, uint8_t *rx, size_t len)
-{
-    agsys_spi_xfer_t xfer = {
-        .tx_buf = tx,
-        .rx_buf = rx,
-        .length = len,
-    };
-    agsys_spi_transfer(m_lora_spi_handle, &xfer);
-}
-
-/* ==========================================================================
- * RFM95C LOW-LEVEL FUNCTIONS
- * ========================================================================== */
-
-static void rfm_write_reg(uint8_t reg, uint8_t value)
-{
-    uint8_t tx[2] = { reg | 0x80, value };
-    spi_transfer(tx, NULL, 2);
-}
-
-static uint8_t rfm_read_reg(uint8_t reg)
-{
-    uint8_t tx[2] = { reg & 0x7F, 0x00 };
-    uint8_t rx[2];
-    spi_transfer(tx, rx, 2);
-    return rx[1];
-}
-
-static void rfm_set_mode(uint8_t mode)
-{
-    rfm_write_reg(REG_OP_MODE, MODE_LORA | mode);
-}
-
-static void rfm_set_frequency(uint32_t freq)
-{
-    uint64_t frf = ((uint64_t)freq << 19) / 32000000;
-    rfm_write_reg(REG_FRF_MSB, (frf >> 16) & 0xFF);
-    rfm_write_reg(REG_FRF_MID, (frf >> 8) & 0xFF);
-    rfm_write_reg(REG_FRF_LSB, frf & 0xFF);
-}
-
-static bool rfm_init(void)
-{
-    /* Register with SPI manager */
-    agsys_spi_config_t spi_config = {
-        .cs_pin = SPI_CS_LORA_PIN,
-        .cs_active_low = true,
-        .frequency = NRF_SPIM_FREQ_4M,
-        .mode = 0,
-    };
-    
-    if (agsys_spi_register(&spi_config, &m_lora_spi_handle) != AGSYS_OK) {
-        SEGGER_RTT_printf(0, "LoRa: Failed to register SPI\n");
-        return false;
-    }
-    
-    /* Reset */
-    nrf_gpio_cfg_output(LORA_RESET_PIN);
-    nrf_gpio_pin_clear(LORA_RESET_PIN);
-    vTaskDelay(pdMS_TO_TICKS(10));
-    nrf_gpio_pin_set(LORA_RESET_PIN);
-    vTaskDelay(pdMS_TO_TICKS(10));
-    
-    /* Check version */
-    uint8_t version = rfm_read_reg(REG_VERSION);
-    SEGGER_RTT_printf(0, "RFM95 version: 0x%02X\n", version);
-    
-    if (version != 0x12) {
-        SEGGER_RTT_printf(0, "RFM95: Invalid version (expected 0x12)\n");
-        return false;
-    }
-    
-    /* Sleep mode for configuration */
-    rfm_set_mode(MODE_SLEEP);
-    vTaskDelay(pdMS_TO_TICKS(10));
-    
-    /* Set frequency */
-    rfm_set_frequency(LORA_FREQUENCY);
-    
-    /* Configure modem: BW=125kHz, CR=4/5, explicit header */
-    rfm_write_reg(REG_MODEM_CONFIG_1, 0x72);
-    
-    /* SF=7, CRC on */
-    rfm_write_reg(REG_MODEM_CONFIG_2, (LORA_SPREADING_FACTOR << 4) | 0x04);
-    
-    /* LNA gain auto, low data rate optimize off */
-    rfm_write_reg(REG_MODEM_CONFIG_3, 0x04);
-    
-    /* TX power +20dBm */
-    rfm_write_reg(REG_PA_CONFIG, 0x8F);
-    rfm_write_reg(REG_PA_DAC, 0x87);
-    
-    /* Preamble length 8 */
-    rfm_write_reg(REG_PREAMBLE_MSB, 0x00);
-    rfm_write_reg(REG_PREAMBLE_LSB, 0x08);
-    
-    /* Sync word */
-    rfm_write_reg(REG_SYNC_WORD, 0x34);
-    
-    /* DIO0 = TxDone/RxDone */
-    rfm_write_reg(REG_DIO_MAPPING_1, 0x00);
-    
-    /* Standby mode */
-    rfm_set_mode(MODE_STDBY);
-    
-    SEGGER_RTT_printf(0, "RFM95: Initialized at %lu Hz, SF%d\n", 
-                      LORA_FREQUENCY, LORA_SPREADING_FACTOR);
-    
-    return true;
-}
-
-static bool rfm_send(const uint8_t *data, uint8_t len)
-{
-    if (len > 255) return false;
-    
-    /* Standby mode */
-    rfm_set_mode(MODE_STDBY);
-    
-    /* Set FIFO pointer to TX base */
-    rfm_write_reg(REG_FIFO_ADDR_PTR, 0x00);
-    rfm_write_reg(REG_FIFO_TX_BASE, 0x00);
-    
-    /* Write data to FIFO */
-    for (uint8_t i = 0; i < len; i++) {
-        rfm_write_reg(REG_FIFO, data[i]);
-    }
-    
-    /* Set payload length */
-    rfm_write_reg(REG_PAYLOAD_LENGTH, len);
-    
-    /* Clear IRQ flags */
-    rfm_write_reg(REG_IRQ_FLAGS, 0xFF);
-    
-    /* Start TX */
-    rfm_set_mode(MODE_TX);
-    
-    /* Wait for TX done (timeout 5 seconds) */
-    uint32_t start = xTaskGetTickCount();
-    while ((rfm_read_reg(REG_IRQ_FLAGS) & IRQ_TX_DONE) == 0) {
-        if ((xTaskGetTickCount() - start) > pdMS_TO_TICKS(5000)) {
-            SEGGER_RTT_printf(0, "RFM95: TX timeout\n");
-            rfm_set_mode(MODE_STDBY);
-            return false;
-        }
-        vTaskDelay(pdMS_TO_TICKS(1));
-    }
-    
-    /* Clear IRQ flags */
-    rfm_write_reg(REG_IRQ_FLAGS, 0xFF);
-    
-    /* Back to standby */
-    rfm_set_mode(MODE_STDBY);
-    
-    return true;
-}
-
-static uint8_t rfm_receive(uint8_t *buffer, uint8_t max_len, int16_t *rssi, uint32_t timeout_ms)
-{
-    /* Set FIFO pointer to RX base */
-    rfm_write_reg(REG_FIFO_ADDR_PTR, 0x00);
-    rfm_write_reg(REG_FIFO_RX_BASE, 0x00);
-    
-    /* Clear IRQ flags */
-    rfm_write_reg(REG_IRQ_FLAGS, 0xFF);
-    
-    /* Start RX */
-    rfm_set_mode(MODE_RX_SINGLE);
-    
-    /* Wait for RX done or timeout */
-    uint32_t start = xTaskGetTickCount();
-    while ((rfm_read_reg(REG_IRQ_FLAGS) & IRQ_RX_DONE) == 0) {
-        if ((xTaskGetTickCount() - start) > pdMS_TO_TICKS(timeout_ms)) {
-            rfm_set_mode(MODE_STDBY);
-            return 0;
-        }
-        vTaskDelay(pdMS_TO_TICKS(1));
-    }
-    
-    /* Check CRC error */
-    if (rfm_read_reg(REG_IRQ_FLAGS) & IRQ_PAYLOAD_CRC_ERROR) {
-        rfm_write_reg(REG_IRQ_FLAGS, 0xFF);
-        rfm_set_mode(MODE_STDBY);
-        return 0;
-    }
-    
-    /* Get RSSI */
-    if (rssi) {
-        *rssi = rfm_read_reg(REG_PKT_RSSI) - 137;
-    }
-    
-    /* Get payload length */
-    uint8_t len = rfm_read_reg(REG_RX_NB_BYTES);
-    if (len > max_len) len = max_len;
-    
-    /* Set FIFO pointer to current RX address */
-    rfm_write_reg(REG_FIFO_ADDR_PTR, rfm_read_reg(REG_FIFO_RX_CURRENT));
-    
-    /* Read data from FIFO */
-    for (uint8_t i = 0; i < len; i++) {
-        buffer[i] = rfm_read_reg(REG_FIFO);
-    }
-    
-    /* Clear IRQ flags */
-    rfm_write_reg(REG_IRQ_FLAGS, 0xFF);
-    
-    /* Back to standby */
-    rfm_set_mode(MODE_STDBY);
-    
-    return len;
-}
-
-/* ==========================================================================
- * AGSYS PROTOCOL
+ * PACKET BUILDING
  * ========================================================================== */
 
 static void get_device_uid(void)
@@ -364,27 +116,25 @@ static bool send_meter_report(float flow_rate_lpm, float total_volume_l, uint8_t
     agsys_header_t *hdr = (agsys_header_t *)buffer;
     build_header(hdr, AGSYS_MSG_METER_REPORT);
     
-    /* Build payload using canonical structure */
     agsys_meter_report_t *report = (agsys_meter_report_t *)(buffer + sizeof(agsys_header_t));
     
-    report->timestamp = xTaskGetTickCount() / configTICK_RATE_HZ;  /* Uptime in seconds */
-    report->total_pulses = 0;  /* Mag meter doesn't use pulses */
+    report->timestamp = xTaskGetTickCount() / configTICK_RATE_HZ;
+    report->total_pulses = 0;
     report->total_liters = (uint32_t)total_volume_l;
-    report->flow_rate_lpm = (uint16_t)(flow_rate_lpm * 10);  /* 0.1 L/min resolution */
-    report->battery_mv = 0;  /* Mains powered, no battery */
+    report->flow_rate_lpm = (uint16_t)(flow_rate_lpm * 10);
+    report->battery_mv = 0;
     report->flags = alarm_flags;
     
-    /* Firmware version and boot reason */
-    report->fw_version[0] = FW_VERSION_MAJOR;
-    report->fw_version[1] = FW_VERSION_MINOR;
-    report->fw_version[2] = FW_VERSION_PATCH;
-    report->boot_reason = m_boot_reason;
+    /* Note: fw_version and boot_reason not in canonical agsys_meter_report_t */
     
     uint8_t total_len = sizeof(agsys_header_t) + sizeof(agsys_meter_report_t);
     
-    /* SPI mutex handled by agsys_spi driver */
-    return rfm_send(buffer, total_len);
+    return (agsys_lora_transmit(&m_lora_ctx, buffer, total_len) == AGSYS_OK);
 }
+
+/* ==========================================================================
+ * MESSAGE PROCESSING
+ * ========================================================================== */
 
 static void process_lora_message(const uint8_t *data, uint8_t len, int16_t rssi)
 {
@@ -392,7 +142,6 @@ static void process_lora_message(const uint8_t *data, uint8_t len, int16_t rssi)
     
     agsys_header_t *hdr = (agsys_header_t *)data;
     
-    /* Validate magic bytes */
     if (hdr->magic[0] != AGSYS_MAGIC_BYTE1 || hdr->magic[1] != AGSYS_MAGIC_BYTE2) {
         SEGGER_RTT_printf(0, "LoRa RX: Invalid magic bytes\n");
         return;
@@ -410,18 +159,14 @@ static void process_lora_message(const uint8_t *data, uint8_t len, int16_t rssi)
                 agsys_ack_t *ack = (agsys_ack_t *)payload;
                 SEGGER_RTT_printf(0, "LoRa: ACK received (flags=0x%02X)\n", ack->flags);
                 
-                /* Check for OTA pending flag */
-                if (ack->flags & AGSYS_ACK_FLAG_OTA_PENDING) {
-                    SEGGER_RTT_printf(0, "LoRa: OTA update available, initiating OTA\n");
-                    /* TODO: Initiate OTA request flow */
+                /* Check for config available flag */
+                if (ack->flags & AGSYS_ACK_FLAG_CONFIG_AVAILABLE) {
+                    SEGGER_RTT_printf(0, "LoRa: Config update available\n");
                 }
                 
-                /* Clear boot reason after first successful report */
                 if (m_boot_reason != AGSYS_BOOT_REASON_NORMAL) {
                     m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
                 }
-            } else {
-                SEGGER_RTT_printf(0, "LoRa: ACK received\n");
             }
             break;
             
@@ -430,133 +175,38 @@ static void process_lora_message(const uint8_t *data, uint8_t len, int16_t rssi)
                 uint32_t timestamp = (payload[0] << 24) | (payload[1] << 16) |
                                      (payload[2] << 8) | payload[3];
                 SEGGER_RTT_printf(0, "Time sync: %u\n", timestamp);
-                /* TODO: Set RTC */
             }
             break;
             
         case AGSYS_MSG_CONFIG_UPDATE:
             SEGGER_RTT_printf(0, "Config update received\n");
-            /* TODO: Parse and apply config */
             break;
             
         case AGSYS_MSG_METER_RESET_TOTAL:
             SEGGER_RTT_printf(0, "Reset totalizer command received\n");
-            /* TODO: Reset totalizer via callback */
             break;
     }
 }
 
 /* ==========================================================================
- * LORA TASK
- * ========================================================================== */
-
-static void lora_task_func(void *pvParameters)
-{
-    (void)pvParameters;
-    
-    SEGGER_RTT_printf(0, "LoRa task started\n");
-    
-    /* Get device UID */
-    get_device_uid();
-    SEGGER_RTT_printf(0, "Device UID: %02X%02X%02X%02X%02X%02X%02X%02X\n",
-                      m_device_uid[0], m_device_uid[1], m_device_uid[2], m_device_uid[3],
-                      m_device_uid[4], m_device_uid[5], m_device_uid[6], m_device_uid[7]);
-    
-    /* Initialize RFM95 */
-    m_initialized = rfm_init();
-    
-    if (!m_initialized) {
-        SEGGER_RTT_printf(0, "LoRa: Init failed, task exiting\n");
-        vTaskDelete(NULL);
-        return;
-    }
-    
-    /* Get report interval from calibration data
-     * LoRa interval = display_update_sec * lora_report_mult
-     * Default: 15s * 4 = 60s
-     */
-    uint8_t display_sec = g_calibration.display_update_sec;
-    uint8_t lora_mult = g_calibration.lora_report_mult;
-    
-    /* Use defaults if not configured (0 means use default) */
-    if (display_sec == 0) display_sec = AGSYS_DISPLAY_UPDATE_SEC_DEFAULT;
-    if (lora_mult == 0) lora_mult = AGSYS_LORA_REPORT_MULT_DEFAULT;
-    
-    uint32_t report_interval_ms = (uint32_t)display_sec * lora_mult * 1000;
-    SEGGER_RTT_printf(0, "LoRa: Report interval = %lu ms (%d s * %d)\n", 
-                      report_interval_ms, display_sec, lora_mult);
-    
-    TickType_t last_report = xTaskGetTickCount();
-    
-    for (;;) {
-        TickType_t now = xTaskGetTickCount();
-        
-        /* Send periodic reports */
-        if ((now - last_report) >= pdMS_TO_TICKS(report_interval_ms)) {
-            last_report = now;
-            
-            /* Get current flow data */
-            float flow_rate = g_flow_rate_lpm;
-            float total_vol = g_total_volume_l;
-            uint8_t alarms = g_alarm_flags;
-            
-            SEGGER_RTT_printf(0, "LoRa: Sending report (flow=%.1f L/min, total=%.1f L)\n",
-                              flow_rate, total_vol);
-            
-            /* Turn on LoRa LED */
-            nrf_gpio_pin_set(LED_LORA_PIN);
-            
-            bool tx_success = send_meter_report(flow_rate, total_vol, alarms);
-            
-            if (tx_success) {
-                SEGGER_RTT_printf(0, "LoRa: TX success\n");
-                
-                /* Wait for ACK */
-                uint8_t rx_buf[64];
-                int16_t rssi;
-                uint8_t rx_len = rfm_receive(rx_buf, sizeof(rx_buf), &rssi, 2000);
-                
-                if (rx_len > 0) {
-                    process_lora_message(rx_buf, rx_len, rssi);
-                }
-            } else {
-                SEGGER_RTT_printf(0, "LoRa: TX failed\n");
-                
-                /* Log to flash for later sync */
-                uint32_t flow_mlpm = (uint32_t)(flow_rate * 1000);
-                uint32_t total_ml = (uint32_t)(total_vol * 1000);
-                agsys_device_log_meter(&m_device_ctx, flow_mlpm, total_ml, alarms);
-            }
-            
-            /* Turn off LoRa LED */
-            nrf_gpio_pin_clear(LED_LORA_PIN);
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-}
-
-/* ==========================================================================
- * BOOT REASON AND OTA STATE
+ * BOOT REASON HANDLING
  * ========================================================================== */
 
 static void load_boot_reason_from_fram(void)
 {
     agsys_ota_fram_state_t ota_state;
     
-    if (agsys_fram_read(&m_fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR, 
+    if (agsys_fram_read(&m_device_ctx.fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR, 
                         (uint8_t *)&ota_state, sizeof(ota_state)) != AGSYS_OK) {
         SEGGER_RTT_printf(0, "LoRa: Failed to read OTA state from FRAM\n");
         return;
     }
     
-    /* Check if OTA state is valid */
     if (ota_state.magic != AGSYS_OTA_FRAM_MAGIC) {
         m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
         return;
     }
     
-    /* Determine boot reason based on OTA state */
     switch (ota_state.state) {
         case AGSYS_OTA_STATE_SUCCESS:
             m_boot_reason = AGSYS_BOOT_REASON_OTA_SUCCESS;
@@ -584,8 +234,113 @@ static void load_boot_reason_from_fram(void)
         ota_state.state == AGSYS_OTA_STATE_FAILED) {
         ota_state.state = AGSYS_OTA_STATE_NONE;
         ota_state.magic = 0;
-        agsys_fram_write(&m_fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR,
+        agsys_fram_write(&m_device_ctx.fram_ctx, AGSYS_FRAM_OTA_STATE_ADDR,
                          (uint8_t *)&ota_state, sizeof(ota_state));
+    }
+}
+
+/* ==========================================================================
+ * LORA TASK
+ * ========================================================================== */
+
+static void lora_task_func(void *pvParameters)
+{
+    (void)pvParameters;
+    
+    SEGGER_RTT_printf(0, "LoRa task started\n");
+    
+    /* Get device UID */
+    get_device_uid();
+    SEGGER_RTT_printf(0, "Device UID: %02X%02X%02X%02X%02X%02X%02X%02X\n",
+                      m_device_uid[0], m_device_uid[1], m_device_uid[2], m_device_uid[3],
+                      m_device_uid[4], m_device_uid[5], m_device_uid[6], m_device_uid[7]);
+    
+    /* Initialize LoRa using shared driver */
+    agsys_lora_config_t lora_config = {
+        .frequency = LORA_FREQUENCY,
+        .spreading_factor = LORA_SPREADING_FACTOR,
+        .bandwidth = LORA_BANDWIDTH,
+        .coding_rate = LORA_CODING_RATE,
+        .tx_power = LORA_TX_POWER,
+        .crc_enabled = true,
+    };
+    
+    agsys_err_t err = agsys_lora_init(&m_lora_ctx,
+                                       SPI_CS_LORA_PIN,
+                                       LORA_RESET_PIN,
+                                       LORA_DIO0_PIN,
+                                       AGSYS_SPI_BUS_2,
+                                       &lora_config);
+    if (err != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "LoRa: Init failed (err=%d)\n", err);
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    m_initialized = true;
+    SEGGER_RTT_printf(0, "LoRa: Initialized using shared agsys_lora driver\n");
+    
+    /* Get report interval from calibration data */
+    uint8_t display_sec = 0;
+    uint8_t lora_mult = 0;
+    
+    if (g_calibration_ptr != NULL) {
+        display_sec = g_calibration_ptr->display_update_sec;
+        lora_mult = g_calibration_ptr->lora_report_mult;
+    }
+    
+    if (display_sec == 0) display_sec = AGSYS_DISPLAY_UPDATE_SEC_DEFAULT;
+    if (lora_mult == 0) lora_mult = AGSYS_LORA_REPORT_MULT_DEFAULT;
+    
+    uint32_t report_interval_ms = (uint32_t)display_sec * lora_mult * 1000;
+    SEGGER_RTT_printf(0, "LoRa: Report interval = %lu ms (%d s * %d)\n", 
+                      report_interval_ms, display_sec, lora_mult);
+    
+    TickType_t last_report = xTaskGetTickCount();
+    
+    for (;;) {
+        TickType_t now = xTaskGetTickCount();
+        
+        /* Send periodic reports */
+        if ((now - last_report) >= pdMS_TO_TICKS(report_interval_ms)) {
+            last_report = now;
+            
+            float flow_rate = g_flow_rate_lpm;
+            float total_vol = g_total_volume_l;
+            uint8_t alarms = g_alarm_flags;
+            
+            SEGGER_RTT_printf(0, "LoRa: Sending report (flow=%.1f L/min, total=%.1f L)\n",
+                              flow_rate, total_vol);
+            
+            nrf_gpio_pin_set(LED_LORA_PIN);
+            
+            bool tx_success = send_meter_report(flow_rate, total_vol, alarms);
+            
+            if (tx_success) {
+                SEGGER_RTT_printf(0, "LoRa: TX success\n");
+                
+                /* Wait for ACK using shared driver */
+                uint8_t rx_buf[64];
+                int16_t rssi;
+                int8_t snr;
+                int rx_len = agsys_lora_receive(&m_lora_ctx, rx_buf, sizeof(rx_buf), 
+                                                 &rssi, &snr, 2000);
+                
+                if (rx_len > 0) {
+                    process_lora_message(rx_buf, rx_len, rssi);
+                }
+            } else {
+                SEGGER_RTT_printf(0, "LoRa: TX failed\n");
+                
+                uint32_t flow_mlpm = (uint32_t)(flow_rate * 1000);
+                uint32_t total_ml = (uint32_t)(total_vol * 1000);
+                agsys_device_log_meter(&m_device_ctx, flow_mlpm, total_ml, alarms);
+            }
+            
+            nrf_gpio_pin_clear(LED_LORA_PIN);
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -595,11 +350,9 @@ static void load_boot_reason_from_fram(void)
 
 void lora_task_init(void)
 {
-    /* Configure LED */
     nrf_gpio_cfg_output(LED_LORA_PIN);
     nrf_gpio_pin_clear(LED_LORA_PIN);
     
-    /* Load boot reason from FRAM OTA state */
     load_boot_reason_from_fram();
 }
 

@@ -13,10 +13,11 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "agsys_can.h"
 
-/* Actuator address range */
-#define ACTUATOR_ADDR_MIN   1
-#define ACTUATOR_ADDR_MAX   64
+/* Actuator address range (from shared header) */
+#define ACTUATOR_ADDR_MIN   AGSYS_CAN_ADDR_MIN
+#define ACTUATOR_ADDR_MAX   AGSYS_CAN_ADDR_MAX
 
 /* Actuator status structure */
 typedef struct {

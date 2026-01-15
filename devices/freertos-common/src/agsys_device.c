@@ -50,8 +50,8 @@ bool agsys_device_init(agsys_device_ctx_t *ctx, const agsys_device_init_t *init)
                       ctx->device_uid[4], ctx->device_uid[5], 
                       ctx->device_uid[6], ctx->device_uid[7]);
     
-    /* Initialize FRAM */
-    if (agsys_fram_init(&ctx->fram_ctx, init->fram_cs_pin) != AGSYS_OK) {
+    /* Initialize FRAM on specified bus */
+    if (agsys_fram_init_on_bus(&ctx->fram_ctx, init->fram_cs_pin, init->memory_spi_bus) != AGSYS_OK) {
         SEGGER_RTT_printf(0, "WARNING: FRAM init failed\n");
         /* Continue anyway - PIN auth will use defaults */
     }

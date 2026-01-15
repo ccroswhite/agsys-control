@@ -21,6 +21,11 @@
 #include "nrf_ppi.h"
 #include "nrf_delay.h"
 #include "SEGGER_RTT.h"
+#include "FreeRTOS.h"
+#include "task.h"
+
+/* Forward declaration for internal function */
+static void calculate_pwm_duty(coil_driver_ctx_t *ctx);
 
 /* ==========================================================================
  * HARDWARE DEFINITIONS
@@ -130,25 +135,22 @@ bool coil_driver_init(coil_driver_ctx_t *ctx, uint32_t gpio_pin)
     nrf_timer_frequency_set(COIL_TIMER, NRF_TIMER_FREQ_1MHz);
     
     /* Set compare values */
-    nrf_timer_cc_set(COIL_TIMER, NRF_TIMER_CC_CHANNEL0, CC_HALF_PERIOD);  /* Toggle at 250µs */
-    nrf_timer_cc_set(COIL_TIMER, NRF_TIMER_CC_CHANNEL1, CC_FULL_PERIOD);  /* Clear at 500µs */
+    nrf_timer_cc_write(COIL_TIMER, NRF_TIMER_CC_CHANNEL0, CC_HALF_PERIOD);  /* Toggle at 250µs */
+    nrf_timer_cc_write(COIL_TIMER, NRF_TIMER_CC_CHANNEL1, CC_FULL_PERIOD);  /* Clear at 500µs */
     
     /* Enable shorts: CC[1] -> CLEAR (auto-reload) */
     nrf_timer_shorts_enable(COIL_TIMER, NRF_TIMER_SHORT_COMPARE1_CLEAR_MASK);
     
     /* Configure GPIOTE for toggle on event */
-    nrf_gpiote_task_configure(NRF_GPIOTE, 
-                               GPIOTE_CHANNEL,
+    nrf_gpiote_task_configure(GPIOTE_CHANNEL,
                                gpio_pin,
                                NRF_GPIOTE_POLARITY_TOGGLE,
                                NRF_GPIOTE_INITIAL_VALUE_LOW);
     
     /* Configure PPI: TIMER CC[0] -> GPIOTE TOGGLE */
-    nrf_ppi_channel_endpoint_setup(NRF_PPI,
-                                    (nrf_ppi_channel_t)COIL_PPI_CH_SET,
+    nrf_ppi_channel_endpoint_setup((nrf_ppi_channel_t)COIL_PPI_CH_SET,
                                     (uint32_t)&COIL_TIMER->EVENTS_COMPARE[0],
-                                    nrf_gpiote_task_address_get(NRF_GPIOTE, 
-                                        nrf_gpiote_out_task_get(GPIOTE_CHANNEL)));
+                                    nrf_gpiote_task_addr_get(nrf_gpiote_out_task_get(GPIOTE_CHANNEL)));
     
     /* Enable interrupt for state tracking */
     nrf_timer_int_enable(COIL_TIMER, NRF_TIMER_INT_COMPARE0_MASK);
@@ -181,10 +183,10 @@ bool coil_driver_start(coil_driver_ctx_t *ctx)
     nrf_gpio_pin_clear(ctx->gpio_pin);
     
     /* Enable GPIOTE task */
-    nrf_gpiote_task_enable(NRF_GPIOTE, GPIOTE_CHANNEL);
+    nrf_gpiote_task_enable(GPIOTE_CHANNEL);
     
     /* Enable PPI channel */
-    nrf_ppi_channel_enable(NRF_PPI, (nrf_ppi_channel_t)COIL_PPI_CH_SET);
+    nrf_ppi_channel_enable((nrf_ppi_channel_t)COIL_PPI_CH_SET);
     
     /* Clear and start timer */
     nrf_timer_task_trigger(COIL_TIMER, NRF_TIMER_TASK_CLEAR);
@@ -206,10 +208,10 @@ void coil_driver_stop(coil_driver_ctx_t *ctx)
     nrf_timer_task_trigger(COIL_TIMER, NRF_TIMER_TASK_STOP);
     
     /* Disable PPI channel */
-    nrf_ppi_channel_disable(NRF_PPI, (nrf_ppi_channel_t)COIL_PPI_CH_SET);
+    nrf_ppi_channel_disable((nrf_ppi_channel_t)COIL_PPI_CH_SET);
     
     /* Disable GPIOTE task */
-    nrf_gpiote_task_disable(NRF_GPIOTE, GPIOTE_CHANNEL);
+    nrf_gpiote_task_disable(GPIOTE_CHANNEL);
     
     /* Ensure coil is off */
     nrf_gpio_pin_clear(ctx->gpio_pin);

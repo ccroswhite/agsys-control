@@ -16,7 +16,6 @@
 
 #include "schedule_task.h"
 #include "can_task.h"
-#include "spi_driver.h"
 #include "board_config.h"
 #include "agsys_fram.h"
 #include "agsys_memory_layout.h"

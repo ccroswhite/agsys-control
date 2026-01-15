@@ -102,6 +102,7 @@ agsys_err_t agsys_lora_init(agsys_lora_ctx_t *ctx,
                              uint8_t cs_pin,
                              uint8_t rst_pin,
                              uint8_t dio0_pin,
+                             agsys_spi_bus_t bus,
                              const agsys_lora_config_t *config)
 {
     if (ctx == NULL || config == NULL) {
@@ -113,12 +114,13 @@ agsys_err_t agsys_lora_init(agsys_lora_ctx_t *ctx,
     ctx->dio0_pin = dio0_pin;
     memcpy(&ctx->config, config, sizeof(agsys_lora_config_t));
     
-    /* Register with SPI manager */
+    /* Register with SPI manager on specified bus */
     agsys_spi_config_t spi_config = {
         .cs_pin = cs_pin,
         .cs_active_low = true,
         .frequency = NRF_SPIM_FREQ_4M,
         .mode = 0,
+        .bus = bus,
     };
     
     agsys_err_t err = agsys_spi_register(&spi_config, &ctx->spi_handle);
@@ -291,6 +293,67 @@ agsys_err_t agsys_lora_receive_stop(agsys_lora_ctx_t *ctx)
     ctx->rx_callback = NULL;
     
     return AGSYS_OK;
+}
+
+int agsys_lora_receive(agsys_lora_ctx_t *ctx,
+                        uint8_t *data,
+                        size_t max_len,
+                        int16_t *rssi,
+                        int8_t *snr,
+                        uint32_t timeout_ms)
+{
+    if (ctx == NULL || !ctx->initialized || data == NULL || max_len == 0) {
+        return -1;
+    }
+    
+    lora_set_mode(ctx, MODE_STDBY);
+    lora_write_reg(ctx, REG_FIFO_ADDR_PTR, 0x00);
+    lora_write_reg(ctx, REG_IRQ_FLAGS, 0xFF);
+    lora_set_mode(ctx, MODE_RX_SINGLE);
+    
+    TickType_t start = xTaskGetTickCount();
+    
+    while ((xTaskGetTickCount() - start) < pdMS_TO_TICKS(timeout_ms)) {
+        uint8_t irq = lora_read_reg(ctx, REG_IRQ_FLAGS);
+        
+        if (irq & IRQ_RX_DONE) {
+            lora_write_reg(ctx, REG_IRQ_FLAGS, IRQ_RX_DONE | IRQ_PAYLOAD_CRC_ERROR);
+            
+            if (irq & IRQ_PAYLOAD_CRC_ERROR) {
+                SEGGER_RTT_printf(0, "LoRa: RX CRC error\n");
+                lora_set_mode(ctx, MODE_STDBY);
+                return -1;
+            }
+            
+            uint8_t len = lora_read_reg(ctx, REG_RX_NB_BYTES);
+            if (len > max_len) len = max_len;
+            
+            lora_write_reg(ctx, REG_FIFO_ADDR_PTR, lora_read_reg(ctx, REG_FIFO_RX_CURRENT));
+            
+            /* Read FIFO */
+            uint8_t cmd = REG_FIFO & 0x7F;
+            agsys_spi_xfer_t xfers[2] = {
+                { .tx_buf = &cmd, .rx_buf = NULL, .length = 1 },
+                { .tx_buf = NULL, .rx_buf = data, .length = len }
+            };
+            agsys_spi_transfer_multi(ctx->spi_handle, xfers, 2);
+            
+            if (rssi) {
+                *rssi = lora_read_reg(ctx, REG_PKT_RSSI) - 137;
+            }
+            if (snr) {
+                *snr = (int8_t)lora_read_reg(ctx, REG_PKT_SNR) / 4;
+            }
+            
+            lora_set_mode(ctx, MODE_STDBY);
+            return len;
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
+    lora_set_mode(ctx, MODE_STDBY);
+    return 0;  /* Timeout */
 }
 
 agsys_err_t agsys_lora_sleep(agsys_lora_ctx_t *ctx)

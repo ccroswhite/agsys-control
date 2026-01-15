@@ -89,21 +89,6 @@
 #define TASK_PRIORITY_LED       1     /* Lowest */
 
 /* ==========================================================================
- * CAN CONFIGURATION
- * ========================================================================== */
-
-#define CAN_BASE_ID             0x100
-#define CAN_WIRE_CMD_OPEN       0x01
-#define CAN_WIRE_CMD_CLOSE      0x02
-#define CAN_WIRE_CMD_STOP       0x03
-#define CAN_WIRE_CMD_EMERGENCY  0x04
-#define CAN_WIRE_CMD_STATUS     0x10
-#define CAN_WIRE_CMD_DISCOVER   0x20
-
-#define ACTUATOR_ADDR_MIN       1
-#define ACTUATOR_ADDR_MAX       64
-
-/* ==========================================================================
  * LORA CONFIGURATION
  * ========================================================================== */
 
@@ -118,7 +103,6 @@
  * TIMING CONFIGURATION
  * ========================================================================== */
 
-#define HEARTBEAT_INTERVAL_MS       30000   /* Query actuators every 30s */
 #define STATUS_REPORT_INTERVAL_MS   60000   /* Report to property controller every 60s */
 #define SCHEDULE_PULL_INTERVAL_MS   300000  /* Pull schedule updates every 5 min */
 #define BLE_PAIRING_TIMEOUT_MS      120000  /* 2 minute pairing window */

@@ -222,6 +222,16 @@ typedef struct __attribute__((packed)) {
  * ========================================================================== */
 
 /**
+ * @brief Boot reason values (reported in sensor/meter reports)
+ */
+#define AGSYS_BOOT_REASON_NORMAL        0x00  /**< Normal boot */
+#define AGSYS_BOOT_REASON_WATCHDOG      0x01  /**< Watchdog reset */
+#define AGSYS_BOOT_REASON_OTA_SUCCESS   0x02  /**< Boot after successful OTA */
+#define AGSYS_BOOT_REASON_OTA_ROLLBACK  0x03  /**< Boot after OTA rollback */
+#define AGSYS_BOOT_REASON_BROWNOUT      0x04  /**< Brown-out reset */
+#define AGSYS_BOOT_REASON_PIN_RESET     0x05  /**< External pin reset */
+
+/**
  * @brief OTA state values
  */
 #define AGSYS_OTA_STATE_NONE            0x00  /**< No OTA in progress or pending */

@@ -58,12 +58,13 @@ typedef struct {
  * ========================================================================== */
 
 /**
- * @brief Initialize the LoRa radio
+ * @brief Initialize the LoRa radio on a specific SPI bus
  * 
  * @param ctx       LoRa context
  * @param cs_pin    SPI chip select pin
  * @param rst_pin   Reset pin
  * @param dio0_pin  DIO0 interrupt pin
+ * @param bus       SPI bus (AGSYS_SPI_BUS_0, AGSYS_SPI_BUS_1, etc.)
  * @param config    Radio configuration
  * @return AGSYS_OK on success
  */
@@ -71,6 +72,7 @@ agsys_err_t agsys_lora_init(agsys_lora_ctx_t *ctx,
                              uint8_t cs_pin,
                              uint8_t rst_pin,
                              uint8_t dio0_pin,
+                             agsys_spi_bus_t bus,
                              const agsys_lora_config_t *config);
 
 /**
@@ -113,6 +115,24 @@ agsys_err_t agsys_lora_receive_start(agsys_lora_ctx_t *ctx,
  * @return AGSYS_OK on success
  */
 agsys_err_t agsys_lora_receive_stop(agsys_lora_ctx_t *ctx);
+
+/**
+ * @brief Receive a packet (blocking with timeout)
+ * 
+ * @param ctx           LoRa context
+ * @param data          Buffer to receive data
+ * @param max_len       Maximum data length
+ * @param rssi          Output: RSSI in dBm (can be NULL)
+ * @param snr           Output: SNR in dB (can be NULL)
+ * @param timeout_ms    Timeout in milliseconds
+ * @return Number of bytes received, 0 on timeout, -1 on error
+ */
+int agsys_lora_receive(agsys_lora_ctx_t *ctx,
+                        uint8_t *data,
+                        size_t max_len,
+                        int16_t *rssi,
+                        int8_t *snr,
+                        uint32_t timeout_ms);
 
 /**
  * @brief Enter sleep mode (lowest power)

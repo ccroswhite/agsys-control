@@ -64,7 +64,8 @@ SRC_FILES += \
   $(PROJ_DIR)/src/led_task.c \
   $(PROJ_DIR)/src/valve_task.c \
   $(PROJ_DIR)/src/can_task.c \
-  $(PROJ_DIR)/src/spi_driver.c \
+  $(PROJ_DIR)/src/app_header.c \
+  $(COMMON_DIR)/src/agsys_app_header.c \
   $(COMMON_DIR)/src/agsys_ble.c \
   $(COMMON_DIR)/src/agsys_ble_auth.c \
   $(COMMON_DIR)/src/agsys_device.c \
@@ -75,6 +76,9 @@ SRC_FILES += \
   $(COMMON_DIR)/src/agsys_ota.c \
   $(COMMON_DIR)/src/agsys_ble_ota.c \
   $(COMMON_DIR)/src/agsys_spi.c \
+  $(COMMON_DIR)/src/agsys_can.c \
+  $(COMMON_DIR)/src/syscalls.c \
+  $(SDK_ROOT)/modules/nrfx/hal/nrf_nvmc.c \
 
 # Include folders
 INC_FOLDERS += \

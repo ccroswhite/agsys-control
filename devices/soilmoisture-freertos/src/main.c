@@ -31,7 +31,8 @@
 #include "SEGGER_RTT.h"
 
 #include "board_config.h"
-#include "spi_driver.h"
+#include "agsys_spi.h"
+#include "agsys_pins.h"
 #include "lora_task.h"
 #include "freq_counter.h"
 #include "sleep_manager.h"
@@ -48,8 +49,8 @@
  * SHARED RESOURCES
  * ========================================================================== */
 
-/* SPI bus mutex - shared by LoRa, FRAM, Flash */
-SemaphoreHandle_t g_spi_mutex = NULL;
+/* SPI bus mutex - now managed by agsys_spi module */
+/* Note: g_spi_mutex removed - agsys_spi handles mutex internally */
 
 /* Device context (BLE, FRAM, Flash, auth) - non-static for logging access */
 agsys_device_ctx_t m_device_ctx;
@@ -613,11 +614,33 @@ static void softdevice_init(void)
 
 static bool create_shared_resources(void)
 {
-    g_spi_mutex = xSemaphoreCreateMutex();
-    if (g_spi_mutex == NULL) {
-        SEGGER_RTT_printf(0, "Failed to create SPI mutex\n");
+    /* Initialize SPI buses with DMA support
+     * Bus 0: LoRa (SPIM0)
+     * Bus 1: Memory - FRAM + Flash (SPIM1)
+     */
+    agsys_spi_bus_config_t lora_bus = {
+        .sck_pin = SPI_LORA_SCK_PIN,
+        .mosi_pin = SPI_LORA_MOSI_PIN,
+        .miso_pin = SPI_LORA_MISO_PIN,
+        .spim_instance = 0,
+    };
+    if (agsys_spi_bus_init(AGSYS_SPI_BUS_0, &lora_bus) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "Failed to init SPI bus 0 (LoRa)\n");
         return false;
     }
+    
+    agsys_spi_bus_config_t mem_bus = {
+        .sck_pin = AGSYS_MEM_SPI_SCK,
+        .mosi_pin = AGSYS_MEM_SPI_MOSI,
+        .miso_pin = AGSYS_MEM_SPI_MISO,
+        .spim_instance = 1,
+    };
+    if (agsys_spi_bus_init(AGSYS_SPI_BUS_1, &mem_bus) != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "Failed to init SPI bus 1 (Memory)\n");
+        return false;
+    }
+    
+    SEGGER_RTT_printf(0, "SPI buses initialized with DMA\n");
     
     /* Initialize BLE UI context */
     agsys_ble_ui_init(&m_ble_ui);
@@ -626,8 +649,9 @@ static bool create_shared_resources(void)
     agsys_device_init_t dev_init = {
         .device_name = "AgSoil",
         .device_type = AGSYS_DEVICE_TYPE_SOIL_MOISTURE,
-        .fram_cs_pin = SPI_CS_FRAM_PIN,
-        .flash_cs_pin = SPI_CS_FLASH_PIN,
+        .fram_cs_pin = AGSYS_MEM_FRAM_CS,
+        .flash_cs_pin = AGSYS_MEM_FLASH_CS,
+        .memory_spi_bus = AGSYS_SPI_BUS_1,  /* Memory on bus 1 */
         .evt_handler = ble_event_handler
     };
     if (!agsys_device_init(&m_device_ctx, &dev_init)) {

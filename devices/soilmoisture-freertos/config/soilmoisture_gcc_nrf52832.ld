@@ -54,6 +54,18 @@ SECTIONS
 
 SECTIONS
 {
+  /* Application header for bootloader validation */
+  /* Placed right after vector table (.isr_vector) */
+  .app_header :
+  {
+    /* Pad to offset 0x200 from start of FLASH (vector table is ~0x200 bytes) */
+    . = ALIGN(4);
+    KEEP(*(.app_header))
+  } > FLASH
+} INSERT AFTER .text;
+
+SECTIONS
+{
   .mem_section_dummy_rom :
   {
   }
