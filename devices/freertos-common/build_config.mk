@@ -82,3 +82,13 @@ $(info ========================================)
 
 # Output naming is handled by post-build in each device Makefile
 # The Nordic SDK hardcodes output names based on TARGETS variable
+
+# =============================================================================
+# Firmware Signing Configuration
+# =============================================================================
+# Signing key location (relative to COMMON_DIR)
+SIGNING_KEY := $(COMMON_DIR)/keys/signing_key.pem
+SIGN_SCRIPT := $(COMMON_DIR)/scripts/sign_firmware.py
+
+# Signed output directory (created by sign target)
+SIGNED_OUTPUT_DIR := $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME)

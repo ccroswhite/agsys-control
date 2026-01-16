@@ -3,7 +3,7 @@
  * @brief AES-128-GCM encryption for AgSys LoRa protocol
  * 
  * Uses Nordic's hardware crypto accelerator (CC310) when available,
- * falls back to software implementation on nRF52810.
+ * falls back to software implementation when CC310 is not available.
  */
 
 #ifndef AGSYS_CRYPTO_H

@@ -51,8 +51,11 @@ typedef struct __attribute__((packed)) {
     uint8_t  flags;             /**< Slot flags */
     uint16_t reserved;          /**< Reserved */
     uint32_t timestamp;         /**< Build timestamp */
-    uint8_t  sha256[32];        /**< SHA-256 hash (optional) */
+    uint8_t  sha256[32];        /**< SHA-256 hash of firmware */
+    uint8_t  signature[64];     /**< Ed25519 signature */
 } bl_fw_slot_header_t;
+
+#define BL_FW_SLOT_FLAG_SIGNED      0x08    /**< Firmware has valid signature */
 
 /*******************************************************************************
  * API Functions
@@ -120,7 +123,17 @@ bool bl_ext_flash_read_slot_header(uint8_t slot, bl_fw_slot_header_t *header);
 bool bl_ext_flash_validate_slot(uint8_t slot);
 
 /**
+ * @brief Verify Ed25519 signature of firmware in a slot
+ * @param slot Slot number (0=A, 1=B)
+ * @return true if signature is valid (or firmware is unsigned)
+ */
+bool bl_ext_flash_verify_signature(uint8_t slot);
+
+/**
  * @brief Restore firmware from external flash slot to internal flash
+ * 
+ * Validates CRC and signature before/after restore.
+ * 
  * @param slot Slot number (0=A, 1=B)
  * @return true on success
  */

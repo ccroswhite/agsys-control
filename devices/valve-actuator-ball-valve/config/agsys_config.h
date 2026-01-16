@@ -2,7 +2,7 @@
  * @file agsys_config.h
  * @brief Configuration for Valve Actuator (FreeRTOS)
  * 
- * Hardware: Nordic nRF52810 + MCP2515 CAN + Discrete H-Bridge
+ * Hardware: Nordic nRF52832 + MCP2515 CAN + Discrete H-Bridge
  */
 
 #ifndef AGSYS_CONFIG_H

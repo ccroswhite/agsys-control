@@ -43,6 +43,8 @@ typedef enum {
     BL_LOG_ROLLBACK_FAIL    = 0x12,
     BL_LOG_APP_INVALID      = 0x20,
     BL_LOG_APP_CRC_FAIL     = 0x21,
+    BL_LOG_APP_SIG_FAIL     = 0x22,
+    BL_LOG_APP_UNSIGNED     = 0x23,  /* Dev mode: unsigned firmware loaded */
     BL_LOG_FRAM_ERROR       = 0x30,
     BL_LOG_FLASH_ERROR      = 0x31,
     BL_LOG_NVMC_ERROR       = 0x32,

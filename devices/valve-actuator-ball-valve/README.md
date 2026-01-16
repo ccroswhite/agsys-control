@@ -1,11 +1,11 @@
-# Valve Actuator - FreeRTOS
+# Valve Actuator - Ball Valve
 
-FreeRTOS port of the Valve Actuator firmware for nRF52810.
+FreeRTOS firmware for the Ball Valve Actuator.
 
 ## Hardware
 
-- **MCU:** Nordic nRF52810 (192KB Flash, 24KB RAM)
-- **SoftDevice:** S112 (BLE peripheral only)
+- **MCU:** Nordic nRF52832-QFAA (512KB Flash, 64KB RAM)
+- **SoftDevice:** S132 v7.2.0 (BLE central + peripheral)
 - **CAN:** MCP2515 via SPI
 - **Motor:** Discrete H-bridge with current sensing
 - **Storage:** MB85RS1MT FRAM (128KB)
@@ -42,10 +42,11 @@ make erase
 
 | Region | Start | Size | Usage |
 |--------|-------|------|-------|
-| Flash (SD) | 0x00000000 | 96KB | S112 SoftDevice |
-| Flash (App) | 0x00019000 | 92KB | Application |
-| RAM (SD) | 0x20000000 | 5.6KB | SoftDevice |
-| RAM (App) | 0x20001668 | 18.4KB | Application + FreeRTOS |
+| Flash (SD) | 0x00000000 | 152KB | S132 SoftDevice |
+| Flash (App) | 0x00026000 | 264KB | Application |
+| Flash (BL) | 0x0006A000 | 32KB | Bootloader |
+| RAM (SD) | 0x20000000 | 22KB | SoftDevice |
+| RAM (App) | 0x20005968 | 42KB | Application + FreeRTOS |
 
 ## Pin Assignments
 

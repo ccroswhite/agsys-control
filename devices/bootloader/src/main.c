@@ -14,6 +14,7 @@
 #include "bl_hal.h"
 #include "bl_flash.h"
 #include "bl_log.h"
+#include "bl_ed25519.h"
 #include "agsys_memory_layout.h"
 #include <string.h>
 

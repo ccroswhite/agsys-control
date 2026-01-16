@@ -76,7 +76,7 @@
 
 | Ref | Component | Part Number | Qty | Unit Price | Total | Notes |
 |-----|-----------|-------------|-----|------------|-------|-------|
-| U1 | MCU | nRF52810-QFAA | 1 | $1.75 | $1.75 | ARM Cortex-M4, BLE 5.0 |
+| U1 | MCU | nRF52832-QFAA | 1 | $2.50 | $2.50 | ARM Cortex-M4, BLE 5.0, 512KB Flash |
 | U2 | CAN Controller | MCP2515-I/SO | 1 | $1.00 | $1.00 | SPI interface |
 | U3 | CAN Transceiver | SN65HVD230DR | 1 | $0.30 | $0.30 | 3.3V compatible |
 | U4 | Buck Converter | TPS54202DDCR | 1 | $0.50 | $0.50 | 24V to 3.3V |

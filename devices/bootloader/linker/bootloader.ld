@@ -1,15 +1,17 @@
 /**
- * Linker script for AgSys Bootloader
+ * Linker script for AgSys Bootloader (nRF52832)
  * 
- * Places bootloader at 0x72000 (after Recovery Loader)
- * 16KB allocated for bootloader code
+ * Places bootloader at 0x6A000 (after Recovery Loader)
+ * 32KB allocated for bootloader code
+ * 
+ * See freertos-common/include/agsys_internal_flash.h for memory map
  */
 
 /* Memory regions */
 MEMORY
 {
-    /* Bootloader region: 0x72000 - 0x76000 (16KB) */
-    FLASH (rx) : ORIGIN = 0x00072000, LENGTH = 0x4000
+    /* Bootloader region: 0x6A000 - 0x72000 (32KB) */
+    FLASH (rx) : ORIGIN = 0x0006A000, LENGTH = 0x8000
     
     /* RAM: Use top 4KB of RAM for bootloader stack/data */
     /* Main RAM is 64KB: 0x20000000 - 0x20010000 */

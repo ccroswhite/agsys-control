@@ -1,0 +1,6 @@
+# Ignore private signing key - NEVER commit this!
+signing_key.pem
+
+# Keep public key and C header (these are safe to commit)
+!signing_key.pub
+!signing_key_pub.h

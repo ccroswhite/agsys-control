@@ -165,7 +165,7 @@ ASMFLAGS += -DSOFTDEVICE_PRESENT
 
 # Linker flags
 LDFLAGS += $(OPT)
-LDFLAGS += -mthumb -mabi=aapcs -L$(SDK_ROOT)/modules/nrfx/mdk -T$(LINKER_SCRIPT)
+LDFLAGS += -mthumb -mabi=aapcs -L$(SDK_ROOT)/modules/nrfx/mdk -L$(COMMON_DIR)/linker -T$(LINKER_SCRIPT)
 LDFLAGS += -mcpu=cortex-m4
 LDFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
 LDFLAGS += -Wl,--gc-sections
@@ -226,3 +226,26 @@ patch_header: default
 	@echo "Patching application header..."
 	@python3 $(COMMON_DIR)/scripts/patch_app_header.py $(OUTPUT_DIRECTORY)/nrf52832_xxaa.bin
 	@$(OBJCOPY) -I binary -O ihex $(OUTPUT_DIRECTORY)/nrf52832_xxaa.bin $(OUTPUT_DIRECTORY)/nrf52832_xxaa.hex
+
+# Build, sign, and package firmware for release
+# Creates: _build/<OUTPUT_NAME>/
+#   - <OUTPUT_NAME>.bin     (firmware binary)
+#   - <OUTPUT_NAME>.hex     (Intel HEX format)
+#   - <OUTPUT_NAME>.sig     (Ed25519 signature)
+#   - <OUTPUT_NAME>.sha256  (SHA256 checksum)
+#   - manifest.json         (release metadata)
+.PHONY: sign
+sign: release
+	@echo "Signing firmware..."
+	@if [ ! -f $(SIGNING_KEY) ]; then \
+		echo "Error: Signing key not found: $(SIGNING_KEY)"; \
+		echo "Generate with: python3 $(COMMON_DIR)/scripts/generate_signing_key.py"; \
+		exit 1; \
+	fi
+	@mkdir -p $(SIGNED_OUTPUT_DIR)
+	@python3 $(SIGN_SCRIPT) $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).bin $(SIGNING_KEY) $(SIGNED_OUTPUT_DIR)
+	@cp $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).hex $(SIGNED_OUTPUT_DIR)/
+	@echo ""
+	@echo "=========================================="
+	@echo "Signed release package: $(SIGNED_OUTPUT_DIR)/"
+	@echo "=========================================="

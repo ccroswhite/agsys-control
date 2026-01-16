@@ -52,17 +52,20 @@ extern "C" {
 
 /*******************************************************************************
  * Memory Map Constants
+ * 
+ * Uses shared definitions from agsys_internal_flash.h
+ * The bootloader currently only supports nRF52832 (define at compile time)
  ******************************************************************************/
 
-/* Internal Flash Layout (nRF52832 with S132) */
-#define BL_FLASH_APP_ADDR           0x00026000
-#define BL_FLASH_APP_SIZE           0x0004A000  /* 296KB */
-#define BL_FLASH_APP_END            0x00070000
-#define BL_FLASH_PAGE_SIZE          0x1000      /* 4KB */
+#include "agsys_internal_flash.h"
 
-/* Bootloader location */
-#define BL_FLASH_BL_ADDR            0x00072000
-#define BL_FLASH_BL_SIZE            0x00004000  /* 16KB */
+/* Aliases for bootloader code */
+#define BL_FLASH_APP_ADDR           AGSYS_APP_ADDR
+#define BL_FLASH_APP_SIZE           AGSYS_APP_SIZE
+#define BL_FLASH_APP_END            AGSYS_APP_END
+#define BL_FLASH_PAGE_SIZE          AGSYS_FLASH_PAGE_SIZE
+#define BL_FLASH_BL_ADDR            AGSYS_BL_ADDR
+#define BL_FLASH_BL_SIZE            AGSYS_BL_SIZE
 
 /*******************************************************************************
  * Initialization

@@ -1,6 +1,6 @@
 /**
  * @file FreeRTOSConfig.h
- * @brief FreeRTOS configuration for Valve Actuator (nRF52810)
+ * @brief FreeRTOS configuration for AgSys devices (nRF52832/nRF52840)
  */
 
 #ifndef FREERTOS_CONFIG_H

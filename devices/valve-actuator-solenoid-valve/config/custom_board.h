@@ -1,6 +1,6 @@
 /**
  * @file custom_board.h
- * @brief Custom board definition for Valve Actuator (nRF52810)
+ * @brief Custom board definition for Valve Actuator (nRF52832)
  */
 
 #ifndef CUSTOM_BOARD_H

@@ -13,6 +13,10 @@ DEVICE_NAME := watermeter
 # Include build configuration
 include $(COMMON_DIR)/build_config.mk
 
+# Default target - must be before SDK include to override
+.PHONY: all
+all: default rename_output
+
 $(OUTPUT_DIRECTORY)/nrf52840_xxaa.out: \
   LINKER_SCRIPT := config/watermeter_gcc_nrf52840.ld
 
@@ -66,7 +70,17 @@ SRC_FILES += \
   $(PROJ_DIR)/src/main.c \
   $(PROJ_DIR)/src/ads131m02.c \
   $(PROJ_DIR)/src/st7789.c \
-  $(PROJ_DIR)/src/display.c \
+  $(PROJ_DIR)/src/display_new.c \
+  $(PROJ_DIR)/src/ui/ui_screen_main.c \
+  $(PROJ_DIR)/src/ui/ui_screen_menu.c \
+  $(PROJ_DIR)/src/ui/ui_screen_ota.c \
+  $(PROJ_DIR)/src/ui/ui_screen_cal.c \
+  $(PROJ_DIR)/src/ui/ui_screen_diag.c \
+  $(PROJ_DIR)/src/ui/ui_screen_settings.c \
+  $(PROJ_DIR)/src/ui/ui_screen_misc.c \
+  $(PROJ_DIR)/src/ui/ui_overlay_alarm.c \
+  $(PROJ_DIR)/src/ui/ui_overlay_pin.c \
+  $(PROJ_DIR)/src/ui/ui_status_bar.c \
   $(PROJ_DIR)/src/lora_task.c \
   $(PROJ_DIR)/src/flow_calc.c \
   $(PROJ_DIR)/src/coil_driver.c \
@@ -74,6 +88,8 @@ SRC_FILES += \
   $(PROJ_DIR)/src/lvgl_port.c \
   $(PROJ_DIR)/src/nrf_sdh_freertos_wrapper.c \
   $(PROJ_DIR)/src/app_header.c \
+  $(COMMON_DIR)/src/ui/ui_common.c \
+  $(COMMON_DIR)/src/ui/ui_display_driver.c \
   $(COMMON_DIR)/src/agsys_app_header.c \
   $(COMMON_DIR)/src/agsys_ble.c \
   $(COMMON_DIR)/src/agsys_ble_auth.c \
@@ -123,7 +139,9 @@ SRC_FILES += \
 INC_FOLDERS += \
   $(PROJ_DIR)/config \
   $(PROJ_DIR)/src \
+  $(PROJ_DIR)/src/ui \
   $(COMMON_DIR)/include \
+  $(COMMON_DIR)/include/ui \
   $(SDK_ROOT)/components \
   $(SDK_ROOT)/components/boards \
   $(SDK_ROOT)/components/libraries/util \
@@ -206,7 +224,7 @@ ASMFLAGS += -DSOFTDEVICE_PRESENT
 
 # Linker flags
 LDFLAGS += $(OPT)
-LDFLAGS += -mthumb -mabi=aapcs -L$(SDK_ROOT)/modules/nrfx/mdk -T$(LINKER_SCRIPT)
+LDFLAGS += -mthumb -mabi=aapcs -L$(SDK_ROOT)/modules/nrfx/mdk -L$(COMMON_DIR)/linker -T$(LINKER_SCRIPT)
 LDFLAGS += -mcpu=cortex-m4
 LDFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
 # let linker dump unused sections
@@ -264,9 +282,30 @@ CMSIS_CONFIG_TOOL := $(SDK_ROOT)/external_tools/cmsisconfig/CMSIS_Configuration_
 sdk_config:
 	java -jar $(CMSIS_CONFIG_TOOL) $(SDK_CONFIG_FILE)
 
-# Build with proper output naming
+# Post-build: rename output files
+.PHONY: rename_output
+rename_output:
+	@cp $(OUTPUT_DIRECTORY)/nrf52840_xxaa.hex $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).hex
+	@cp $(OUTPUT_DIRECTORY)/nrf52840_xxaa.bin $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).bin
+	@echo "Output: $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).hex"
+
+# Build with proper output naming (alias for all)
 .PHONY: release
-release: default
-	@mv $(OUTPUT_DIRECTORY)/nrf52840_xxaa.hex $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).hex
-	@mv $(OUTPUT_DIRECTORY)/nrf52840_xxaa.bin $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).bin
-	@echo "Built: $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).hex"
+release: all
+
+# Build, sign, and package firmware for release
+.PHONY: sign
+sign: release
+	@echo "Signing firmware..."
+	@if [ ! -f $(SIGNING_KEY) ]; then \
+		echo "Error: Signing key not found: $(SIGNING_KEY)"; \
+		echo "Generate with: python3 $(COMMON_DIR)/scripts/generate_signing_key.py"; \
+		exit 1; \
+	fi
+	@mkdir -p $(SIGNED_OUTPUT_DIR)
+	@python3 $(SIGN_SCRIPT) $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).bin $(SIGNING_KEY) $(SIGNED_OUTPUT_DIR)
+	@cp $(OUTPUT_DIRECTORY)/$(OUTPUT_NAME).hex $(SIGNED_OUTPUT_DIR)/
+	@echo ""
+	@echo "=========================================="
+	@echo "Signed release package: $(SIGNED_OUTPUT_DIR)/"
+	@echo "=========================================="

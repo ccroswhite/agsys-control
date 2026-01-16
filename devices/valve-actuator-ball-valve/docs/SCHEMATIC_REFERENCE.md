@@ -10,7 +10,7 @@ This document provides the complete netlist and connection details for the valve
 
 | Ref | Part Number | Description | Package | Qty |
 |-----|-------------|-------------|---------|-----|
-| U1 | nRF52810-QFAA | MCU, 192KB Flash, 24KB RAM, BLE 5.0 | QFN-48 (6x6mm) | 1 |
+| U1 | nRF52832-QFAA | MCU, 512KB Flash, 64KB RAM, BLE 5.0 | QFN-48 (6x6mm) | 1 |
 | U2 | MCP2515-I/SO | CAN Controller, SPI interface | SOIC-18 | 1 |
 | U3 | SN65HVD230DR | CAN Transceiver, 3.3V | SOIC-8 | 1 |
 | U4 | TPS54202DDCR | Buck Converter, 24V→3.3V, 2A | SOT-23-6 | 1 |
@@ -71,7 +71,7 @@ This document provides the complete netlist and connection details for the valve
 
 ---
 
-## Pin Assignments - nRF52810
+## Pin Assignments - nRF52832
 
 | Pin | GPIO | Function | Direction | Notes |
 |-----|------|----------|-----------|-------|
@@ -116,7 +116,7 @@ The FRAM stores:
 
 **Connections:**
 
-| MB85RS1MT Pin | Signal | nRF52810 Pin |
+| MB85RS1MT Pin | Signal | nRF52832 Pin |
 |-------------|--------|--------------|
 | 1 (CS#) | FRAM_CS | P0.07 |
 | 2 (SO) | SPI_MISO | P0.13 |
@@ -154,7 +154,7 @@ Tactile switch for entering BLE pairing/DFU mode.
 
 The SPI bus is shared between MCP2515 (CAN) and MB85RS1MT (FRAM):
 
-| Signal | nRF52810 | MCP2515 | MB85RS1MT |
+| Signal | nRF52832 | MCP2515 | MB85RS1MT |
 |--------|----------|---------|---------|
 | MOSI | P0.12 | SI (14) | SI (5) |
 | MISO | P0.13 | SO (15) | SO (2) |
@@ -180,7 +180,7 @@ The SPI bus is shared between MCP2515 (CAN) and MB85RS1MT (FRAM):
     │
     └──► U4 (TPS54202) ──► 3.3V rail
                               │
-                              ├──► U1 (nRF52810)
+                              ├──► U1 (nRF52832)
                               ├──► U2 (MCP2515)
                               ├──► U3 (SN65HVD230)
                               ├──► U5 (MB85RS1MT)

@@ -89,7 +89,7 @@ INC_FOLDERS += \
 
 - nRF5 SDK 17.1.0
 - FreeRTOS 10.4.6 (included in SDK)
-- SoftDevice S140/S132/S112 (for BLE)
+- SoftDevice S140/S132 (for BLE)
 
 ## Configuration
 

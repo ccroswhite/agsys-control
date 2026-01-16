@@ -156,11 +156,11 @@ extern "C" {
 
 /* Bootloader backup for Recovery Loader */
 #define AGSYS_FLASH_BL_BACKUP_ADDR          0x1DA000
-#define AGSYS_FLASH_BL_BACKUP_SIZE          0x004000  /* 16KB */
+#define AGSYS_FLASH_BL_BACKUP_SIZE          0x008000  /* 32KB */
 
 /* Reserved for future use */
-#define AGSYS_FLASH_RESERVED_ADDR           0x1DE000
-#define AGSYS_FLASH_RESERVED_SIZE           0x022000  /* 136KB */
+#define AGSYS_FLASH_RESERVED_ADDR           0x1E2000
+#define AGSYS_FLASH_RESERVED_SIZE           0x01E000  /* 120KB */
 
 /* ==========================================================================
  * LAYOUT HEADER STRUCTURE
@@ -201,16 +201,18 @@ typedef struct __attribute__((packed)) {
     uint32_t size;              /**< Firmware size in bytes */
     uint32_t crc32;             /**< CRC32 of firmware data */
     uint8_t  device_type;       /**< Target device type */
-    uint8_t  flags;             /**< Slot flags (valid, active, etc.) */
+    uint8_t  flags;             /**< Slot flags (valid, active, signed, etc.) */
     uint16_t reserved;          /**< Reserved */
     uint32_t timestamp;         /**< Build timestamp (Unix epoch) */
     uint8_t  sha256[32];        /**< SHA-256 hash of firmware */
+    uint8_t  signature[64];     /**< Ed25519 signature of firmware */
 } agsys_fw_slot_header_t;
 
 #define AGSYS_FW_SLOT_MAGIC         0x41475346  /* "AGSF" */
 #define AGSYS_FW_SLOT_FLAG_VALID    0x01
 #define AGSYS_FW_SLOT_FLAG_ACTIVE   0x02
 #define AGSYS_FW_SLOT_FLAG_PENDING  0x04
+#define AGSYS_FW_SLOT_FLAG_SIGNED   0x08        /**< Firmware has valid signature */
 
 /* ==========================================================================
  * OTA STATE STRUCTURE (stored in FRAM Boot Info region)

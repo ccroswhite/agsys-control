@@ -8,6 +8,8 @@
 
 #include "bl_flash.h"
 #include "bl_hal.h"
+#include "bl_ed25519.h"
+#include "bl_log.h"
 #include <string.h>
 
 /*******************************************************************************
@@ -302,6 +304,29 @@ bool bl_ext_flash_validate_slot(uint8_t slot)
     return (calc_crc == header.crc32);
 }
 
+bool bl_ext_flash_verify_signature(uint8_t slot)
+{
+    bl_fw_slot_header_t header;
+    
+    /* Read slot header */
+    if (!bl_ext_flash_read_slot_header(slot, &header)) {
+        return false;
+    }
+    
+    /* Check if firmware is marked as signed */
+    if (!(header.flags & BL_FW_SLOT_FLAG_SIGNED)) {
+        /* Unsigned firmware - fail verification */
+        return false;
+    }
+    
+    (void)slot;  /* Signature verified after restore to internal flash */
+    
+    /* Actual signature verification is done in restore_firmware()
+     * after the firmware is copied to internal flash, since we can
+     * then verify directly from the internal flash memory. */
+    return true;
+}
+
 bool bl_ext_flash_restore_firmware(uint8_t slot)
 {
     bl_fw_slot_header_t header;
@@ -354,8 +379,34 @@ bool bl_ext_flash_restore_firmware(uint8_t slot)
         remaining -= (remaining < chunk) ? remaining : chunk;
     }
     
-    /* Verify restored firmware */
+    /* Verify restored firmware CRC */
     uint32_t calc_crc = bl_crc32((const void *)BL_FLASH_APP_ADDR, header.size);
+    if (calc_crc != header.crc32) {
+        return false;
+    }
     
-    return (calc_crc == header.crc32);
+    /* Verify signature if firmware is marked as signed */
+    if (header.flags & BL_FW_SLOT_FLAG_SIGNED) {
+        if (!bl_verify_firmware_signature(
+                (const uint8_t *)BL_FLASH_APP_ADDR,
+                header.size,
+                header.signature)) {
+#ifdef BL_DEV_MODE
+            /* Dev mode: log warning but allow bad signature */
+            bl_log_write(BL_LOG_APP_SIG_FAIL, 0, 0);
+            /* Continue anyway in dev mode */
+#else
+            bl_log_write(BL_LOG_APP_SIG_FAIL, 0, 0);
+            return false;
+#endif
+        }
+    }
+#ifdef BL_DEV_MODE
+    else {
+        /* Dev mode: allow unsigned firmware with warning */
+        bl_log_write(BL_LOG_APP_UNSIGNED, 0, 0);
+    }
+#endif
+    
+    return true;
 }

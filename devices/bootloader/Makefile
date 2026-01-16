@@ -35,7 +35,8 @@ SRCS = \
     $(SRC_DIR)/bl_hal_nrf52.c \
     $(SRC_DIR)/bl_crc32.c \
     $(SRC_DIR)/bl_flash.c \
-    $(SRC_DIR)/bl_log.c
+    $(SRC_DIR)/bl_log.c \
+    $(SRC_DIR)/bl_ed25519.c
 
 # Object files
 OBJS = $(SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
@@ -83,11 +84,22 @@ LDFLAGS = \
 #CFLAGS += -DBL_PIN_FLASH_CS=16
 #CFLAGS += -DBL_PIN_LED=17
 
-.PHONY: all clean flash
+# Development mode: skip signature enforcement (warn but don't fail)
+# Usage: make DEV=1
+ifdef DEV
+  CFLAGS += -DBL_DEV_MODE=1
+  TARGET = agsys_bootloader_dev
+endif
+
+.PHONY: all clean flash dev
 
 all: $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET).bin
 	@echo "Build complete!"
 	@$(SIZE) $(BUILD_DIR)/$(TARGET).elf
+
+# Convenience target for dev build
+dev:
+	$(MAKE) DEV=1
 
 $(BUILD_DIR)/$(TARGET).hex: $(BUILD_DIR)/$(TARGET).elf
 	$(OBJCOPY) -O ihex $< $@
