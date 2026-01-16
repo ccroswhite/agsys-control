@@ -13,8 +13,8 @@
 | U7 | Flash | W25Q16JVSSIQ | 1 | $0.50 | $0.50 | 2MB SPI, OTA firmware |
 | U8 | Display Driver | ST7789V | - | - | - | Integrated in display |
 | U9 | LED Driver | TPS61165 | 1 | $0.80 | $0.80 | Backlight boost |
-| U10 | LDO Analog | TPS7A20 | 1 | $0.60 | $0.60 | 3.0V ultra-low noise |
-| U11 | LDO Digital | MCP1700-3302E | 1 | $0.30 | $0.30 | 3.3V 250mA |
+| U10 | LDO Analog | LP5907MFX-3.0/NOPB | 1 | $0.40 | $0.40 | 3.0V ultra-low noise (ADC) |
+| U11 | LDO Digital | TLV73325PDBVR | 1 | $0.30 | $0.30 | 2.5V for MCU |
 | Y1 | Crystal | 32.768kHz 3215 | 1 | $0.20 | $0.20 | nRF52840 LFXO |
 | Y2 | Crystal | 32MHz 3215 | 1 | $0.25 | $0.25 | nRF52840 HFXO (BLE) |
 | DISP1 | Display | ST7789 2.8" TFT | 1 | $8.00 | $8.00 | 240x320, SPI |

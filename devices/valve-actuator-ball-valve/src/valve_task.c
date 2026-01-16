@@ -38,51 +38,84 @@ typedef enum {
 static volatile valve_cmd_t m_pending_cmd = VALVE_CMD_NONE;
 
 /* ==========================================================================
- * H-BRIDGE CONTROL
+ * DRV8876 H-BRIDGE CONTROL
+ * Truth table:
+ *   IN1=L, IN2=L: Coast (Hi-Z outputs)
+ *   IN1=L, IN2=H: Reverse (close valve)
+ *   IN1=H, IN2=L: Forward (open valve)
+ *   IN1=H, IN2=H: Brake (low-side on)
  * ========================================================================== */
 
-static void hbridge_init(void)
+static bool m_drv_fault = false;
+
+static void drv8876_init(void)
 {
-    /* Configure H-bridge pins as outputs */
-    nrf_gpio_cfg_output(HBRIDGE_A_PIN);
-    nrf_gpio_cfg_output(HBRIDGE_B_PIN);
-    nrf_gpio_cfg_output(HBRIDGE_EN_A_PIN);
-    nrf_gpio_cfg_output(HBRIDGE_EN_B_PIN);
+    /* Configure DRV8876 control pins as outputs */
+    nrf_gpio_cfg_output(DRV_IN1_PIN);
+    nrf_gpio_cfg_output(DRV_IN2_PIN);
+    nrf_gpio_cfg_output(DRV_nSLEEP_PIN);
+    
+    /* Configure fault pin as input with pullup (open drain output from DRV8876) */
+    nrf_gpio_cfg_input(DRV_nFAULT_PIN, NRF_GPIO_PIN_PULLUP);
 
-    /* All off initially */
-    nrf_gpio_pin_clear(HBRIDGE_A_PIN);
-    nrf_gpio_pin_clear(HBRIDGE_B_PIN);
-    nrf_gpio_pin_clear(HBRIDGE_EN_A_PIN);
-    nrf_gpio_pin_clear(HBRIDGE_EN_B_PIN);
+    /* Start in coast mode (both inputs low) */
+    nrf_gpio_pin_clear(DRV_IN1_PIN);
+    nrf_gpio_pin_clear(DRV_IN2_PIN);
+    
+    /* Wake up the driver (nSLEEP is active low) */
+    nrf_gpio_pin_set(DRV_nSLEEP_PIN);
 
-    SEGGER_RTT_printf(0, "H-bridge initialized\n");
+    SEGGER_RTT_printf(0, "DRV8876 initialized\n");
 }
 
-static void hbridge_open(void)
+static void drv8876_open(void)
 {
-    /* Direction A: Open */
-    nrf_gpio_pin_clear(HBRIDGE_B_PIN);
-    nrf_gpio_pin_clear(HBRIDGE_EN_B_PIN);
-    nrf_gpio_pin_set(HBRIDGE_A_PIN);
-    nrf_gpio_pin_set(HBRIDGE_EN_A_PIN);
+    /* Forward: IN1=H, IN2=L */
+    nrf_gpio_pin_clear(DRV_IN2_PIN);
+    nrf_gpio_pin_set(DRV_IN1_PIN);
 }
 
-static void hbridge_close(void)
+static void drv8876_close(void)
 {
-    /* Direction B: Close */
-    nrf_gpio_pin_clear(HBRIDGE_A_PIN);
-    nrf_gpio_pin_clear(HBRIDGE_EN_A_PIN);
-    nrf_gpio_pin_set(HBRIDGE_B_PIN);
-    nrf_gpio_pin_set(HBRIDGE_EN_B_PIN);
+    /* Reverse: IN1=L, IN2=H */
+    nrf_gpio_pin_clear(DRV_IN1_PIN);
+    nrf_gpio_pin_set(DRV_IN2_PIN);
 }
 
-static void hbridge_stop(void)
+static void drv8876_stop(void)
 {
-    /* All off */
-    nrf_gpio_pin_clear(HBRIDGE_A_PIN);
-    nrf_gpio_pin_clear(HBRIDGE_B_PIN);
-    nrf_gpio_pin_clear(HBRIDGE_EN_A_PIN);
-    nrf_gpio_pin_clear(HBRIDGE_EN_B_PIN);
+    /* Coast: IN1=L, IN2=L (Hi-Z outputs) */
+    nrf_gpio_pin_clear(DRV_IN1_PIN);
+    nrf_gpio_pin_clear(DRV_IN2_PIN);
+}
+
+static void drv8876_brake(void)
+{
+    /* Brake: IN1=H, IN2=H (low-side on, motor shorted) */
+    nrf_gpio_pin_set(DRV_IN1_PIN);
+    nrf_gpio_pin_set(DRV_IN2_PIN);
+}
+
+static void drv8876_sleep(void)
+{
+    /* Enter sleep mode for low power */
+    drv8876_stop();
+    nrf_gpio_pin_clear(DRV_nSLEEP_PIN);
+}
+
+static void drv8876_wake(void)
+{
+    /* Exit sleep mode */
+    nrf_gpio_pin_set(DRV_nSLEEP_PIN);
+    /* Wait for driver to wake up (tSLEEP = 1ms typical) */
+    vTaskDelay(pdMS_TO_TICKS(2));
+}
+
+static bool drv8876_check_fault(void)
+{
+    /* nFAULT is active low */
+    m_drv_fault = (nrf_gpio_pin_read(DRV_nFAULT_PIN) == 0);
+    return m_drv_fault;
 }
 
 /* ==========================================================================
@@ -112,16 +145,19 @@ static uint16_t read_current_ma(void)
 
     if (sample < 0) sample = 0;
 
-    /* Convert to mA
-     * Vref = VDD/4 = 0.825V (assuming 3.3V VDD)
-     * Gain = 1/4, so full scale = 3.3V
+    /* Convert to mA using DRV8876 IPROPI output
+     * IPROPI outputs 1.2mA per amp of motor current
+     * With R32=1K sense resistor: V_IPROPI = 1.2V per amp
+     * 
+     * ADC config: Vref = VDD/4 = 0.825V, Gain = 1/4, so full scale = 3.3V
      * Resolution = 10 bits (0-1023)
-     * Shunt = 0.05 ohm
-     * V = sample * 3.3 / 1024
-     * I = V / 0.05 = V * 20
-     * I_mA = sample * 3.3 * 20 / 1024 * 1000 = sample * 64.45
+     * 
+     * V_measured = sample * 3.3 / 1024
+     * I_motor = V_measured / 1.2 (amps)
+     * I_mA = V_measured / 1.2 * 1000 = sample * 3.3 * 1000 / (1024 * 1.2)
+     *      = sample * 3300 / 1228.8 = sample * 2.686
      */
-    uint32_t current_ma = ((uint32_t)sample * 65) / 1;
+    uint32_t current_ma = ((uint32_t)sample * 2686) / 1000;
     
     return (uint16_t)MIN(current_ma, 0xFFFF);
 }
@@ -157,7 +193,8 @@ static void enter_state(valve_state_t new_state)
                                STATUS_FLAG_OVERCURRENT | STATUS_FLAG_TIMEOUT);
             m_status_flags |= STATUS_FLAG_MOVING;
             m_operation_start = xTaskGetTickCount();
-            hbridge_open();
+            drv8876_wake();
+            drv8876_open();
             break;
 
         case VALVE_STATE_CLOSING:
@@ -165,30 +202,39 @@ static void enter_state(valve_state_t new_state)
                                STATUS_FLAG_OVERCURRENT | STATUS_FLAG_TIMEOUT);
             m_status_flags |= STATUS_FLAG_MOVING;
             m_operation_start = xTaskGetTickCount();
-            hbridge_close();
+            drv8876_wake();
+            drv8876_close();
             break;
 
         case VALVE_STATE_OPEN:
-            hbridge_stop();
+            drv8876_brake();  /* Brief brake to stop momentum */
+            vTaskDelay(pdMS_TO_TICKS(50));
+            drv8876_stop();
+            drv8876_sleep();  /* Enter low power mode */
             m_status_flags &= ~STATUS_FLAG_MOVING;
             m_status_flags |= STATUS_FLAG_OPEN;
             SEGGER_RTT_printf(0, "Valve: OPEN\n");
             break;
 
         case VALVE_STATE_CLOSED:
-            hbridge_stop();
+            drv8876_brake();  /* Brief brake to stop momentum */
+            vTaskDelay(pdMS_TO_TICKS(50));
+            drv8876_stop();
+            drv8876_sleep();  /* Enter low power mode */
             m_status_flags &= ~STATUS_FLAG_MOVING;
             m_status_flags |= STATUS_FLAG_CLOSED;
             SEGGER_RTT_printf(0, "Valve: CLOSED\n");
             break;
 
         case VALVE_STATE_IDLE:
-            hbridge_stop();
+            drv8876_stop();
+            drv8876_sleep();  /* Enter low power mode */
             m_status_flags &= ~STATUS_FLAG_MOVING;
             break;
 
         case VALVE_STATE_FAULT:
-            hbridge_stop();
+            drv8876_stop();
+            drv8876_sleep();  /* Enter low power mode */
             m_status_flags &= ~STATUS_FLAG_MOVING;
             m_status_flags |= STATUS_FLAG_FAULT;
             SEGGER_RTT_printf(0, "Valve: FAULT\n");
@@ -251,6 +297,10 @@ static void update_state_machine(void)
                 m_status_flags |= STATUS_FLAG_OVERCURRENT;
                 enter_state(VALVE_STATE_FAULT);
                 SEGGER_RTT_printf(0, "Overcurrent: %d mA\n", m_current_ma);
+            } else if (drv8876_check_fault()) {
+                m_status_flags |= STATUS_FLAG_FAULT;
+                enter_state(VALVE_STATE_FAULT);
+                SEGGER_RTT_printf(0, "DRV8876 fault detected\n");
             }
             break;
 
@@ -265,6 +315,10 @@ static void update_state_machine(void)
                 m_status_flags |= STATUS_FLAG_OVERCURRENT;
                 enter_state(VALVE_STATE_FAULT);
                 SEGGER_RTT_printf(0, "Overcurrent: %d mA\n", m_current_ma);
+            } else if (drv8876_check_fault()) {
+                m_status_flags |= STATUS_FLAG_FAULT;
+                enter_state(VALVE_STATE_FAULT);
+                SEGGER_RTT_printf(0, "DRV8876 fault detected\n");
             }
             break;
 
@@ -288,7 +342,7 @@ void valve_task(void *pvParameters)
     nrf_gpio_cfg_input(LIMIT_CLOSED_PIN, NRF_GPIO_PIN_PULLUP);
 
     /* Initialize hardware */
-    hbridge_init();
+    drv8876_init();
     adc_init();
 
     /* Determine initial state */

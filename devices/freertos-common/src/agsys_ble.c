@@ -129,6 +129,15 @@ agsys_err_t agsys_ble_advertising_start(agsys_ble_ctx_t *ctx)
     adv_buf[6] = (AGSYS_BLE_UUID_CONFIG_SERVICE >> 8) & 0xFF;
     adv_data.adv_data.len = 7;
     
+    /* Manufacturer data: [mfg_id:2][device_type:1][uid:8] = 11 bytes payload, 13 total */
+    adv_buf[7] = 12;  /* Length: 1 (type) + 2 (mfg ID) + 1 (device type) + 8 (UID) */
+    adv_buf[8] = BLE_GAP_AD_TYPE_MANUFACTURER_SPECIFIC_DATA;
+    adv_buf[9] = 0xFF;   /* Manufacturer ID low byte (0xFFFF = development) */
+    adv_buf[10] = 0xFF;  /* Manufacturer ID high byte */
+    adv_buf[11] = ctx->device_type;
+    memcpy(&adv_buf[12], m_device_info.uid, 8);
+    adv_data.adv_data.len = 20;
+    
     ble_gap_adv_params_t adv_params = {0};
     adv_params.properties.type = BLE_GAP_ADV_TYPE_CONNECTABLE_SCANNABLE_UNDIRECTED;
     adv_params.p_peer_addr = NULL;

@@ -117,9 +117,9 @@ nRF52832 + RFM95C LoRa + MB85RS1MT FRAM + Oscillator Frequency Shift Probes (4x)
 <part name="C41" library="capacitor" deviceset="C" device="0402" value="100nF"/>
 
 <!-- ================================================================== -->
-<!-- POWER SUPPLY - LDO (3.0-4.2V to 2.5V) -->
+<!-- POWER SUPPLY - LDO (3.0-4.2V to 2.5V, TPS7A02 25nA Iq) -->
 <!-- ================================================================== -->
-<part name="U4" library="regulator" deviceset="MCP1700" device="SOT23" value="MCP1700-2502E"/>
+<part name="U4" library="regulator" deviceset="AP2112K" device="SOT23-5" value="TPS7A0225PDBVR"/>
 <part name="C1" library="capacitor" deviceset="C" device="0805" value="10uF"/>
 <part name="C2" library="capacitor" deviceset="C" device="0805" value="10uF"/>
 

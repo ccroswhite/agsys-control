@@ -33,7 +33,8 @@
 | U5 | FRAM | MB85RS1MTPNF | 1 | $2.50 | $2.50 | 128KB SPI |
 | U6 | Flash | W25Q16JVSSIQ | 1 | $0.50 | $0.50 | 2MB SPI, OTA |
 | U7 | RTC | RV-3028-C7 | 1 | $2.00 | $2.00 | Ultra-low power |
-| U8 | LDO | MCP1700-3302E | 1 | $0.30 | $0.30 | 3.3V 250mA |
+| U8 | LDO | AP2112K-3.3 | 1 | $0.25 | $0.25 | 3.3V for peripherals |
+| U9 | LDO | TLV73325PDBVR | 1 | $0.30 | $0.30 | 2.5V for MCU |
 | Q1 | P-FET | SI2301CDS | 1 | $0.15 | $0.15 | Reverse polarity protection |
 | Y1 | Crystal | 32MHz 3215 | 1 | $0.25 | $0.25 | nRF52832 HFXO |
 | Y2 | Crystal | 32.768kHz 2012 | 1 | $0.20 | $0.20 | nRF52832 LFXO |
@@ -67,6 +68,7 @@
 | C50,C51 | Capacitor | 100nF 0402 | 2 | $0.01 | $0.02 | FRAM/Flash decoupling |
 | C52 | Capacitor | 100nF 0402 | 1 | $0.01 | $0.01 | RTC decoupling |
 | C60,C61 | Capacitor | 100nF 0402 | 2 | $0.01 | $0.02 | Button/PF debounce |
+| C70,C71 | Capacitor | 1uF 0402 | 2 | $0.01 | $0.02 | MCU LDO in/out caps |
 | - | PCB | 4-layer | 1 | $3.00 | $3.00 | |
 | | | | | **Total** | **~$35** | |
 

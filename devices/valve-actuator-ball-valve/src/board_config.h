@@ -1,0 +1,119 @@
+/**
+ * @file board_config.h
+ * @brief Hardware pin definitions for Valve Actuator (nRF52832)
+ */
+
+#ifndef BOARD_CONFIG_H
+#define BOARD_CONFIG_H
+
+#include "agsys_pins.h"  /* Standard memory bus pins */
+
+/* ==========================================================================
+ * LED PINS
+ * Note: Moved from P0.25-P0.28 to avoid conflict with standard memory bus
+ * ========================================================================== */
+
+#define LED_POWER_PIN           7   /* 3.3V Power indicator */
+#define LED_24V_PIN             21  /* 24V Present indicator */
+#define LED_STATUS_PIN          29  /* Status LED */
+#define LED_VALVE_OPEN_PIN      30  /* Valve Open indicator */
+
+/* ==========================================================================
+ * SPI BUS 0 - CAN (MCP2515)
+ * ========================================================================== */
+
+#define SPI_CAN_SCK_PIN         14
+#define SPI_CAN_MOSI_PIN        12
+#define SPI_CAN_MISO_PIN        13
+#define SPI_CS_CAN_PIN          11
+
+/* ==========================================================================
+ * SPI BUS 1 - External Memory (FRAM + Flash) - STANDARD PINS
+ * Uses standard pins from agsys_pins.h:
+ *   SCK=P0.26, MOSI=P0.25, MISO=P0.24, FRAM_CS=P0.23, FLASH_CS=P0.22
+ * ========================================================================== */
+/* FRAM and Flash CS pins defined in agsys_pins.h */
+
+/* ==========================================================================
+ * CAN (MCP2515)
+ * ========================================================================== */
+
+#define CAN_INT_PIN             8
+
+/* ==========================================================================
+ * DRV8876 H-BRIDGE MOTOR DRIVER
+ * Specs: 37V max, 3.5A continuous, integrated current sensing
+ * Operating: 24V motor, 2A continuous (36V/3A transient rated)
+ * ========================================================================== */
+
+#define DRV_IN1_PIN             3   /* Motor direction input 1 */
+#define DRV_IN2_PIN             4   /* Motor direction input 2 */
+#define DRV_nSLEEP_PIN          5   /* Sleep mode (active low, pull high for normal) */
+#define DRV_nFAULT_PIN          6   /* Fault output (active low, open drain) */
+
+/* DRV8876 control truth table:
+ * IN1=L, IN2=L: Coast (outputs Hi-Z)
+ * IN1=L, IN2=H: Reverse
+ * IN1=H, IN2=L: Forward
+ * IN1=H, IN2=H: Brake (low-side on)
+ */
+
+/* ==========================================================================
+ * CURRENT SENSE (ADC) - DRV8876 IPROPI output
+ * IPROPI outputs 1.2mA per amp of motor current
+ * With R32=1K sense resistor: 1.2V per amp
+ * At 2A motor current: 2.4V output
+ * ========================================================================== */
+
+#define CURRENT_SENSE_PIN       2
+#define CURRENT_SENSE_AIN       NRF_SAADC_INPUT_AIN0
+#define CURRENT_SENSE_MV_PER_A  1200    /* 1.2V/A = 1200mV/A */
+
+/* ==========================================================================
+ * LIMIT SWITCHES
+ * ========================================================================== */
+
+#define LIMIT_OPEN_PIN          9
+#define LIMIT_CLOSED_PIN        10
+
+/* ==========================================================================
+ * DIP SWITCHES (Device Address)
+ * ========================================================================== */
+
+#define DIP_1_PIN               15
+#define DIP_2_PIN               16
+#define DIP_3_PIN               17
+#define DIP_4_PIN               18
+#define DIP_5_PIN               19
+#define DIP_6_PIN               20
+#define DIP_TERM_PIN            28  /* CAN termination switch - moved from P0.24 to avoid memory bus conflict */
+
+/* ==========================================================================
+ * BUTTON
+ * ========================================================================== */
+
+#define PAIRING_BUTTON_PIN      31
+#define PAIRING_BUTTON_HOLD_MS  3000    /* 3 second hold to enter pairing */
+#define BLE_PAIRING_TIMEOUT_MS  120000  /* 2 minute pairing window */
+
+/* ==========================================================================
+ * TASK CONFIGURATION
+ * ========================================================================== */
+
+#define TASK_STACK_CAN          256
+#define TASK_STACK_VALVE        256
+#define TASK_STACK_LED          128
+
+#define TASK_PRIORITY_CAN       4
+#define TASK_PRIORITY_VALVE     3
+#define TASK_PRIORITY_LED       1
+
+/* ==========================================================================
+ * VALVE CONFIGURATION
+ * ========================================================================== */
+
+#define VALVE_TIMEOUT_MS        30000   /* Max time for valve operation */
+#define VALVE_OVERCURRENT_MA    2000    /* Overcurrent threshold */
+#define VALVE_STALL_CURRENT_MA  500     /* Stall detection threshold */
+
+#endif /* BOARD_CONFIG_H */

@@ -1,4 +1,4 @@
-PROJECT_NAME     := valveactuator_freertos
+PROJECT_NAME     := valve_actuator_ball_valve
 TARGETS          := nrf52832_xxaa
 OUTPUT_DIRECTORY := _build
 
@@ -7,7 +7,7 @@ PROJ_DIR := .
 COMMON_DIR := ../freertos-common
 
 # Device name for build naming
-DEVICE_NAME := valveactuator
+DEVICE_NAME := valve-actuator-ball-valve
 
 # Include build configuration
 include $(COMMON_DIR)/build_config.mk

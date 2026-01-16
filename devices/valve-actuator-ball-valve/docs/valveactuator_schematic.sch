@@ -76,7 +76,7 @@
 <part name="C41" value="100nF" device="0402"/>
 
 <!-- ================================================================== -->
-<!-- POWER - BUCK CONVERTER (24V to 3.3V) -->
+<!-- POWER - BUCK CONVERTER (24V to 3.3V) + LDO (3.3V to 2.5V) -->
 <!-- ================================================================== -->
 <part name="U4" value="TPS54202DDCR" device="SOT-23-6"/>
 <part name="L1" value="10uH" device="1210"/>
@@ -85,31 +85,29 @@
 <part name="R1" value="100K" device="0603"/>
 <part name="R2" value="31.6K" device="0603"/>
 <part name="C8" value="100nF" device="0402"/>
+<!-- LDO: 3.3V to 2.5V for MCU (TI TLV733, 300mA, 16µA Iq) -->
+<part name="U8" value="TLV73325PDBVR" device="SOT-23-5"/>
+<part name="C50" value="1uF" device="0402"/>
+<part name="C51" value="1uF" device="0402"/>
 
 <!-- ================================================================== -->
-<!-- H-BRIDGE - DISCRETE MOSFETS -->
+<!-- H-BRIDGE - DRV8876 INTEGRATED DRIVER -->
 <!-- ================================================================== -->
-<!-- High-side P-channel -->
-<part name="Q1" value="AO3401A" device="SOT-23"/>
-<part name="Q2" value="AO3401A" device="SOT-23"/>
-<!-- Low-side N-channel -->
-<part name="Q3" value="AO3400A" device="SOT-23"/>
-<part name="Q4" value="AO3400A" device="SOT-23"/>
-<!-- Flyback diodes -->
-<part name="D1" value="SS14" device="SMA"/>
-<part name="D2" value="SS14" device="SMA"/>
-<part name="D3" value="SS14" device="SMA"/>
-<part name="D4" value="SS14" device="SMA"/>
-<!-- Gate resistors -->
-<part name="R3" value="100R" device="0603"/>
-<part name="R4" value="100R" device="0603"/>
-<part name="R5" value="100R" device="0603"/>
-<part name="R6" value="100R" device="0603"/>
-<!-- Gate pull-ups for P-FETs (ensure off at startup) -->
-<part name="R20" value="10K" device="0402"/>
-<part name="R21" value="10K" device="0402"/>
-<!-- Current sense shunt -->
-<part name="R7" value="0.05R/1W" device="2512"/>
+<!-- DRV8876: 37V, 3.5A H-bridge with integrated current sensing -->
+<part name="U7" value="DRV8876PWPR" device="HTSSOP-16"/>
+<!-- DRV8876 decoupling -->
+<part name="C30" value="100nF" device="0402"/>
+<part name="C31" value="10uF/50V" device="0805"/>
+<!-- Current limit reference (VREF sets max current: ITRIP = VREF / AIPROPI / RIPROPI) -->
+<!-- For 2A limit with AIPROPI=1.2mA/A: VREF = 2A * 1.2mA/A * 1K = 2.4V -->
+<!-- Use voltage divider from 3.3V: 3.3V * R_BOT/(R_TOP+R_BOT) = 2.4V -->
+<!-- R_TOP=3.9K, R_BOT=10K gives 2.44V -->
+<part name="R30" value="3.9K" device="0402"/>
+<part name="R31" value="10K" device="0402"/>
+<!-- IPROPI sense resistor (1K gives 1.2V/A output) -->
+<part name="R32" value="1K" device="0402"/>
+<!-- nSLEEP pull-up (active low sleep, pull high for normal operation) -->
+<part name="R33" value="10K" device="0402"/>
 
 <!-- ================================================================== -->
 <!-- SURGE PROTECTION -->
@@ -187,9 +185,9 @@
 <!-- Notes -->
 <text x="10" y="20" size="1.778" layer="94">NOTES:</text>
 <text x="10" y="16" size="1.524" layer="94">1. DIP SW 1-6: Address (1-63), SW 10: CAN Termination</text>
-<text x="10" y="12" size="1.524" layer="94">2. H-Bridge: AO3401 (P-ch high), AO3400 (N-ch low)</text>
-<text x="10" y="8" size="1.524" layer="94">3. Current sense: 0.1R shunt, 100mV/A</text>
-<text x="10" y="4" size="1.524" layer="94">4. TVS protection on all valve connections</text>
+<text x="10" y="12" size="1.524" layer="94">2. H-Bridge: DRV8876 (37V, 3.5A integrated driver)</text>
+<text x="10" y="8" size="1.524" layer="94">3. Current sense: IPROPI output, 1.2V/A with R32=1K</text>
+<text x="10" y="4" size="1.524" layer="94">4. TVS protection on motor outputs, current limit via VREF</text>
 </plain>
 <instances>
 </instances>
@@ -212,15 +210,28 @@
 <label x="150" y="162" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- 3.3V Rail -->
-<net name="VCC" class="1">
+<!-- 3.3V Rail (from buck, powers CAN, memory, LEDs, H-bridge logic) -->
+<net name="VCC_3V3" class="1">
 <segment>
 <pinref part="U4" gate="G$1" pin="VOUT"/>
-<pinref part="U1" gate="G$1" pin="VDD"/>
+<pinref part="U8" gate="G$1" pin="VIN"/>
 <pinref part="U2" gate="G$1" pin="VDD"/>
 <pinref part="U3" gate="G$1" pin="VCC"/>
+<pinref part="U5" gate="G$1" pin="VCC"/>
+<pinref part="U6" gate="G$1" pin="VCC"/>
+<pinref part="C50" gate="G$1" pin="1"/>
 <wire x1="50" y1="140" x2="150" y2="140" width="0.4064" layer="91"/>
 <label x="80" y="142" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- 2.5V Rail (from LDO, powers MCU only) -->
+<net name="VCC_2V5" class="1">
+<segment>
+<pinref part="U8" gate="G$1" pin="VOUT"/>
+<pinref part="U1" gate="G$1" pin="VDD"/>
+<pinref part="C51" gate="G$1" pin="1"/>
+<wire x1="60" y1="135" x2="100" y2="135" width="0.4064" layer="91"/>
+<label x="70" y="137" size="1.778" layer="95"/>
 </segment>
 </net>
 <!-- Ground -->
@@ -323,114 +334,98 @@
 </net>
 
 <!-- ================================================================== -->
-<!-- H-BRIDGE CONTROL -->
+<!-- DRV8876 H-BRIDGE CONTROL -->
 <!-- ================================================================== -->
-<net name="HBRIDGE_A" class="0">
+<!-- Motor control inputs (directly from MCU GPIO) -->
+<net name="DRV_IN1" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.03"/>
-<pinref part="R3" gate="G$1" pin="1"/>
+<pinref part="U7" gate="G$1" pin="IN1"/>
 <wire x1="80" y1="130" x2="130" y2="130" width="0.254" layer="91"/>
 <label x="90" y="132" size="1.778" layer="95"/>
 </segment>
 </net>
-<net name="HBRIDGE_B" class="0">
+<net name="DRV_IN2" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.04"/>
-<pinref part="R4" gate="G$1" pin="1"/>
+<pinref part="U7" gate="G$1" pin="IN2"/>
 <wire x1="80" y1="125" x2="130" y2="125" width="0.254" layer="91"/>
 <label x="90" y="127" size="1.778" layer="95"/>
 </segment>
 </net>
-<net name="HBRIDGE_EN_A" class="0">
+<!-- Sleep control (directly from MCU GPIO, active low) -->
+<net name="DRV_nSLEEP" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.05"/>
-<pinref part="R5" gate="G$1" pin="1"/>
+<pinref part="U7" gate="G$1" pin="nSLEEP"/>
+<pinref part="R33" gate="G$1" pin="1"/>
 <wire x1="80" y1="120" x2="130" y2="120" width="0.254" layer="91"/>
 <label x="90" y="122" size="1.778" layer="95"/>
 </segment>
 </net>
-<net name="HBRIDGE_EN_B" class="0">
+<!-- Fault output (active low, open drain) -->
+<net name="DRV_nFAULT" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.06"/>
-<pinref part="R6" gate="G$1" pin="1"/>
+<pinref part="U7" gate="G$1" pin="nFAULT"/>
 <wire x1="80" y1="115" x2="130" y2="115" width="0.254" layer="91"/>
 <label x="90" y="117" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- High-side gate drives -->
-<net name="GATE_Q1" class="0">
-<segment>
-<pinref part="R3" gate="G$1" pin="2"/>
-<pinref part="Q1" gate="G$1" pin="G"/>
-<wire x1="140" y1="130" x2="150" y2="150" width="0.254" layer="91"/>
-</segment>
-</net>
-<net name="GATE_Q2" class="0">
-<segment>
-<pinref part="R4" gate="G$1" pin="2"/>
-<pinref part="Q2" gate="G$1" pin="G"/>
-<wire x1="140" y1="125" x2="170" y2="150" width="0.254" layer="91"/>
-</segment>
-</net>
-<!-- Low-side gate drives -->
-<net name="GATE_Q3" class="0">
-<segment>
-<pinref part="R5" gate="G$1" pin="2"/>
-<pinref part="Q3" gate="G$1" pin="G"/>
-<wire x1="140" y1="120" x2="150" y2="110" width="0.254" layer="91"/>
-</segment>
-</net>
-<net name="GATE_Q4" class="0">
-<segment>
-<pinref part="R6" gate="G$1" pin="2"/>
-<pinref part="Q4" gate="G$1" pin="G"/>
-<wire x1="140" y1="115" x2="170" y2="110" width="0.254" layer="91"/>
-</segment>
-</net>
-<!-- Motor outputs -->
+<!-- Motor outputs from DRV8876 -->
 <net name="MOTOR_A" class="2">
 <segment>
-<pinref part="Q1" gate="G$1" pin="D"/>
-<pinref part="Q3" gate="G$1" pin="D"/>
-<pinref part="D1" gate="G$1" pin="A"/>
-<pinref part="D3" gate="G$1" pin="K"/>
+<pinref part="U7" gate="G$1" pin="OUT1"/>
 <pinref part="D5" gate="G$1" pin="A"/>
 <pinref part="J1" gate="G$1" pin="1"/>
-<wire x1="150" y1="140" x2="150" y2="120" width="0.762" layer="91"/>
 <wire x1="150" y1="130" x2="200" y2="130" width="0.762" layer="91"/>
 <label x="160" y="132" size="1.778" layer="95"/>
 </segment>
 </net>
 <net name="MOTOR_B" class="2">
 <segment>
-<pinref part="Q2" gate="G$1" pin="D"/>
-<pinref part="Q4" gate="G$1" pin="D"/>
-<pinref part="D2" gate="G$1" pin="A"/>
-<pinref part="D4" gate="G$1" pin="K"/>
+<pinref part="U7" gate="G$1" pin="OUT2"/>
 <pinref part="D6" gate="G$1" pin="A"/>
 <pinref part="J1" gate="G$1" pin="2"/>
-<wire x1="170" y1="140" x2="170" y2="120" width="0.762" layer="91"/>
-<wire x1="170" y1="130" x2="200" y2="125" width="0.762" layer="91"/>
-<label x="175" y="127" size="1.778" layer="95"/>
+<wire x1="150" y1="125" x2="200" y2="125" width="0.762" layer="91"/>
+<label x="160" y="127" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- Current sense -->
+<!-- Current sense output (IPROPI: 1.2mA/A through R32=1K gives 1.2V/A) -->
 <net name="CURRENT_SENSE" class="0">
 <segment>
 <pinref part="U1" gate="G$1" pin="P0.02/AIN0"/>
-<pinref part="R7" gate="G$1" pin="1"/>
-<wire x1="80" y1="110" x2="160" y2="100" width="0.254" layer="91"/>
-<label x="100" y="105" size="1.778" layer="95"/>
+<pinref part="U7" gate="G$1" pin="IPROPI"/>
+<pinref part="R32" gate="G$1" pin="1"/>
+<wire x1="80" y1="110" x2="130" y2="110" width="0.254" layer="91"/>
+<label x="90" y="112" size="1.778" layer="95"/>
 </segment>
 </net>
-<!-- Low-side common to current sense -->
-<net name="MOTOR_GND" class="2">
+<!-- IPROPI resistor to GND -->
+<net name="IPROPI_GND" class="0">
 <segment>
-<pinref part="Q3" gate="G$1" pin="S"/>
-<pinref part="Q4" gate="G$1" pin="S"/>
-<pinref part="R7" gate="G$1" pin="1"/>
-<wire x1="150" y1="100" x2="170" y2="100" width="0.762" layer="91"/>
-<label x="155" y="102" size="1.778" layer="95"/>
+<pinref part="R32" gate="G$1" pin="2"/>
+<wire x1="140" y1="110" x2="140" y2="100" width="0.254" layer="91"/>
+<label x="142" y="102" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- Current limit reference voltage (VREF) -->
+<net name="DRV_VREF" class="0">
+<segment>
+<pinref part="U7" gate="G$1" pin="VREF"/>
+<pinref part="R30" gate="G$1" pin="2"/>
+<pinref part="R31" gate="G$1" pin="1"/>
+<wire x1="130" y1="105" x2="145" y2="105" width="0.254" layer="91"/>
+<label x="135" y="107" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- DRV8876 motor supply -->
+<net name="VM_24V" class="2">
+<segment>
+<pinref part="U7" gate="G$1" pin="VM"/>
+<pinref part="C31" gate="G$1" pin="1"/>
+<wire x1="130" y1="140" x2="130" y2="160" width="0.762" layer="91"/>
+<label x="132" y="150" size="1.778" layer="95"/>
 </segment>
 </net>
 

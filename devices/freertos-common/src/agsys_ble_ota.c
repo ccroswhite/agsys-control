@@ -175,12 +175,43 @@ void agsys_ble_ota_on_ble_evt(ble_evt_t const *p_ble_evt, void *p_context)
         case BLE_GAP_EVT_DISCONNECTED:
             p_svc->conn_handle = BLE_CONN_HANDLE_INVALID;
             p_svc->notifications_enabled = false;
-            /* Abort any in-progress OTA on disconnect */
-            if (agsys_ota_get_status(p_svc->ota_ctx) != AGSYS_OTA_STATUS_IDLE &&
-                agsys_ota_get_status(p_svc->ota_ctx) != AGSYS_OTA_STATUS_PENDING_REBOOT) {
-                SEGGER_RTT_printf(0, "BLE OTA: Disconnected during OTA, aborting\n");
-                agsys_ota_abort(p_svc->ota_ctx);
-                agsys_ota_resume_tasks();
+            
+            /* Handle disconnect based on OTA state */
+            {
+                agsys_ota_status_t status = agsys_ota_get_status(p_svc->ota_ctx);
+                
+                switch (status) {
+                    case AGSYS_OTA_STATUS_IDLE:
+                        /* Nothing to do */
+                        break;
+                        
+                    case AGSYS_OTA_STATUS_BACKUP_IN_PROGRESS:
+                    case AGSYS_OTA_STATUS_RECEIVING:
+                    case AGSYS_OTA_STATUS_VERIFYING:
+                        /* Abort: firmware transfer incomplete, delete partial data */
+                        SEGGER_RTT_printf(0, "BLE OTA: Disconnected during transfer (state=%d), aborting\n", status);
+                        agsys_ota_abort(p_svc->ota_ctx);
+                        agsys_ota_resume_tasks();
+                        break;
+                        
+                    case AGSYS_OTA_STATUS_APPLYING:
+                        /* Continue: firmware verified, flash copy in progress - BLE not needed */
+                        SEGGER_RTT_printf(0, "BLE OTA: Disconnected during apply, continuing update\n");
+                        break;
+                        
+                    case AGSYS_OTA_STATUS_PENDING_REBOOT:
+                        /* Continue: firmware applied, auto-reboot after timeout */
+                        SEGGER_RTT_printf(0, "BLE OTA: Disconnected after complete, auto-reboot in 60s\n");
+                        /* TODO: Start auto-reboot timer if not already running */
+                        break;
+                        
+                    case AGSYS_OTA_STATUS_PENDING_CONFIRM:
+                    case AGSYS_OTA_STATUS_ERROR:
+                    default:
+                        /* Resume normal operation */
+                        agsys_ota_resume_tasks();
+                        break;
+                }
             }
             break;
             

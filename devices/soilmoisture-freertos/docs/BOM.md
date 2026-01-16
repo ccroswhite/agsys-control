@@ -7,7 +7,7 @@
 | U1 | MCU | nRF52832-QFAA | 1 | $2.50 | $2.50 | ARM Cortex-M4F, BLE 5.0 |
 | U2 | LoRa Module | RFM95C-915S2 | 1 | $6.00 | $6.00 | 915 MHz, SPI |
 | U3 | FRAM | MB85RS1MTPNF | 1 | $2.50 | $2.50 | 128KB SPI, calibration + logs |
-| U4 | LDO | MCP1700-2502E | 1 | $0.30 | $0.30 | 2.5V 250mA |
+| U4 | LDO | TPS7A0225PDBVR | 1 | $0.50 | $0.50 | 2.5V for MCU (25nA Iq) |
 | U5 | Flash | W25Q16JVSSIQ | 1 | $0.50 | $0.50 | 2MB SPI, OTA firmware |
 | Q1 | P-FET | SI2301CDS | 1 | $0.15 | $0.15 | Probe power switch |
 | Q2 | P-FET | SI2301CDS | 1 | $0.15 | $0.15 | Reverse polarity protection |

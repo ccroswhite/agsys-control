@@ -384,8 +384,8 @@ For ≤1% accuracy, temperature compensation is required for:
 | FRAM | MB85RS1MTPNF | 1Mbit (128KB), calibration + runtime logs |
 | Display | E28GA-T-CW250-N | 2.8" transflective TFT, ST7789, 240x320 |
 | Backlight Buck | MP1584 or similar | 24V → 12V for LED backlight |
-| LDO (5V) | AP2112K-5.0 | 5V 600mA for analog section |
-| LDO (3.3V) | AP2112K-3.3 | 3.3V 600mA for MCU/LoRa |
+| LDO (Analog) | LP5907MFX-3.0/NOPB | 3.0V 250mA ultra-low noise for ADC |
+| LDO (MCU) | TLV73325PDBVR | 2.5V 300mA for MCU |
 | Temp Sensor | nRF52840 internal | Used for temperature compensation |
 
 ### Analog Front-End Signal Chain

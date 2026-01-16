@@ -37,6 +37,7 @@
 #include "agsys_protocol.h"
 #include "agsys_approtect.h"
 #include "agsys_ble_ui.h"
+#include "agsys_ble_commands.h"
 #include "agsys_ota.h"
 #include "agsys_ble_ota.h"
 #include "agsys_flash.h"
@@ -78,6 +79,261 @@ static TaskHandle_t m_led_task_handle = NULL;
 
 /* Forward declarations */
 static void exit_pairing_mode(void);
+static void handle_ble_command(uint8_t cmd_id, const uint8_t *params, uint16_t params_len);
+
+/* ==========================================================================
+ * BLE COMMAND HANDLER
+ * ========================================================================== */
+
+static void send_ble_response(const uint8_t *data, uint16_t len)
+{
+    agsys_ble_send_response(&m_device_ctx.ble_ctx, data, len);
+}
+
+static void handle_ble_command(uint8_t cmd_id, const uint8_t *params, uint16_t params_len)
+{
+    uint8_t resp[128];
+    uint16_t resp_len = 0;
+    
+    /* Check authentication for sensitive commands */
+    bool is_authenticated = agsys_device_is_authenticated(&m_device_ctx);
+    
+    switch (cmd_id) {
+        case AGSYS_BLE_CMD_PING: {
+            /* Simple ping - always allowed */
+            resp[0] = cmd_id;
+            resp[1] = AGSYS_BLE_RESP_OK;
+            resp_len = 2;
+            break;
+        }
+        
+        case AGSYS_BLE_CMD_VC_DISCOVER: {
+            /* Trigger CAN bus discovery */
+            if (!is_authenticated) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_NOT_AUTH;
+                resp_len = 2;
+                break;
+            }
+            
+            SEGGER_RTT_printf(0, "BLE: Triggering CAN discovery\n");
+            can_discover_all();
+            
+            resp[0] = cmd_id;
+            resp[1] = AGSYS_BLE_RESP_OK;
+            resp_len = 2;
+            break;
+        }
+        
+        case AGSYS_BLE_CMD_VC_GET_ACTUATORS: {
+            /* Get list of discovered actuators */
+            if (!is_authenticated) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_NOT_AUTH;
+                resp_len = 2;
+                break;
+            }
+            
+            /* Parse offset parameter (default 0) */
+            uint8_t offset = (params_len > 0) ? params[0] : 0;
+            
+            /* Build response */
+            resp[0] = cmd_id;
+            resp[1] = AGSYS_BLE_RESP_OK;
+            
+            /* Count total online actuators */
+            uint8_t total = can_get_online_count();
+            uint8_t count = 0;
+            uint8_t *data_ptr = &resp[5];  /* After header + count + total + offset */
+            
+            /* Max actuators per response (limited by BLE MTU ~244 bytes) */
+            /* Each actuator info is 10 bytes, header is 5 bytes */
+            const uint8_t max_per_resp = 20;
+            
+            for (uint8_t addr = ACTUATOR_ADDR_MIN; addr <= ACTUATOR_ADDR_MAX && count < max_per_resp; addr++) {
+                const actuator_status_t *act = can_get_actuator(addr);
+                if (act != NULL && act->online) {
+                    if (offset > 0) {
+                        offset--;
+                        continue;
+                    }
+                    
+                    /* Add actuator info */
+                    *data_ptr++ = addr;
+                    memcpy(data_ptr, act->uid, 7);
+                    data_ptr += 7;
+                    *data_ptr++ = can_get_valve_state(addr);
+                    *data_ptr++ = act->status_flags;
+                    count++;
+                }
+            }
+            
+            resp[2] = count;
+            resp[3] = total;
+            resp[4] = (params_len > 0) ? params[0] : 0;  /* Echo offset */
+            resp_len = 5 + (count * 10);
+            
+            SEGGER_RTT_printf(0, "BLE: Returning %d/%d actuators\n", count, total);
+            break;
+        }
+        
+        case AGSYS_BLE_CMD_VC_OPEN_VALVE: {
+            /* Open valve: params[0] = address or params[0..7] = UID */
+            if (!is_authenticated) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_NOT_AUTH;
+                resp_len = 2;
+                break;
+            }
+            
+            if (params_len < 1) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_INVALID_PARAM;
+                resp_len = 2;
+                break;
+            }
+            
+            bool success;
+            if (params_len >= 8) {
+                /* UID-based */
+                success = can_open_valve_by_uid(params);
+            } else {
+                /* Address-based */
+                success = can_open_valve(params[0]);
+            }
+            
+            resp[0] = cmd_id;
+            resp[1] = success ? AGSYS_BLE_RESP_OK : AGSYS_BLE_RESP_ERR_NOT_FOUND;
+            resp_len = 2;
+            break;
+        }
+        
+        case AGSYS_BLE_CMD_VC_CLOSE_VALVE: {
+            /* Close valve: params[0] = address or params[0..7] = UID */
+            if (!is_authenticated) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_NOT_AUTH;
+                resp_len = 2;
+                break;
+            }
+            
+            if (params_len < 1) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_INVALID_PARAM;
+                resp_len = 2;
+                break;
+            }
+            
+            bool success;
+            if (params_len >= 8) {
+                success = can_close_valve_by_uid(params);
+            } else {
+                success = can_close_valve(params[0]);
+            }
+            
+            resp[0] = cmd_id;
+            resp[1] = success ? AGSYS_BLE_RESP_OK : AGSYS_BLE_RESP_ERR_NOT_FOUND;
+            resp_len = 2;
+            break;
+        }
+        
+        case AGSYS_BLE_CMD_VC_STOP_VALVE: {
+            /* Stop valve: params[0] = address or params[0..7] = UID */
+            if (!is_authenticated) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_NOT_AUTH;
+                resp_len = 2;
+                break;
+            }
+            
+            if (params_len < 1) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_INVALID_PARAM;
+                resp_len = 2;
+                break;
+            }
+            
+            bool success;
+            if (params_len >= 8) {
+                success = can_stop_valve_by_uid(params);
+            } else {
+                success = can_stop_valve(params[0]);
+            }
+            
+            resp[0] = cmd_id;
+            resp[1] = success ? AGSYS_BLE_RESP_OK : AGSYS_BLE_RESP_ERR_NOT_FOUND;
+            resp_len = 2;
+            break;
+        }
+        
+        case AGSYS_BLE_CMD_VC_GET_STATUS: {
+            /* Get valve status: params[0] = address */
+            if (!is_authenticated) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_NOT_AUTH;
+                resp_len = 2;
+                break;
+            }
+            
+            if (params_len < 1) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_INVALID_PARAM;
+                resp_len = 2;
+                break;
+            }
+            
+            uint8_t addr = params[0];
+            const actuator_status_t *act = can_get_actuator(addr);
+            
+            if (act == NULL || !act->online) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_NOT_FOUND;
+                resp_len = 2;
+                break;
+            }
+            
+            resp[0] = cmd_id;
+            resp[1] = AGSYS_BLE_RESP_OK;
+            resp[2] = addr;
+            resp[3] = can_get_valve_state(addr);
+            resp[4] = (uint8_t)(act->current_ma & 0xFF);
+            resp[5] = (uint8_t)(act->current_ma >> 8);
+            resp[6] = act->status_flags;
+            resp_len = 7;
+            break;
+        }
+        
+        case AGSYS_BLE_CMD_VC_EMERGENCY_STOP: {
+            /* Emergency close all valves */
+            if (!is_authenticated) {
+                resp[0] = cmd_id;
+                resp[1] = AGSYS_BLE_RESP_ERR_NOT_AUTH;
+                resp_len = 2;
+                break;
+            }
+            
+            SEGGER_RTT_printf(0, "BLE: Emergency close all valves\n");
+            can_emergency_close_all();
+            
+            resp[0] = cmd_id;
+            resp[1] = AGSYS_BLE_RESP_OK;
+            resp_len = 2;
+            break;
+        }
+        
+        default:
+            /* Unknown command */
+            resp[0] = cmd_id;
+            resp[1] = AGSYS_BLE_RESP_ERR_UNKNOWN_CMD;
+            resp_len = 2;
+            break;
+    }
+    
+    /* Send response */
+    if (resp_len > 0) {
+        send_ble_response(resp, resp_len);
+    }
+}
 
 /* ==========================================================================
  * BLE EVENT HANDLER
@@ -123,6 +379,7 @@ static void ble_event_handler(const agsys_ble_evt_t *evt)
 
         case AGSYS_BLE_EVT_COMMAND_RECEIVED:
             SEGGER_RTT_printf(0, "BLE: Command received (cmd=%d)\n", evt->command.cmd_id);
+            handle_ble_command(evt->command.cmd_id, evt->command.params, evt->command.params_len);
             break;
 
         default:

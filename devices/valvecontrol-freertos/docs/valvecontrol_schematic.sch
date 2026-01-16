@@ -97,11 +97,15 @@
 <part name="R21" value="4.7K" device="0402"/>
 
 <!-- ================================================================== -->
-<!-- POWER - LDO (24V to 3.3V) -->
+<!-- POWER - LDO (24V to 3.3V) + LDO (3.3V to 2.5V) -->
 <!-- ================================================================== -->
-<part name="U8" value="MCP1700-3302E" device="SOT-23"/>
+<part name="U8" value="AP2112K-3.3" device="SOT-23-5"/>
 <part name="C1" value="10uF/50V" device="0805"/>
 <part name="C2" value="10uF" device="0805"/>
+<!-- LDO: 3.3V to 2.5V for MCU (low noise, low dropout) -->
+<part name="U9" value="TLV73325PDBVR" device="SOT-23-5"/>
+<part name="C70" value="1uF" device="0402"/>
+<part name="C71" value="1uF" device="0402"/>
 
 <!-- 24V Input Protection -->
 <part name="D2" value="SMBJ28A" device="SMB"/>
@@ -196,19 +200,30 @@
 <!-- ================================================================== -->
 <!-- POWER NETS -->
 <!-- ================================================================== -->
-<!-- 3.3V Rail -->
-<net name="VCC" class="1">
+<!-- 3.3V Rail (from U8, powers LoRa, CAN, memory, RTC) -->
+<net name="VCC_3V3" class="1">
 <segment>
 <pinref part="U8" gate="G$1" pin="VOUT"/>
-<pinref part="U1" gate="G$1" pin="VDD"/>
+<pinref part="U9" gate="G$1" pin="VIN"/>
 <pinref part="U2" gate="G$1" pin="VCC"/>
 <pinref part="U3" gate="G$1" pin="VDD"/>
 <pinref part="U4" gate="G$1" pin="VCC"/>
 <pinref part="U5" gate="G$1" pin="VCC"/>
 <pinref part="U6" gate="G$1" pin="VCC"/>
 <pinref part="U7" gate="G$1" pin="VDD"/>
+<pinref part="C70" gate="G$1" pin="1"/>
 <wire x1="50" y1="200" x2="200" y2="200" width="0.4064" layer="91"/>
 <label x="100" y="202" size="1.778" layer="95"/>
+</segment>
+</net>
+<!-- 2.5V Rail (from U9 LDO, powers MCU only) -->
+<net name="VCC_2V5" class="1">
+<segment>
+<pinref part="U9" gate="G$1" pin="VOUT"/>
+<pinref part="U1" gate="G$1" pin="VDD"/>
+<pinref part="C71" gate="G$1" pin="1"/>
+<wire x1="60" y1="195" x2="120" y2="195" width="0.4064" layer="91"/>
+<label x="80" y="197" size="1.778" layer="95"/>
 </segment>
 </net>
 <!-- Ground -->

@@ -41,27 +41,31 @@
 #define CAN_INT_PIN             8
 
 /* ==========================================================================
- * H-BRIDGE MOTOR CONTROL
+ * TRIAC AC SWITCH CONTROL
+ * Solenoid control via optoisolated TRIAC (MOC3021 + BTA06-600B)
  * ========================================================================== */
 
-#define HBRIDGE_A_PIN           3   /* Motor direction A */
-#define HBRIDGE_B_PIN           4   /* Motor direction B */
-#define HBRIDGE_EN_A_PIN        5   /* Enable A (PWM capable) */
-#define HBRIDGE_EN_B_PIN        6   /* Enable B (PWM capable) */
+#define SOLENOID_CTRL_PIN       3   /* Drives optocoupler LED to trigger TRIAC */
+#define ZERO_CROSS_PIN          4   /* AC zero-cross detection input */
 
 /* ==========================================================================
- * CURRENT SENSE (ADC)
+ * NO/NC CONFIGURATION (DIP Switch 7)
  * ========================================================================== */
 
-#define CURRENT_SENSE_PIN       2
-#define CURRENT_SENSE_AIN       NRF_SAADC_INPUT_AIN0
+#define DIP_NONC_PIN            27  /* NO/NC valve type selection */
 
-/* ==========================================================================
- * LIMIT SWITCHES
- * ========================================================================== */
-
-#define LIMIT_OPEN_PIN          9
-#define LIMIT_CLOSED_PIN        10
+/* Valve behavior based on NO/NC setting:
+ * NO (Normally Open):  Valve open when de-energized, closes when energized
+ * NC (Normally Closed): Valve closed when de-energized, opens when energized
+ *
+ * For "open valve" command:
+ *   NO valve: de-energize solenoid (TRIAC off)
+ *   NC valve: energize solenoid (TRIAC on)
+ *
+ * For "close valve" command:
+ *   NO valve: energize solenoid (TRIAC on)
+ *   NC valve: de-energize solenoid (TRIAC off)
+ */
 
 /* ==========================================================================
  * DIP SWITCHES (Device Address)
@@ -96,11 +100,11 @@
 #define TASK_PRIORITY_LED       1
 
 /* ==========================================================================
- * VALVE CONFIGURATION
+ * SOLENOID CONFIGURATION
  * ========================================================================== */
 
-#define VALVE_TIMEOUT_MS        30000   /* Max time for valve operation */
-#define VALVE_OVERCURRENT_MA    2000    /* Overcurrent threshold */
-#define VALVE_STALL_CURRENT_MA  500     /* Stall detection threshold */
+/* Solenoid valves don't have position feedback - state is based on energized state */
+/* NO valve: energized = closed, de-energized = open */
+/* NC valve: energized = open, de-energized = closed */
 
 #endif /* BOARD_CONFIG_H */
