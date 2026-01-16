@@ -46,7 +46,7 @@ This ensures consistent data storage and enables safe firmware updates with layo
 ## Directory Structure
 
 ```
-freertos-common/
+common/
 ├── include/
 │   ├── agsys_memory_layout.h  ← Shared memory layout (include first)
 │   ├── agsys_spi.h
@@ -56,33 +56,76 @@ freertos-common/
 │   ├── agsys_fram.h
 │   ├── agsys_flash.h
 │   ├── agsys_nvram.h
-│   └── agsys_debug.h
+│   ├── agsys_debug.h
+│   └── ui/                    ← Shared UI components
 ├── src/
 │   ├── agsys_spi.c
 │   ├── agsys_crypto.c
 │   ├── agsys_protocol.c
 │   ├── agsys_ble.c
 │   ├── agsys_fram.c
-│   └── agsys_nvram.c
+│   ├── agsys_nvram.c
+│   └── ui/                    ← Shared UI source
+├── linker/
+│   ├── nrf52_common_sections.ld  ← Shared linker sections
+│   ├── nrf52832_s132_memory.ld   ← Memory layout for nRF52832
+│   └── nrf52840_s140_memory.ld   ← Memory layout for nRF52840
+├── scripts/
+│   ├── rename_output.mk       ← Shared post-build renaming
+│   ├── sign_firmware.py       ← Firmware signing script
+│   └── generate_signing_key.py
+├── build_config.mk            ← Build configuration (version, output naming)
 ├── config/
 │   └── agsys_config_template.h
 └── README.md
 ```
+
+## Device Directories
+
+| Directory | Device | MCU | Binary Name |
+|-----------|--------|-----|-------------|
+| `magmeter/` | Water Meter (Mag Meter) | nRF52840 | `magmeter-*.hex` |
+| `soilmoisture/` | Soil Moisture Sensor | nRF52832 | `soilmoisture-*.hex` |
+| `valvecontrol/` | Valve Controller | nRF52832 | `valvecontrol-*.hex` |
+| `valve-actuator-ball-valve/` | Ball Valve Actuator | nRF52832 | `valveactuator-ball-*.hex` |
+| `valve-actuator-solenoid-valve/` | Solenoid Valve Actuator | nRF52832 | `valveactuator-sol-*.hex` |
 
 ## Usage
 
 Include in your project's Makefile:
 
 ```makefile
+# Set common directory
+COMMON_DIR := ../common
+
+# Device name for binary output
+DEVICE_NAME := mydevice
+
+# Target chip for output renaming
+TARGET_CHIP := nrf52832_xxaa
+
+# Include build configuration
+include $(COMMON_DIR)/build_config.mk
+
+# Default target with renaming
+.PHONY: all
+all: default rename_output
+
+# Include shared renaming script
+include $(COMMON_DIR)/scripts/rename_output.mk
+
 # Add to SRC_FILES
 SRC_FILES += \
-  $(AGSYS_COMMON)/src/agsys_spi.c \
-  $(AGSYS_COMMON)/src/agsys_crypto.c \
+  $(COMMON_DIR)/src/agsys_spi.c \
+  $(COMMON_DIR)/src/agsys_crypto.c \
   ...
 
 # Add to INC_FOLDERS
 INC_FOLDERS += \
-  $(AGSYS_COMMON)/include
+  $(COMMON_DIR)/include
+
+# Add linker search path
+LDFLAGS += -L$(COMMON_DIR)/linker
 ```
 
 ## Dependencies

@@ -4,13 +4,23 @@ OUTPUT_DIRECTORY := _build
 
 SDK_ROOT := $(HOME)/nordic/nRF5_SDK_17.1.0
 PROJ_DIR := .
-COMMON_DIR := ../freertos-common
+COMMON_DIR := ../common
 
 # Device name for build naming
-DEVICE_NAME := valve-actuator-ball-valve
+DEVICE_NAME := valveactuator-ball
+
+# Target chip for output renaming
+TARGET_CHIP := nrf52832_xxaa
 
 # Include build configuration
 include $(COMMON_DIR)/build_config.mk
+
+# Default target - must be before SDK include to override
+.PHONY: all
+all: default rename_output
+
+# Include shared renaming script
+include $(COMMON_DIR)/scripts/rename_output.mk
 
 $(OUTPUT_DIRECTORY)/nrf52832_xxaa.out: \
   LINKER_SCRIPT := config/valveactuator_gcc_nrf52832.ld
