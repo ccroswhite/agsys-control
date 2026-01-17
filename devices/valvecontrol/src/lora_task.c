@@ -47,15 +47,27 @@ static uint8_t m_boot_reason = AGSYS_BOOT_REASON_NORMAL;
  * LORA CONFIGURATION
  * ========================================================================== */
 
+#ifndef LORA_FREQUENCY
 #define LORA_FREQUENCY              915000000
+#endif
 #ifndef LORA_SPREADING_FACTOR
 #define LORA_SPREADING_FACTOR       10
 #endif
+#ifndef LORA_BANDWIDTH
 #define LORA_BANDWIDTH              125000
+#endif
+#ifndef LORA_CODING_RATE
 #define LORA_CODING_RATE            5
+#endif
+#ifndef LORA_TX_POWER
 #define LORA_TX_POWER               20
+#endif
+#ifndef STATUS_REPORT_INTERVAL_MS
 #define STATUS_REPORT_INTERVAL_MS   60000
+#endif
+#ifndef SCHEDULE_PULL_INTERVAL_MS
 #define SCHEDULE_PULL_INTERVAL_MS   300000
+#endif
 
 /* AgSys message types - legacy aliases */
 #define AGSYS_MSG_SCHEDULE_UPDATE   AGSYS_MSG_VALVE_SCHEDULE

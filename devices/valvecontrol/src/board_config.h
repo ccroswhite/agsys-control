@@ -10,6 +10,11 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
+/* Use Feather-specific config if building for Adafruit Feather nRF52832 */
+#ifdef USE_FEATHER_BOARD
+#include "board_config_feather.h"
+#else
+
 #include "agsys_pins.h"  /* Standard memory bus pins */
 
 /* ==========================================================================
@@ -109,4 +114,5 @@
 #define PAIRING_BUTTON_HOLD_MS      3000    /* 3 second hold to enter pairing */
 #define POWER_FAIL_DEBOUNCE_MS      50
 
+#endif /* USE_FEATHER_BOARD */
 #endif /* BOARD_CONFIG_H */

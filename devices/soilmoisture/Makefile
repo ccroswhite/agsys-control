@@ -12,6 +12,12 @@ DEVICE_NAME := soilmoisture
 # Target chip for output renaming
 TARGET_CHIP := nrf52832_xxaa
 
+# Board configuration: set BOARD=feather for Adafruit Feather nRF52832
+ifdef FEATHER
+  CFLAGS += -DUSE_FEATHER_BOARD
+  DEVICE_NAME := soilmoisture-feather
+endif
+
 # Include build configuration
 include $(COMMON_DIR)/build_config.mk
 
@@ -74,6 +80,7 @@ SRC_FILES += \
   $(PROJ_DIR)/src/lora_task.c \
   $(PROJ_DIR)/src/freq_counter.c \
   $(PROJ_DIR)/src/sleep_manager.c \
+  $(PROJ_DIR)/src/battery_adc.c \
   $(PROJ_DIR)/src/app_header.c \
   $(COMMON_DIR)/src/agsys_app_header.c \
   $(SDK_ROOT)/modules/nrfx/drivers/src/nrfx_timer.c \

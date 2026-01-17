@@ -228,8 +228,73 @@ void lora_task(void *pvParameters)
         
         SEGGER_RTT_printf(0, "LoRa: Preparing to transmit\n");
         
-        /* TODO: Get actual sensor data from sensor task */
-        vTaskDelay(pdMS_TO_TICKS(100));
+        /* Get sensor data from main module */
+        extern uint16_t lora_get_battery_mv(void);
+        extern void lora_get_probe_data(uint32_t *freqs, uint8_t *moisture, uint8_t *count);
+        
+        uint32_t probe_freqs[AGSYS_MAX_PROBES] = {0};
+        uint8_t probe_moisture[AGSYS_MAX_PROBES] = {0};
+        uint8_t probe_count = 0;
+        uint16_t battery_mv = 0;
+        uint8_t flags = 0;
+        
+        lora_get_probe_data(probe_freqs, probe_moisture, &probe_count);
+        battery_mv = lora_get_battery_mv();
+        
+        /* Set flags based on battery state */
+        if (battery_mv < BATTERY_LOW_MV) {
+            flags |= AGSYS_SENSOR_FLAG_LOW_BATTERY;
+        }
+        
+        /* Get device UID */
+        uint8_t device_uid[8];
+        agsys_device_get_uid(device_uid);
+        
+        /* Send the report */
+        bool success = lora_send_sensor_report(device_uid, probe_freqs, 
+                                                probe_moisture, battery_mv, flags);
+        
+        if (success) {
+            SEGGER_RTT_printf(0, "LoRa: Report sent successfully\n");
+        } else {
+            SEGGER_RTT_printf(0, "LoRa: Report failed, will retry next cycle\n");
+        }
+        
+        /* Check for any pending RX (commands from controller) */
+        uint8_t rx_buffer[64];
+        int16_t rssi = 0;
+        int8_t snr = 0;
+        
+        /* Brief listen window for responses */
+        int rx_len = agsys_lora_receive(&m_lora_ctx, rx_buffer, sizeof(rx_buffer),
+                                         &rssi, &snr, LORA_RX_TIMEOUT_MS);
+        
+        if (rx_len > 0) {
+            SEGGER_RTT_printf(0, "LoRa: RX %d bytes, RSSI=%d, SNR=%d\n", rx_len, rssi, snr);
+            
+            /* Check for OTA messages (0x40-0x45) */
+            if (rx_len >= sizeof(agsys_header_t)) {
+                agsys_header_t *hdr = (agsys_header_t *)rx_buffer;
+                if (hdr->magic[0] == AGSYS_MAGIC_BYTE1 && 
+                    hdr->magic[1] == AGSYS_MAGIC_BYTE2) {
+                    
+                    uint8_t msg_type = hdr->msg_type;
+                    if (msg_type >= 0x40 && msg_type <= 0x45) {
+                        /* OTA message - delegate to handler */
+                        uint8_t response[8];
+                        size_t response_len = 0;
+                        const uint8_t *payload = rx_buffer + sizeof(agsys_header_t);
+                        size_t payload_len = rx_len - sizeof(agsys_header_t);
+                        
+                        if (ota_handle_lora_message(msg_type, payload, payload_len,
+                                                     response, &response_len)) {
+                            /* Send response */
+                            agsys_lora_transmit(&m_lora_ctx, response, response_len);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

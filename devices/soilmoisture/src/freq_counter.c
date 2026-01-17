@@ -46,9 +46,15 @@ static const nrfx_timer_t m_window_timer = NRFX_TIMER_INSTANCE(1);
 /* Probe pin mapping */
 static const uint8_t m_probe_pins[MAX_PROBES] = {
     PROBE_1_FREQ_PIN,
+#if MAX_PROBES > 1
     PROBE_2_FREQ_PIN,
+#endif
+#if MAX_PROBES > 2
     PROBE_3_FREQ_PIN,
-    PROBE_4_FREQ_PIN
+#endif
+#if MAX_PROBES > 3
+    PROBE_4_FREQ_PIN,
+#endif
 };
 
 /* Measurement complete flag */

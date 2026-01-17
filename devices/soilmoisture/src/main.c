@@ -44,6 +44,7 @@
 #include "agsys_ble_ota.h"
 #include "agsys_flash.h"
 #include "agsys_flash_backup.h"
+#include "battery_adc.h"
 
 /* ==========================================================================
  * SHARED RESOURCES
@@ -64,6 +65,26 @@ typedef struct {
 
 static probe_reading_t m_probes[MAX_PROBES];
 static uint16_t m_battery_mv = 0;
+
+/* ==========================================================================
+ * ACCESSOR FUNCTIONS FOR LORA TASK
+ * ========================================================================== */
+
+uint16_t lora_get_battery_mv(void)
+{
+    return m_battery_mv;
+}
+
+void lora_get_probe_data(uint32_t *freqs, uint8_t *moisture, uint8_t *count)
+{
+    if (freqs == NULL || moisture == NULL || count == NULL) return;
+    
+    *count = NUM_MOISTURE_PROBES;
+    for (int i = 0; i < NUM_MOISTURE_PROBES && i < MAX_PROBES; i++) {
+        freqs[i] = m_probes[i].frequency;
+        moisture[i] = m_probes[i].moisture_percent;
+    }
+}
 
 /* Power state */
 static bool m_low_battery = false;
@@ -272,8 +293,7 @@ static void sensor_task(void *pvParameters)
         freq_counter_power_off();
         
         /* Read battery voltage */
-        /* TODO: Implement SAADC reading */
-        m_battery_mv = 3700;  /* Placeholder */
+        m_battery_mv = battery_adc_read_mv();
         
         m_low_battery = (m_battery_mv < BATTERY_LOW_MV);
         m_critical_battery = (m_battery_mv < BATTERY_CRITICAL_MV);

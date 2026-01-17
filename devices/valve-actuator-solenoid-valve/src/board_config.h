@@ -6,6 +6,11 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
+/* Use Feather-specific config if building for Adafruit Feather nRF52832 */
+#ifdef USE_FEATHER_BOARD
+#include "board_config_feather.h"
+#else
+
 #include "agsys_pins.h"  /* Standard memory bus pins */
 
 /* ==========================================================================
@@ -107,4 +112,5 @@
 /* NO valve: energized = closed, de-energized = open */
 /* NC valve: energized = open, de-energized = closed */
 
+#endif /* USE_FEATHER_BOARD */
 #endif /* BOARD_CONFIG_H */

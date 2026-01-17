@@ -12,6 +12,12 @@ DEVICE_NAME := valveactuator-sol
 # Target chip for output renaming
 TARGET_CHIP := nrf52832_xxaa
 
+# Board configuration: set FEATHER=1 for Adafruit Feather nRF52832
+ifdef FEATHER
+  CFLAGS += -DUSE_FEATHER_BOARD
+  DEVICE_NAME := valveactuator-sol-feather
+endif
+
 # Include build configuration
 include $(COMMON_DIR)/build_config.mk
 

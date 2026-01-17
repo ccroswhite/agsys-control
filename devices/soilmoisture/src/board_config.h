@@ -13,6 +13,11 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
+/* Use Feather-specific config if building for Adafruit Feather nRF52832 */
+#ifdef USE_FEATHER_BOARD
+#include "board_config_feather.h"
+#else
+
 #include "agsys_pins.h"  /* Standard memory bus pins */
 
 /* ==========================================================================
@@ -150,4 +155,5 @@
 
 #define DEVICE_TYPE_SOIL_MOISTURE   0x01
 
+#endif /* USE_FEATHER_BOARD */
 #endif /* BOARD_CONFIG_H */
