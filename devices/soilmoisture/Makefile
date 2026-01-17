@@ -12,7 +12,7 @@ DEVICE_NAME := soilmoisture
 # Target chip for output renaming
 TARGET_CHIP := nrf52832_xxaa
 
-# Board configuration: set BOARD=feather for Adafruit Feather nRF52832
+# Board configuration: set FEATHER=1 or use 'make feather' target
 ifdef FEATHER
   CFLAGS += -DUSE_FEATHER_BOARD
   DEVICE_NAME := soilmoisture-feather
@@ -24,6 +24,11 @@ include $(COMMON_DIR)/build_config.mk
 # Default target - must be before SDK include to override
 .PHONY: all
 all: default rename_output
+
+# Feather build target
+.PHONY: feather
+feather:
+	$(MAKE) FEATHER=1
 
 # Include shared renaming script
 include $(COMMON_DIR)/scripts/rename_output.mk

@@ -45,14 +45,16 @@ The property controller is the "master brains" for all devices on a customer pro
 ## Hardware Requirements
 
 - Raspberry Pi 5 (or Pi 4/3)
-- RAK2245 Pi HAT (SX1301 LoRa concentrator)
+- LoRa concentrator (one of):
+  - **RAK2245 Pi HAT** - SX1301, GPIO/SPI interface, sits on Pi header
+  - **RAK5146/RAK5167** - SX1303, USB or M.2 interface, better performance
 - Ethernet or WiFi connectivity
 
 ## ChirpStack Concentratord Setup
 
 The property controller uses [ChirpStack Concentratord](https://github.com/chirpstack/chirpstack-concentratord) for LoRa communication. Concentratord is a production-proven, Rust-based driver that provides:
 
-- Full SX1301 hardware support (8-channel concurrent reception)
+- Full SX1301/SX1302/SX1303 hardware support (8-channel concurrent reception)
 - Multi-spreading factor reception
 - Precise timing for downlinks
 - ZeroMQ API for easy integration
@@ -75,19 +77,21 @@ wget https://github.com/chirpstack/chirpstack-concentratord/releases/download/v4
 # Extract
 tar -xzf chirpstack-concentratord_4.4.0_linux_arm64.tar.gz
 
-# Install binary
-sudo mv chirpstack-concentratord /usr/local/bin/
+# Install binaries (sx1301 for RAK2245, sx1302 for RAK5146/RAK5167)
+sudo mv chirpstack-concentratord-sx1301 /usr/local/bin/
+sudo mv chirpstack-concentratord-sx1302 /usr/local/bin/
 
-# Create config directory
-sudo mkdir -p /etc/chirpstack-concentratord/rak2245
+# Create config directory (choose one based on your hardware)
+sudo mkdir -p /etc/chirpstack-concentratord/rak2245   # For RAK2245
+sudo mkdir -p /etc/chirpstack-concentratord/rak5146   # For RAK5146/RAK5167
 ```
 
-### Configure Concentratord for RAK2245
+### Option A: Configure for RAK2245 (SX1301, Pi HAT)
 
 Create `/etc/chirpstack-concentratord/rak2245/concentratord.toml`:
 
 ```toml
-# Concentratord configuration for RAK2245 (SX1301)
+# Concentratord configuration for RAK2245 (SX1301 Pi HAT)
 
 [concentratord]
 log_level = "INFO"
@@ -136,18 +140,93 @@ bandwidth = 125000
 datarate = 50000
 ```
 
+### Option B: Configure for RAK5146/RAK5167 (SX1303, USB/M.2)
+
+The RAK5167 uses the RAK5146 concentrator module with the newer SX1303 chip.
+It connects via USB, so no GPIO reset pin is needed.
+
+Create `/etc/chirpstack-concentratord/rak5146/concentratord.toml`:
+
+```toml
+# Concentratord configuration for RAK5146/RAK5167 (SX1303 USB/M.2)
+
+[concentratord]
+log_level = "INFO"
+stats_interval = "30s"
+
+# ZeroMQ API endpoints (must match agsys-controller config)
+[concentratord.api]
+event_bind = "ipc:///tmp/concentratord_event"
+command_bind = "ipc:///tmp/concentratord_command"
+
+# Gateway configuration
+[gateway]
+lorawan_public = false
+model = "rak_5146"
+region = "US915"
+
+# USB interface - specify the device path
+# Check with: ls /dev/ttyACM* or ls /dev/ttyUSB*
+com_dev_path = "/dev/ttyACM0"
+
+# US915 channel configuration (channels 8-15 + 65)
+[[gateway.concentrator.multi_sf_channel]]
+frequency = 903900000
+[[gateway.concentrator.multi_sf_channel]]
+frequency = 904100000
+[[gateway.concentrator.multi_sf_channel]]
+frequency = 904300000
+[[gateway.concentrator.multi_sf_channel]]
+frequency = 904500000
+[[gateway.concentrator.multi_sf_channel]]
+frequency = 904700000
+[[gateway.concentrator.multi_sf_channel]]
+frequency = 904900000
+[[gateway.concentrator.multi_sf_channel]]
+frequency = 905100000
+[[gateway.concentrator.multi_sf_channel]]
+frequency = 905300000
+
+[gateway.concentrator.lora_std]
+frequency = 904600000
+bandwidth = 500000
+spreading_factor = 8
+
+[gateway.concentrator.fsk]
+frequency = 904800000
+bandwidth = 125000
+datarate = 50000
+```
+
 ### Install Concentratord Service
 
 Create `/etc/systemd/system/chirpstack-concentratord.service`:
 
+**For RAK2245 (SX1301):**
 ```ini
 [Unit]
-Description=ChirpStack Concentratord
+Description=ChirpStack Concentratord (RAK2245)
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/chirpstack-concentratord -c /etc/chirpstack-concentratord/rak2245/concentratord.toml
+ExecStart=/usr/local/bin/chirpstack-concentratord-sx1301 -c /etc/chirpstack-concentratord/rak2245/concentratord.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**For RAK5146/RAK5167 (SX1303):**
+```ini
+[Unit]
+Description=ChirpStack Concentratord (RAK5146)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/chirpstack-concentratord-sx1302 -c /etc/chirpstack-concentratord/rak5146/concentratord.toml
 Restart=always
 RestartSec=5
 
@@ -188,18 +267,22 @@ cd property-controller
 # Download dependencies
 go mod tidy
 
-# Build binaries
+# Build binaries (native)
 go build -o bin/agsys-controller ./cmd/agsys-controller
 go build -o bin/agsys-db ./cmd/agsys-db
 
-# Install (as root)
-sudo cp bin/agsys-controller /usr/local/bin/
-sudo cp bin/agsys-db /usr/local/bin/
+# Cross-compile for Raspberry Pi (ARM64)
+GOOS=linux GOARCH=arm64 go build -o bin/agsys-controller-arm64 ./cmd/agsys-controller
+GOOS=linux GOARCH=arm64 go build -o bin/agsys-db-arm64 ./cmd/agsys-db
 ```
 
-### Configure
+### Option A: Standard Installation (SD Card)
 
 ```bash
+# Install binaries
+sudo cp bin/agsys-controller /usr/local/bin/
+sudo cp bin/agsys-db /usr/local/bin/
+
 # Create directories
 sudo mkdir -p /etc/agsys /var/lib/agsys /var/log/agsys
 
@@ -210,8 +293,67 @@ sudo cp configs/config.yaml /etc/agsys/controller.yaml
 sudo nano /etc/agsys/controller.yaml
 ```
 
+### Option B: NVMe Installation (Recommended for RPi5)
+
+For Raspberry Pi 5 with NVMe drive, install everything on NVMe to reduce SD card wear and improve performance:
+
+```bash
+# Assuming NVMe is mounted at /mnt/nvme
+NVME_PATH=/mnt/nvme/agsys
+
+# Create directory structure
+sudo mkdir -p $NVME_PATH/{bin,config,data,logs}
+
+# Install binaries
+sudo cp bin/agsys-controller-arm64 $NVME_PATH/bin/agsys-controller
+sudo cp bin/agsys-db-arm64 $NVME_PATH/bin/agsys-db
+
+# Copy configuration
+sudo cp configs/config.yaml $NVME_PATH/config/controller.yaml
+
+# Edit configuration - update paths for NVMe
+sudo nano $NVME_PATH/config/controller.yaml
+```
+
+Update `controller.yaml` for NVMe paths:
+```yaml
+database:
+  path: "/mnt/nvme/agsys/data/controller.db"
+
+logging:
+  file: "/mnt/nvme/agsys/logs/controller.log"
+```
+
+Create NVMe-specific systemd service at `/etc/systemd/system/agsys-controller.service`:
+```ini
+[Unit]
+Description=AgSys Property Controller
+After=network.target chirpstack-concentratord.service
+Wants=chirpstack-concentratord.service
+
+[Service]
+Type=simple
+User=agsys
+Group=agsys
+WorkingDirectory=/mnt/nvme/agsys
+ExecStart=/mnt/nvme/agsys/bin/agsys-controller run --config /mnt/nvme/agsys/config/controller.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Add convenience symlinks for CLI tools:
+```bash
+sudo ln -s /mnt/nvme/agsys/bin/agsys-controller /usr/local/bin/agsys-controller
+sudo ln -s /mnt/nvme/agsys/bin/agsys-db /usr/local/bin/agsys-db
+```
+
+### Configure
+
 Required configuration:
-- `property.uid`: Your property UID from AgSys
+- `controller.id`: Controller UUID (set during provisioning)
 - `cloud.api_key`: API key from AgSys
 - `lora.aes_key`: 16-byte AES key (32 hex chars) matching your devices
 
@@ -221,8 +363,10 @@ Required configuration:
 # Create service user
 sudo useradd -r -s /bin/false agsys
 
-# Set permissions
+# Set permissions (adjust path for NVMe if using Option B)
 sudo chown -R agsys:agsys /var/lib/agsys /var/log/agsys
+# OR for NVMe:
+sudo chown -R agsys:agsys /mnt/nvme/agsys
 
 # Install systemd service
 sudo cp configs/agsys-controller.service /etc/systemd/system/
