@@ -42,6 +42,9 @@ extern agsys_device_ctx_t m_device_ctx;
 /* External flow data from main.c */
 extern volatile float g_flow_rate_lpm;
 extern volatile float g_total_volume_l;
+extern volatile float g_signal_uv;
+extern volatile float g_temperature_c;
+extern volatile uint8_t g_signal_quality;
 extern volatile uint8_t g_alarm_flags;
 extern flow_calibration_t *g_calibration_ptr;
 
@@ -110,7 +113,9 @@ static void build_header(agsys_header_t *hdr, uint8_t msg_type)
     hdr->sequence = m_sequence++;
 }
 
-static bool send_meter_report(float flow_rate_lpm, float total_volume_l, uint8_t alarm_flags)
+static bool send_meter_report(float flow_rate_lpm, float total_volume_l, 
+                               float signal_uv, float temperature_c,
+                               uint8_t signal_quality, uint8_t alarm_flags)
 {
     uint8_t buffer[64];
     agsys_header_t *hdr = (agsys_header_t *)buffer;
@@ -118,14 +123,19 @@ static bool send_meter_report(float flow_rate_lpm, float total_volume_l, uint8_t
     
     agsys_meter_report_t *report = (agsys_meter_report_t *)(buffer + sizeof(agsys_header_t));
     
+    /* Use full float precision - no truncation until display */
     report->timestamp = xTaskGetTickCount() / configTICK_RATE_HZ;
-    report->total_pulses = 0;
-    report->total_liters = (uint32_t)total_volume_l;
-    report->flow_rate_lpm = (uint16_t)(flow_rate_lpm * 10);
-    report->battery_mv = 0;
+    report->total_volume_l = total_volume_l;      /* IEEE 754 float - full precision */
+    report->flow_rate_lpm = flow_rate_lpm;        /* IEEE 754 float - full precision */
+    report->signal_uv = signal_uv;                /* IEEE 754 float - full precision */
+    report->temperature_c = temperature_c;        /* IEEE 754 float - full precision */
+    report->battery_mv = 0;                       /* Mains powered */
+    report->signal_quality = signal_quality;      /* 0-100% */
     report->flags = alarm_flags;
-    
-    /* Note: fw_version and boot_reason not in canonical agsys_meter_report_t */
+    report->fw_version[0] = FW_VERSION_MAJOR;
+    report->fw_version[1] = FW_VERSION_MINOR;
+    report->fw_version[2] = FW_VERSION_PATCH;
+    report->boot_reason = m_boot_reason;
     
     uint8_t total_len = sizeof(agsys_header_t) + sizeof(agsys_meter_report_t);
     
@@ -305,16 +315,20 @@ static void lora_task_func(void *pvParameters)
         if ((now - last_report) >= pdMS_TO_TICKS(report_interval_ms)) {
             last_report = now;
             
+            /* Capture all values atomically (full float precision) */
             float flow_rate = g_flow_rate_lpm;
             float total_vol = g_total_volume_l;
+            float signal = g_signal_uv;
+            float temp = g_temperature_c;
+            uint8_t quality = g_signal_quality;
             uint8_t alarms = g_alarm_flags;
             
-            SEGGER_RTT_printf(0, "LoRa: Sending report (flow=%.1f L/min, total=%.1f L)\n",
-                              flow_rate, total_vol);
+            SEGGER_RTT_printf(0, "LoRa: Sending report (flow=%.2f L/min, total=%.2f L, signal=%.1f uV)\n",
+                              flow_rate, total_vol, signal);
             
             nrf_gpio_pin_set(LED_LORA_PIN);
             
-            bool tx_success = send_meter_report(flow_rate, total_vol, alarms);
+            bool tx_success = send_meter_report(flow_rate, total_vol, signal, temp, quality, alarms);
             
             if (tx_success) {
                 SEGGER_RTT_printf(0, "LoRa: TX success\n");

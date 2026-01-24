@@ -28,7 +28,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "agsys_memory_layout.h"  /* Device type constants defined there */
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,12 +41,22 @@ extern "C" {
 #define AGSYS_MAGIC_BYTE1           0x41    /* 'A' */
 #define AGSYS_MAGIC_BYTE2           0x47    /* 'G' */
 
-/* Device types are defined in agsys_memory_layout.h:
- * AGSYS_DEVICE_TYPE_SOIL_MOISTURE     1
- * AGSYS_DEVICE_TYPE_VALVE_CONTROLLER  2
- * AGSYS_DEVICE_TYPE_WATER_METER       3
- * AGSYS_DEVICE_TYPE_VALVE_ACTUATOR    4
- */
+/* ==========================================================================
+ * DEVICE TYPES (may be defined elsewhere, use guards)
+ * ========================================================================== */
+
+#ifndef AGSYS_DEVICE_TYPE_SOIL_MOISTURE
+#define AGSYS_DEVICE_TYPE_SOIL_MOISTURE     0x01
+#endif
+#ifndef AGSYS_DEVICE_TYPE_VALVE_CONTROLLER
+#define AGSYS_DEVICE_TYPE_VALVE_CONTROLLER  0x02
+#endif
+#ifndef AGSYS_DEVICE_TYPE_WATER_METER
+#define AGSYS_DEVICE_TYPE_WATER_METER       0x03
+#endif
+#ifndef AGSYS_DEVICE_TYPE_VALVE_ACTUATOR
+#define AGSYS_DEVICE_TYPE_VALVE_ACTUATOR    0x04  /* CAN bus only, no direct LoRa */
+#endif
 
 /* ==========================================================================
  * MESSAGE TYPES
@@ -93,6 +102,9 @@ extern "C" {
 #define AGSYS_MSG_OTA_ANNOUNCE          0xE0
 #define AGSYS_MSG_OTA_CHUNK             0xE1
 #define AGSYS_MSG_OTA_STATUS            0xE2
+#define AGSYS_MSG_OTA_REQUEST           0xE3  /* Device requests OTA after seeing OTA_PENDING */
+#define AGSYS_MSG_OTA_READY             0xE4  /* Device ready to receive chunks */
+#define AGSYS_MSG_OTA_FINISH            0xE5  /* Controller signals OTA complete */
 
 /* ==========================================================================
  * PACKET HEADER (15 bytes on wire)
@@ -158,6 +170,8 @@ typedef struct __attribute__((packed)) {
     int16_t     temperature;        /* Temperature in 0.1°C units */
     uint8_t     pending_logs;       /* Number of unsent log entries */
     uint8_t     flags;              /* Status flags */
+    uint8_t     fw_version[3];      /* Firmware version (major, minor, patch) */
+    uint8_t     boot_reason;        /* Boot reason (see AGSYS_BOOT_REASON_*) */
 } agsys_soil_report_t;
 
 /* ==========================================================================
@@ -170,14 +184,21 @@ typedef struct __attribute__((packed)) {
 #define AGSYS_METER_FLAG_LEAK_DETECTED      (1 << 2)
 #define AGSYS_METER_FLAG_TAMPER             (1 << 3)
 
-/* Water meter report payload (AGSYS_MSG_METER_REPORT) */
+/* Water meter report payload (AGSYS_MSG_METER_REPORT)
+ * Note: Uses IEEE 754 single-precision floats for full resolution.
+ * Floats are transmitted in little-endian byte order.
+ */
 typedef struct __attribute__((packed)) {
     uint32_t    timestamp;          /* Device uptime in seconds */
-    uint32_t    total_pulses;       /* Total pulse count since installation */
-    uint32_t    total_liters;       /* Total liters (calculated from pulses) */
-    uint16_t    flow_rate_lpm;      /* Current flow rate in liters/min * 10 */
-    uint16_t    battery_mv;         /* Battery voltage in mV */
+    float       total_volume_l;     /* Total volume in liters (IEEE 754 float) */
+    float       flow_rate_lpm;      /* Current flow rate in liters/min (IEEE 754 float) */
+    float       signal_uv;          /* Raw electrode signal in microvolts */
+    float       temperature_c;      /* Device temperature in Celsius */
+    uint16_t    battery_mv;         /* Battery voltage in mV (0 if mains powered) */
+    uint8_t     signal_quality;     /* Signal quality 0-100% */
     uint8_t     flags;              /* Status flags */
+    uint8_t     fw_version[3];      /* Firmware version (major, minor, patch) */
+    uint8_t     boot_reason;        /* Boot reason (see AGSYS_BOOT_REASON_*) */
 } agsys_meter_report_t;
 
 /* Water meter alarm types */
@@ -191,9 +212,10 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
     uint32_t    timestamp;          /* Device uptime in seconds */
     uint8_t     alarm_type;         /* Type of alarm */
-    uint16_t    flow_rate_lpm;      /* Current flow rate in liters/min * 10 */
+    uint8_t     reserved;           /* Alignment padding */
+    float       flow_rate_lpm;      /* Current flow rate in liters/min (IEEE 754 float) */
     uint32_t    duration_sec;       /* Duration of alarm condition in seconds */
-    uint32_t    total_liters;       /* Total liters at alarm time */
+    float       total_volume_l;     /* Total volume at alarm time (IEEE 754 float) */
     uint8_t     flags;              /* Additional flags */
 } agsys_meter_alarm_t;
 
@@ -216,6 +238,8 @@ typedef struct __attribute__((packed)) {
     uint32_t    last_change_time;   /* Unix timestamp of last state change */
     uint8_t     error_code;         /* Error code if state=ERROR */
     uint8_t     flags;              /* Status flags */
+    uint8_t     fw_version[3];      /* Firmware version (major, minor, patch) */
+    uint8_t     boot_reason;        /* Boot reason (see AGSYS_BOOT_REASON_*) */
 } agsys_valve_status_t;
 
 /* Valve command (AGSYS_MSG_VALVE_COMMAND) */
@@ -250,6 +274,7 @@ typedef struct __attribute__((packed)) {
 #define AGSYS_ACK_FLAG_SEND_LOGS        (1 << 0)
 #define AGSYS_ACK_FLAG_CONFIG_AVAILABLE (1 << 1)
 #define AGSYS_ACK_FLAG_TIME_SYNC        (1 << 2)
+#define AGSYS_ACK_FLAG_OTA_PENDING      (1 << 3)  /* OTA update available, device should stay awake */
 
 /* Time Sync (AGSYS_MSG_TIME_SYNC) */
 typedef struct __attribute__((packed)) {
@@ -257,6 +282,99 @@ typedef struct __attribute__((packed)) {
     int16_t     utc_offset_min;     /* UTC offset in minutes */
     uint8_t     reserved[2];
 } agsys_time_sync_t;
+
+/* ==========================================================================
+ * BOOT REASON (included in device reports, may be defined elsewhere)
+ * ========================================================================== */
+
+#ifndef AGSYS_BOOT_REASON_NORMAL
+#define AGSYS_BOOT_REASON_NORMAL        0x00  /* Normal boot */
+#endif
+#ifndef AGSYS_BOOT_REASON_POWER_CYCLE
+#define AGSYS_BOOT_REASON_POWER_CYCLE   0x01  /* Power cycle */
+#endif
+#ifndef AGSYS_BOOT_REASON_WATCHDOG
+#define AGSYS_BOOT_REASON_WATCHDOG      0x02  /* Watchdog reset */
+#endif
+#ifndef AGSYS_BOOT_REASON_OTA_SUCCESS
+#define AGSYS_BOOT_REASON_OTA_SUCCESS   0x03  /* First boot after successful OTA */
+#endif
+#ifndef AGSYS_BOOT_REASON_OTA_ROLLBACK
+#define AGSYS_BOOT_REASON_OTA_ROLLBACK  0x04  /* Reverted to previous firmware */
+#endif
+#ifndef AGSYS_BOOT_REASON_HARD_FAULT
+#define AGSYS_BOOT_REASON_HARD_FAULT    0x05  /* Hard fault */
+#endif
+
+/* ==========================================================================
+ * OTA PAYLOADS (0xE0 - 0xE5)
+ * ========================================================================== */
+
+/* OTA Announce - Controller tells device about available update (AGSYS_MSG_OTA_ANNOUNCE) */
+typedef struct __attribute__((packed)) {
+    uint8_t     version_major;      /* Target firmware version */
+    uint8_t     version_minor;
+    uint8_t     version_patch;
+    uint8_t     hw_revision_min;    /* Minimum compatible hardware revision */
+    uint32_t    firmware_size;      /* Total firmware size in bytes */
+    uint16_t    chunk_count;        /* Total number of chunks */
+    uint16_t    chunk_size;         /* Size of each chunk (last may be smaller) */
+    uint32_t    firmware_crc;       /* CRC32 of entire firmware */
+} agsys_ota_announce_t;
+
+/* OTA Request - Device requests OTA after seeing OTA_PENDING flag (AGSYS_MSG_OTA_REQUEST) */
+typedef struct __attribute__((packed)) {
+    uint8_t     current_major;      /* Current firmware version */
+    uint8_t     current_minor;
+    uint8_t     current_patch;
+    uint8_t     hw_revision;        /* Device hardware revision */
+    uint8_t     reserved[4];
+} agsys_ota_request_t;
+
+/* OTA Ready - Device confirms ready to receive chunks (AGSYS_MSG_OTA_READY) */
+typedef struct __attribute__((packed)) {
+    uint16_t    start_chunk;        /* Chunk index to start from (for resume) */
+    uint8_t     reserved[2];
+} agsys_ota_ready_t;
+
+/* OTA Chunk - Controller sends firmware chunk (AGSYS_MSG_OTA_CHUNK) */
+typedef struct __attribute__((packed)) {
+    uint16_t    chunk_index;        /* Chunk index (0-based) */
+    uint16_t    chunk_size;         /* Size of this chunk */
+    uint8_t     data[];             /* Chunk data (variable length) */
+} agsys_ota_chunk_t;
+
+/* OTA Finish - Controller signals all chunks sent (AGSYS_MSG_OTA_FINISH) */
+typedef struct __attribute__((packed)) {
+    uint32_t    firmware_crc;       /* CRC32 for final verification */
+    uint16_t    total_chunks;       /* Total chunks sent */
+    uint8_t     reserved[2];
+} agsys_ota_finish_t;
+
+/* OTA Status - Device reports OTA progress/result (AGSYS_MSG_OTA_STATUS) */
+#define AGSYS_OTA_STATUS_IN_PROGRESS    0x00
+#define AGSYS_OTA_STATUS_SUCCESS        0x01
+#define AGSYS_OTA_STATUS_FAILED         0x02
+#define AGSYS_OTA_STATUS_ROLLED_BACK    0x03
+
+#define AGSYS_OTA_ERROR_NONE            0x00
+#define AGSYS_OTA_ERROR_CRC_MISMATCH    0x01
+#define AGSYS_OTA_ERROR_SIZE_MISMATCH   0x02
+#define AGSYS_OTA_ERROR_HW_INCOMPATIBLE 0x03
+#define AGSYS_OTA_ERROR_FLASH_WRITE     0x04
+#define AGSYS_OTA_ERROR_TIMEOUT         0x05
+#define AGSYS_OTA_ERROR_VALIDATION      0x06
+
+/* OTA status payload for LoRa transmission (AGSYS_MSG_OTA_STATUS) */
+typedef struct __attribute__((packed)) {
+    uint8_t     status;             /* OTA status (see AGSYS_OTA_STATUS_*) */
+    uint8_t     error_code;         /* Error code if failed (see AGSYS_OTA_ERROR_*) */
+    uint16_t    chunks_received;    /* Number of chunks received so far */
+    uint8_t     version_major;      /* Current/new firmware version */
+    uint8_t     version_minor;
+    uint8_t     version_patch;
+    uint8_t     boot_reason;        /* Boot reason (see AGSYS_BOOT_REASON_*) */
+} agsys_ota_status_payload_t;
 
 /* ==========================================================================
  * COMMON FLAGS (legacy aliases)

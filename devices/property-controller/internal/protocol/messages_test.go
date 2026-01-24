@@ -6,6 +6,7 @@ import (
 )
 
 // TestMeterAlarmEncodeDecode tests MeterAlarm payload encoding/decoding roundtrip
+// Uses the new IEEE 754 float-based wire format from the shared lora package
 func TestMeterAlarmEncodeDecode(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -14,42 +15,42 @@ func TestMeterAlarmEncodeDecode(t *testing.T) {
 		{
 			name: "leak alarm",
 			alarm: MeterAlarmPayload{
-				Timestamp:   12345,
-				AlarmType:   MeterAlarmLeak,
-				FlowRateLPM: 150, // 15.0 L/min
-				DurationSec: 3600,
-				TotalLiters: 50000,
-				Flags:       0x01,
+				Timestamp:    12345,
+				AlarmType:    MeterAlarmLeak,
+				FlowRateLPM:  15.0,
+				DurationSec:  3600,
+				TotalVolumeL: 50000.0,
+				Flags:        0x01,
 			},
 		},
 		{
 			name: "high flow alarm",
 			alarm: MeterAlarmPayload{
-				Timestamp:   99999,
-				AlarmType:   MeterAlarmHighFlow,
-				FlowRateLPM: 1200, // 120.0 L/min
-				DurationSec: 60,
-				TotalLiters: 100000,
-				Flags:       0x00,
+				Timestamp:    99999,
+				AlarmType:    MeterAlarmHighFlow,
+				FlowRateLPM:  120.0,
+				DurationSec:  60,
+				TotalVolumeL: 100000.0,
+				Flags:        0x00,
 			},
 		},
 		{
 			name: "cleared alarm",
 			alarm: MeterAlarmPayload{
-				Timestamp:   54321,
-				AlarmType:   MeterAlarmCleared,
-				FlowRateLPM: 0,
-				DurationSec: 0,
-				TotalLiters: 75000,
-				Flags:       0x00,
+				Timestamp:    54321,
+				AlarmType:    MeterAlarmCleared,
+				FlowRateLPM:  0.0,
+				DurationSec:  0,
+				TotalVolumeL: 75000.0,
+				Flags:        0x00,
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Encode (manual since MeterAlarmPayload doesn't have Encode)
-			encoded := encodeMeterAlarm(&tt.alarm)
+			// Encode using the shared package's Encode method
+			encoded := tt.alarm.Encode()
 
 			// Decode
 			decoded, err := DecodeMeterAlarm(encoded)
@@ -65,47 +66,19 @@ func TestMeterAlarmEncodeDecode(t *testing.T) {
 				t.Errorf("AlarmType mismatch: got %d, want %d", decoded.AlarmType, tt.alarm.AlarmType)
 			}
 			if decoded.FlowRateLPM != tt.alarm.FlowRateLPM {
-				t.Errorf("FlowRateLPM mismatch: got %d, want %d", decoded.FlowRateLPM, tt.alarm.FlowRateLPM)
+				t.Errorf("FlowRateLPM mismatch: got %f, want %f", decoded.FlowRateLPM, tt.alarm.FlowRateLPM)
 			}
 			if decoded.DurationSec != tt.alarm.DurationSec {
 				t.Errorf("DurationSec mismatch: got %d, want %d", decoded.DurationSec, tt.alarm.DurationSec)
 			}
-			if decoded.TotalLiters != tt.alarm.TotalLiters {
-				t.Errorf("TotalLiters mismatch: got %d, want %d", decoded.TotalLiters, tt.alarm.TotalLiters)
+			if decoded.TotalVolumeL != tt.alarm.TotalVolumeL {
+				t.Errorf("TotalVolumeL mismatch: got %f, want %f", decoded.TotalVolumeL, tt.alarm.TotalVolumeL)
 			}
 			if decoded.Flags != tt.alarm.Flags {
 				t.Errorf("Flags mismatch: got %d, want %d", decoded.Flags, tt.alarm.Flags)
 			}
 		})
 	}
-}
-
-// Helper to encode MeterAlarmPayload (matches C struct layout)
-func encodeMeterAlarm(a *MeterAlarmPayload) []byte {
-	buf := make([]byte, 16)
-	// timestamp (4 bytes, little-endian)
-	buf[0] = byte(a.Timestamp)
-	buf[1] = byte(a.Timestamp >> 8)
-	buf[2] = byte(a.Timestamp >> 16)
-	buf[3] = byte(a.Timestamp >> 24)
-	// alarmType (1 byte)
-	buf[4] = a.AlarmType
-	// flowRateLPM (2 bytes, little-endian)
-	buf[5] = byte(a.FlowRateLPM)
-	buf[6] = byte(a.FlowRateLPM >> 8)
-	// durationSec (4 bytes, little-endian)
-	buf[7] = byte(a.DurationSec)
-	buf[8] = byte(a.DurationSec >> 8)
-	buf[9] = byte(a.DurationSec >> 16)
-	buf[10] = byte(a.DurationSec >> 24)
-	// totalLiters (4 bytes, little-endian)
-	buf[11] = byte(a.TotalLiters)
-	buf[12] = byte(a.TotalLiters >> 8)
-	buf[13] = byte(a.TotalLiters >> 16)
-	buf[14] = byte(a.TotalLiters >> 24)
-	// flags (1 byte)
-	buf[15] = a.Flags
-	return buf
 }
 
 // TestMeterConfigEncodeDecode tests MeterConfig payload roundtrip

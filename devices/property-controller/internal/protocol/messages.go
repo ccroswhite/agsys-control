@@ -206,43 +206,17 @@ func DecodeSensorData(data []byte) (*SensorDataPayload, error) {
 	}, nil
 }
 
-// WaterMeterPayload represents water meter data
-type WaterMeterPayload struct {
-	TotalLiters uint32 // Total liters since installation
-	FlowRateLPM uint16 // Current flow rate in liters per minute * 10
-	BatteryMV   uint16 // Battery voltage in mV
-}
-
-// Encode serializes water meter payload
-func (p *WaterMeterPayload) Encode() []byte {
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint32(buf[0:4], p.TotalLiters)
-	binary.LittleEndian.PutUint16(buf[4:6], p.FlowRateLPM)
-	binary.LittleEndian.PutUint16(buf[6:8], p.BatteryMV)
-	return buf
-}
+// WaterMeterPayload represents water meter data with full float precision
+// Re-exported from shared lora package for backward compatibility
+type WaterMeterPayload = lora.MeterReportPayload
 
 // DecodeWaterMeter parses water meter data from payload
-func DecodeWaterMeter(data []byte) (*WaterMeterPayload, error) {
-	if len(data) < 8 {
-		return nil, fmt.Errorf("water meter data too short: %d bytes", len(data))
-	}
-	return &WaterMeterPayload{
-		TotalLiters: binary.LittleEndian.Uint32(data[0:4]),
-		FlowRateLPM: binary.LittleEndian.Uint16(data[4:6]),
-		BatteryMV:   binary.LittleEndian.Uint16(data[6:8]),
-	}, nil
-}
+// Uses the new float-based format from the shared lora package
+var DecodeWaterMeter = lora.DecodeMeterReport
 
-// MeterAlarmPayload represents a water meter alarm
-type MeterAlarmPayload struct {
-	Timestamp   uint32 // Device uptime in seconds
-	AlarmType   uint8  // Type of alarm (see MeterAlarm* constants)
-	FlowRateLPM uint16 // Current flow rate in liters/min * 10
-	DurationSec uint32 // Duration of alarm condition in seconds
-	TotalLiters uint32 // Total liters at alarm time
-	Flags       uint8  // Additional flags
-}
+// MeterAlarmPayload represents a water meter alarm with full float precision
+// Re-exported from shared lora package
+type MeterAlarmPayload = lora.MeterAlarmPayload
 
 // Meter alarm types
 const (
@@ -254,19 +228,8 @@ const (
 )
 
 // DecodeMeterAlarm parses meter alarm data from payload
-func DecodeMeterAlarm(data []byte) (*MeterAlarmPayload, error) {
-	if len(data) < 16 {
-		return nil, fmt.Errorf("meter alarm data too short: %d bytes", len(data))
-	}
-	return &MeterAlarmPayload{
-		Timestamp:   binary.LittleEndian.Uint32(data[0:4]),
-		AlarmType:   data[4],
-		FlowRateLPM: binary.LittleEndian.Uint16(data[5:7]),
-		DurationSec: binary.LittleEndian.Uint32(data[7:11]),
-		TotalLiters: binary.LittleEndian.Uint32(data[11:15]),
-		Flags:       data[15],
-	}, nil
-}
+// Uses the new float-based format from the shared lora package
+var DecodeMeterAlarm = lora.DecodeMeterAlarm
 
 // MeterAlarmTypeString returns a human-readable alarm type
 func MeterAlarmTypeString(alarmType uint8) string {

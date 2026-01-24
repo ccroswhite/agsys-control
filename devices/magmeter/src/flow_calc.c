@@ -24,43 +24,8 @@
 extern agsys_fram_ctx_t *g_fram_ctx;
 
 /* ==========================================================================
- * CONSTANTS
+ * CONSTANTS (configuration values are in flow_calc.h)
  * ========================================================================== */
-
-/* Pipe inner diameters (meters) for Schedule 40/80 PVC */
-static const float PIPE_DIAMETERS_M[PIPE_SIZE_COUNT] = {
-    0.0381f,    /* 1.5" Sch 80: 38.1mm ID */
-    0.0525f,    /* 2" Sch 80: 52.5mm ID */
-    0.0635f,    /* 2.5" Sch 40: 63.5mm ID */
-    0.0779f,    /* 3" Sch 40: 77.9mm ID */
-    0.1023f,    /* 4" Sch 40: 102.3mm ID */
-    0.1282f,    /* 5" Sch 40: 128.2mm ID */
-    0.1541f,    /* 6" Sch 40: 154.1mm ID */
-};
-
-/* Default span coefficients (µV per m/s) - empirical, needs calibration */
-static const float DEFAULT_SPAN_UV_PER_MPS[PIPE_SIZE_COUNT] = {
-    150.0f,     /* 1.5" */
-    180.0f,     /* 2" */
-    200.0f,     /* 2.5" */
-    220.0f,     /* 3" */
-    250.0f,     /* 4" */
-    280.0f,     /* 5" */
-    300.0f,     /* 6" */
-};
-
-/* Tier ID voltage thresholds (mV) - from power board voltage dividers */
-#define TIER_S_VOLTAGE_MV   825     /* 0.825V ± 10% */
-#define TIER_M_VOLTAGE_MV   1650    /* 1.65V ± 10% */
-#define TIER_L_VOLTAGE_MV   2475    /* 2.475V ± 10% */
-#define TIER_TOLERANCE_MV   165     /* ±10% tolerance */
-
-/* Current sense resistor and gain for coil current measurement */
-#define CURRENT_SENSE_RESISTOR_OHM  0.1f    /* MM-S uses 0.1Ω */
-#define CURRENT_SENSE_GAIN          1.0f    /* Direct measurement for MM-S */
-
-/* ADC full scale (24-bit signed) */
-#define ADC_FULL_SCALE              8388607  /* 2^23 - 1 */
 
 /* ==========================================================================
  * INTERNAL FUNCTIONS
@@ -100,58 +65,48 @@ static void reset_cycle_buffer(sync_detector_t *det)
     det->last_result = 0.0f;
 }
 
-static float gain_to_multiplier(ads131m02_gain_t gain)
+static float gain_to_multiplier(ads131m0x_gain_t gain)
 {
-    switch (gain) {
-        case ADS131M02_GAIN_1:   return 1.0f;
-        case ADS131M02_GAIN_2:   return 2.0f;
-        case ADS131M02_GAIN_4:   return 4.0f;
-        case ADS131M02_GAIN_8:   return 8.0f;
-        case ADS131M02_GAIN_16:  return 16.0f;
-        case ADS131M02_GAIN_32:  return 32.0f;
-        case ADS131M02_GAIN_64:  return 64.0f;
-        case ADS131M02_GAIN_128: return 128.0f;
-        default:                 return 1.0f;
-    }
+    return (float)ads131m0x_get_gain_multiplier(gain);
 }
 
 /* ==========================================================================
  * PUBLIC API
  * ========================================================================== */
 
-float flow_calc_raw_to_uv(int32_t raw, ads131m02_gain_t gain)
+float flow_calc_raw_to_uv(int32_t raw, ads131m0x_gain_t gain)
 {
     float gain_mult = gain_to_multiplier(gain);
-    float voltage_v = ((float)raw / (float)ADC_FULL_SCALE) * FLOW_ADC_VREF_V / gain_mult;
+    float voltage_v = ((float)raw / (float)FLOW_ADC_FULL_SCALE) * FLOW_ADC_VREF_V / gain_mult;
     return voltage_v * 1000000.0f;  /* Convert to µV */
 }
 
 float flow_calc_get_pipe_diameter(flow_pipe_size_t pipe_size)
 {
     if (pipe_size >= PIPE_SIZE_COUNT) {
-        return PIPE_DIAMETERS_M[PIPE_SIZE_2_INCH];  /* Default */
+        return FLOW_PIPE_DIAMETERS_M[PIPE_SIZE_2_INCH];  /* Default */
     }
-    return PIPE_DIAMETERS_M[pipe_size];
+    return FLOW_PIPE_DIAMETERS_M[pipe_size];
 }
 
 flow_tier_t flow_calc_detect_tier(uint32_t tier_id_mv)
 {
-    if (tier_id_mv >= (TIER_S_VOLTAGE_MV - TIER_TOLERANCE_MV) &&
-        tier_id_mv <= (TIER_S_VOLTAGE_MV + TIER_TOLERANCE_MV)) {
+    if (tier_id_mv >= (FLOW_TIER_S_VOLTAGE_MV - FLOW_TIER_TOLERANCE_MV) &&
+        tier_id_mv <= (FLOW_TIER_S_VOLTAGE_MV + FLOW_TIER_TOLERANCE_MV)) {
         return FLOW_TIER_S;
     }
-    if (tier_id_mv >= (TIER_M_VOLTAGE_MV - TIER_TOLERANCE_MV) &&
-        tier_id_mv <= (TIER_M_VOLTAGE_MV + TIER_TOLERANCE_MV)) {
+    if (tier_id_mv >= (FLOW_TIER_M_VOLTAGE_MV - FLOW_TIER_TOLERANCE_MV) &&
+        tier_id_mv <= (FLOW_TIER_M_VOLTAGE_MV + FLOW_TIER_TOLERANCE_MV)) {
         return FLOW_TIER_M;
     }
-    if (tier_id_mv >= (TIER_L_VOLTAGE_MV - TIER_TOLERANCE_MV) &&
-        tier_id_mv <= (TIER_L_VOLTAGE_MV + TIER_TOLERANCE_MV)) {
+    if (tier_id_mv >= (FLOW_TIER_L_VOLTAGE_MV - FLOW_TIER_TOLERANCE_MV) &&
+        tier_id_mv <= (FLOW_TIER_L_VOLTAGE_MV + FLOW_TIER_TOLERANCE_MV)) {
         return FLOW_TIER_L;
     }
     return FLOW_TIER_UNKNOWN;
 }
 
-bool flow_calc_init(flow_calc_ctx_t *ctx, ads131m02_ctx_t *adc)
+bool flow_calc_init(flow_calc_ctx_t *ctx, ads131m0x_ctx_t *adc)
 {
     if (ctx == NULL || adc == NULL) {
         return false;
@@ -159,7 +114,7 @@ bool flow_calc_init(flow_calc_ctx_t *ctx, ads131m02_ctx_t *adc)
     
     memset(ctx, 0, sizeof(flow_calc_ctx_t));
     ctx->adc = adc;
-    ctx->adc_gain = ADS131M02_GAIN_32;  /* Start with moderate gain */
+    ctx->adc_gain = ADS131M0X_GAIN_32X;  /* Start with moderate gain */
     ctx->auto_gain = true;
     
     /* Initialize detector state */
@@ -192,11 +147,11 @@ void flow_calc_set_defaults(flow_calc_ctx_t *ctx, flow_pipe_size_t pipe_size)
     cal->auto_zero_enabled = 1;  /* Auto-zero on by default */
     
     cal->zero_offset_uv = 0.0f;
-    cal->span_uv_per_mps = DEFAULT_SPAN_UV_PER_MPS[pipe_size];
+    cal->span_uv_per_mps = FLOW_DEFAULT_SPAN_UV_PER_MPS[pipe_size];
     cal->temp_coeff_offset = 0.0f;
     cal->temp_coeff_span = 0.0f;
     cal->ref_temp_c = 25.0f;
-    cal->pipe_diameter_m = PIPE_DIAMETERS_M[pipe_size];
+    cal->pipe_diameter_m = FLOW_PIPE_DIAMETERS_M[pipe_size];
     cal->k_factor = 0.0f;  /* Mag mode */
     
     /* Default duty cycle: 1.1s on / 13.9s off (~7.3% duty) */
@@ -340,7 +295,7 @@ void flow_calc_stop(flow_calc_ctx_t *ctx)
 }
 
 void flow_calc_process_sample(flow_calc_ctx_t *ctx, 
-                               const ads131m02_sample_t *sample,
+                               const ads131m0x_sample_t *sample,
                                bool coil_on)
 {
     if (ctx == NULL || sample == NULL || !ctx->running) {
@@ -353,16 +308,16 @@ void flow_calc_process_sample(flow_calc_ctx_t *ctx,
     
     /* Accumulate electrode signal (channel 0) based on coil state */
     if (coil_on) {
-        det->sum_on += sample->ch0;
+        det->sum_on += sample->ch[0];
         det->count_on++;
     } else {
-        det->sum_off += sample->ch0;
+        det->sum_off += sample->ch[0];
         det->count_off++;
     }
     
     /* Accumulate coil current (channel 1) during ON phase only */
     if (coil_on) {
-        det->sum_coil_current += sample->ch1;
+        det->sum_coil_current += sample->ch[1];
         det->count_coil++;
     }
     
@@ -396,9 +351,9 @@ void flow_calc_process_sample(flow_calc_ctx_t *ctx,
         /* Calculate coil current for this cycle */
         if (det->count_coil > 0) {
             float mean_coil_raw = (float)det->sum_coil_current / (float)det->count_coil;
-            float coil_voltage_uv = flow_calc_raw_to_uv((int32_t)mean_coil_raw, ADS131M02_GAIN_1);
+            float coil_voltage_uv = flow_calc_raw_to_uv((int32_t)mean_coil_raw, ADS131M0X_GAIN_1X);
             /* Convert to mA: I = V / R, voltage is in µV, resistor in Ω */
-            state->coil_current_ma = (coil_voltage_uv / 1000000.0f) / CURRENT_SENSE_RESISTOR_OHM * 1000.0f;
+            state->coil_current_ma = (coil_voltage_uv / 1000000.0f) / FLOW_CURRENT_SENSE_RESISTOR_OHM * 1000.0f;
         }
         
         /* Reset accumulators for next cycle */
@@ -500,16 +455,16 @@ void flow_calc_process_sample(flow_calc_ctx_t *ctx,
             /* Auto-gain adjustment */
             if (ctx->auto_gain) {
                 /* If signal is too low and not at max gain, increase */
-                if (abs_signal < 50.0f && ctx->adc_gain < ADS131M02_GAIN_128) {
-                    ctx->adc_gain = (ads131m02_gain_t)(ctx->adc_gain + 1);
-                    ads131m02_set_gain(ctx->adc, 0, ctx->adc_gain);
+                if (abs_signal < 50.0f && ctx->adc_gain < ADS131M0X_GAIN_128X) {
+                    ctx->adc_gain = (ads131m0x_gain_t)(ctx->adc_gain + 1);
+                    ads131m0x_set_gain(ctx->adc, 0, ctx->adc_gain);
                     SEGGER_RTT_printf(0, "FLOW: Gain increased to %d\n", 
                                       (int)gain_to_multiplier(ctx->adc_gain));
                 }
                 /* If signal is too high (near saturation), decrease */
-                else if (abs_signal > 400.0f && ctx->adc_gain > ADS131M02_GAIN_1) {
-                    ctx->adc_gain = (ads131m02_gain_t)(ctx->adc_gain - 1);
-                    ads131m02_set_gain(ctx->adc, 0, ctx->adc_gain);
+                else if (abs_signal > 400.0f && ctx->adc_gain > ADS131M0X_GAIN_1X) {
+                    ctx->adc_gain = (ads131m0x_gain_t)(ctx->adc_gain - 1);
+                    ads131m0x_set_gain(ctx->adc, 0, ctx->adc_gain);
                     SEGGER_RTT_printf(0, "FLOW: Gain decreased to %d\n",
                                       (int)gain_to_multiplier(ctx->adc_gain));
                 }
@@ -797,13 +752,7 @@ void flow_calc_apply_tier_defaults(flow_calc_ctx_t *ctx, flow_tier_t tier)
 static flow_adc_cal_t s_adc_cal;
 static bool s_adc_cal_loaded = false;
 
-/* Calibration thresholds */
-#define ADC_CAL_MAX_AGE_SEC         (24 * 60 * 60)  /* 24 hours */
-#define ADC_CAL_TEMP_THRESHOLD_C    10.0f           /* Re-cal if temp changes >10°C */
-#define ADC_CAL_NUM_SAMPLES         32              /* Samples for offset averaging */
-
-/* Global-chop delay setting for best offset performance */
-#define ADC_GLOBAL_CHOP_DELAY       ADS131M02_CFG_GC_DLY_16
+/* Calibration thresholds and global-chop delay are defined in flow_calc.h */
 
 bool flow_calc_adc_calibrate(flow_calc_ctx_t *ctx)
 {
@@ -814,10 +763,10 @@ bool flow_calc_adc_calibrate(flow_calc_ctx_t *ctx)
     SEGGER_RTT_printf(0, "FLOW: Starting ADC calibration...\n");
     
     /* Disable DRDY interrupt during calibration */
-    ads131m02_disable_drdy_interrupt(ctx->adc);
+    ads131m0x_hal_disable_drdy_interrupt(ctx->adc);
     
     /* Enable global-chop mode for better offset stability */
-    if (!ads131m02_enable_global_chop(ctx->adc, ADC_GLOBAL_CHOP_DELAY)) {
+    if (!ads131m0x_enable_global_chop(ctx->adc, FLOW_ADC_GLOBAL_CHOP_DELAY)) {
         SEGGER_RTT_printf(0, "FLOW: Failed to enable global-chop\n");
         return false;
     }
@@ -827,17 +776,17 @@ bool flow_calc_adc_calibrate(flow_calc_ctx_t *ctx)
     
     /* Perform automatic offset calibration on CH0 (electrode signal) */
     SEGGER_RTT_printf(0, "FLOW: Calibrating CH0 offset...\n");
-    if (!ads131m02_auto_offset_cal(ctx->adc, 0, ADC_CAL_NUM_SAMPLES)) {
+    if (!ads131m0x_auto_offset_cal(ctx->adc, 0, FLOW_ADC_CAL_NUM_SAMPLES)) {
         SEGGER_RTT_printf(0, "FLOW: CH0 offset calibration failed\n");
-        ads131m02_enable_drdy_interrupt(ctx->adc);
+        ads131m0x_hal_enable_drdy_interrupt(ctx->adc);
         return false;
     }
     
     /* Perform automatic offset calibration on CH1 (coil current sense) */
     SEGGER_RTT_printf(0, "FLOW: Calibrating CH1 offset...\n");
-    if (!ads131m02_auto_offset_cal(ctx->adc, 1, ADC_CAL_NUM_SAMPLES)) {
+    if (!ads131m0x_auto_offset_cal(ctx->adc, 1, FLOW_ADC_CAL_NUM_SAMPLES)) {
         SEGGER_RTT_printf(0, "FLOW: CH1 offset calibration failed\n");
-        ads131m02_enable_drdy_interrupt(ctx->adc);
+        ads131m0x_hal_enable_drdy_interrupt(ctx->adc);
         return false;
     }
     
@@ -845,10 +794,10 @@ bool flow_calc_adc_calibrate(flow_calc_ctx_t *ctx)
     int32_t ch0_offset, ch1_offset;
     uint32_t ch0_gain, ch1_gain;
     
-    ads131m02_get_offset_cal(ctx->adc, 0, &ch0_offset);
-    ads131m02_get_offset_cal(ctx->adc, 1, &ch1_offset);
-    ads131m02_get_gain_cal(ctx->adc, 0, &ch0_gain);
-    ads131m02_get_gain_cal(ctx->adc, 1, &ch1_gain);
+    ads131m0x_get_offset_cal(ctx->adc, 0, &ch0_offset);
+    ads131m0x_get_offset_cal(ctx->adc, 1, &ch1_offset);
+    ads131m0x_get_gain_cal(ctx->adc, 0, &ch0_gain);
+    ads131m0x_get_gain_cal(ctx->adc, 1, &ch1_gain);
     
     /* Store in calibration structure */
     s_adc_cal.magic = FLOW_ADC_CAL_MAGIC;
@@ -868,7 +817,7 @@ bool flow_calc_adc_calibrate(flow_calc_ctx_t *ctx)
     }
     
     /* Re-enable DRDY interrupt */
-    ads131m02_enable_drdy_interrupt(ctx->adc);
+    ads131m0x_hal_enable_drdy_interrupt(ctx->adc);
     
     SEGGER_RTT_printf(0, "FLOW: ADC calibration complete\n");
     SEGGER_RTT_printf(0, "  CH0: offset=%d, gain=0x%06X\n", ch0_offset, ch0_gain);
@@ -909,22 +858,22 @@ bool flow_calc_adc_load_calibration(flow_calc_ctx_t *ctx)
     }
     
     /* Apply calibration to ADC */
-    if (!ads131m02_set_offset_cal(ctx->adc, 0, cal.ch0_offset)) {
+    if (!ads131m0x_set_offset_cal(ctx->adc, 0, cal.ch0_offset)) {
         SEGGER_RTT_printf(0, "FLOW: Failed to apply CH0 offset\n");
         return false;
     }
     
-    if (!ads131m02_set_offset_cal(ctx->adc, 1, cal.ch1_offset)) {
+    if (!ads131m0x_set_offset_cal(ctx->adc, 1, cal.ch1_offset)) {
         SEGGER_RTT_printf(0, "FLOW: Failed to apply CH1 offset\n");
         return false;
     }
     
-    if (!ads131m02_set_gain_cal(ctx->adc, 0, cal.ch0_gain)) {
+    if (!ads131m0x_set_gain_cal(ctx->adc, 0, cal.ch0_gain)) {
         SEGGER_RTT_printf(0, "FLOW: Failed to apply CH0 gain\n");
         return false;
     }
     
-    if (!ads131m02_set_gain_cal(ctx->adc, 1, cal.ch1_gain)) {
+    if (!ads131m0x_set_gain_cal(ctx->adc, 1, cal.ch1_gain)) {
         SEGGER_RTT_printf(0, "FLOW: Failed to apply CH1 gain\n");
         return false;
     }
@@ -985,7 +934,7 @@ bool flow_calc_adc_needs_calibration(flow_calc_ctx_t *ctx, float current_temp_c)
     
     /* Check temperature drift */
     float temp_diff = fabsf(current_temp_c - s_adc_cal.cal_temperature_c);
-    if (temp_diff > ADC_CAL_TEMP_THRESHOLD_C) {
+    if (temp_diff > FLOW_ADC_CAL_TEMP_THRESHOLD_C) {
         SEGGER_RTT_printf(0, "FLOW: ADC cal needed - temp drift %.1f°C (was %.1f, now %.1f)\n",
                           temp_diff, s_adc_cal.cal_temperature_c, current_temp_c);
         return true;
@@ -1011,25 +960,25 @@ bool flow_calc_adc_prepare(flow_calc_ctx_t *ctx)
         if (!flow_calc_adc_calibrate(ctx)) {
             SEGGER_RTT_printf(0, "FLOW: ADC calibration failed - continuing with defaults\n");
             /* Reset calibration to defaults */
-            ads131m02_reset_calibration(ctx->adc, 0);
-            ads131m02_reset_calibration(ctx->adc, 1);
+            ads131m0x_reset_calibration(ctx->adc, 0);
+            ads131m0x_reset_calibration(ctx->adc, 1);
         }
     }
     
     /* Enable global-chop mode for measurement */
-    if (!ads131m02_enable_global_chop(ctx->adc, ADC_GLOBAL_CHOP_DELAY)) {
+    if (!ads131m0x_enable_global_chop(ctx->adc, FLOW_ADC_GLOBAL_CHOP_DELAY)) {
         SEGGER_RTT_printf(0, "FLOW: Warning - failed to enable global-chop\n");
     }
     
     /* Verify ADC is responding by reading a sample */
-    ads131m02_sample_t test_sample;
-    if (!ads131m02_read_sample(ctx->adc, &test_sample)) {
+    ads131m0x_sample_t test_sample;
+    if (!ads131m0x_read_sample(ctx->adc, &test_sample)) {
         SEGGER_RTT_printf(0, "FLOW: ADC not responding!\n");
         return false;
     }
     
     SEGGER_RTT_printf(0, "FLOW: ADC ready (test sample: CH0=%d, CH1=%d)\n",
-                      test_sample.ch0, test_sample.ch1);
+                      test_sample.ch[0], test_sample.ch[1]);
     
     return true;
 }
@@ -1043,25 +992,25 @@ bool flow_calc_adc_quick_offset_cal(flow_calc_ctx_t *ctx)
     SEGGER_RTT_printf(0, "FLOW: Quick offset recalibration...\n");
     
     /* Disable DRDY interrupt during calibration */
-    ads131m02_disable_drdy_interrupt(ctx->adc);
+    ads131m0x_hal_disable_drdy_interrupt(ctx->adc);
     
     /* Perform offset calibration on both channels with fewer samples */
     bool success = true;
     
-    if (!ads131m02_auto_offset_cal(ctx->adc, 0, 16)) {
+    if (!ads131m0x_auto_offset_cal(ctx->adc, 0, 16)) {
         SEGGER_RTT_printf(0, "FLOW: Quick cal CH0 failed\n");
         success = false;
     }
     
-    if (!ads131m02_auto_offset_cal(ctx->adc, 1, 16)) {
+    if (!ads131m0x_auto_offset_cal(ctx->adc, 1, 16)) {
         SEGGER_RTT_printf(0, "FLOW: Quick cal CH1 failed\n");
         success = false;
     }
     
     /* Update stored calibration */
     if (success && s_adc_cal_loaded) {
-        ads131m02_get_offset_cal(ctx->adc, 0, &s_adc_cal.ch0_offset);
-        ads131m02_get_offset_cal(ctx->adc, 1, &s_adc_cal.ch1_offset);
+        ads131m0x_get_offset_cal(ctx->adc, 0, &s_adc_cal.ch0_offset);
+        ads131m0x_get_offset_cal(ctx->adc, 1, &s_adc_cal.ch1_offset);
         s_adc_cal.cal_temperature_c = ctx->state.temperature_c;
         
         /* Save to FRAM (non-blocking, best effort) */
@@ -1069,7 +1018,7 @@ bool flow_calc_adc_quick_offset_cal(flow_calc_ctx_t *ctx)
     }
     
     /* Re-enable DRDY interrupt */
-    ads131m02_enable_drdy_interrupt(ctx->adc);
+    ads131m0x_hal_enable_drdy_interrupt(ctx->adc);
     
     return success;
 }
@@ -1114,9 +1063,9 @@ uint16_t flow_calc_measure_coil_resistance(flow_calc_ctx_t *ctx)
     int count = 0;
     
     for (int i = 0; i < 100; i++) {
-        ads131m02_sample_t sample;
-        if (ads131m02_read_sample(ctx->adc, &sample) && sample.valid) {
-            sum += sample.ch1;  /* CH1 is I_SENSE */
+        ads131m0x_sample_t sample;
+        if (ads131m0x_read_sample(ctx->adc, &sample) && sample.valid) {
+            sum += sample.ch[1];  /* CH1 is I_SENSE */
             count++;
         }
         vTaskDelay(pdMS_TO_TICKS(1));
@@ -1139,7 +1088,7 @@ uint16_t flow_calc_measure_coil_resistance(flow_calc_ctx_t *ctx)
      * V_sense is measured voltage, R_sense is 0.1Ω for MM-S
      * Current in mA = (V_sense in µV) / (R_sense in Ω) / 1000
      */
-    float current_ma = current_uv / (CURRENT_SENSE_RESISTOR_OHM * 1000.0f);
+    float current_ma = current_uv / (FLOW_CURRENT_SENSE_RESISTOR_OHM * 1000.0f);
     
     if (current_ma < 10.0f) {
         SEGGER_RTT_printf(0, "FLOW: Current too low (%.1f mA) - coil disconnected?\n", current_ma);

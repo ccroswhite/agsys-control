@@ -122,13 +122,13 @@ func TestMeterAlarmStorage(t *testing.T) {
 
 	// Insert a meter alarm
 	alarm := &storage.MeterAlarm{
-		DeviceUID:   "0102030405060708",
-		AlarmType:   protocol.MeterAlarmLeak,
-		FlowRateLPM: 15.5,
-		DurationSec: 3600,
-		TotalLiters: 50000,
-		RSSI:        -85,
-		Timestamp:   time.Now(),
+		DeviceUID:    "0102030405060708",
+		AlarmType:    protocol.MeterAlarmLeak,
+		FlowRateLPM:  15.5,
+		DurationSec:  3600,
+		TotalVolumeL: 50000.0,
+		RSSI:         -85,
+		Timestamp:    time.Now(),
 	}
 
 	id, err := db.InsertMeterAlarm(alarm)
@@ -191,12 +191,15 @@ func TestWaterMeterReadingStorage(t *testing.T) {
 	defer db.Close()
 
 	reading := &storage.WaterMeterReading{
-		DeviceUID:   "0102030405060708",
-		TotalLiters: 12345,
-		FlowRateLPM: 5.5,
-		BatteryMV:   3700,
-		RSSI:        -90,
-		Timestamp:   time.Now(),
+		DeviceUID:     "0102030405060708",
+		TotalVolumeL:  12345.0,
+		FlowRateLPM:   5.5,
+		SignalUV:      100.0,
+		TemperatureC:  25.0,
+		SignalQuality: 85,
+		BatteryMV:     3700,
+		RSSI:          -90,
+		Timestamp:     time.Now(),
 	}
 
 	id, err := db.InsertWaterMeterReading(reading)
@@ -216,8 +219,8 @@ func TestWaterMeterReadingStorage(t *testing.T) {
 		t.Fatalf("Expected 1 reading, got %d", len(readings))
 	}
 
-	if readings[0].TotalLiters != reading.TotalLiters {
-		t.Errorf("TotalLiters mismatch: got %d, want %d", readings[0].TotalLiters, reading.TotalLiters)
+	if readings[0].TotalVolumeL != reading.TotalVolumeL {
+		t.Errorf("TotalVolumeL mismatch: got %f, want %f", readings[0].TotalVolumeL, reading.TotalVolumeL)
 	}
 }
 
@@ -289,34 +292,24 @@ func TestProtocolMessageFlow(t *testing.T) {
 		1234,
 	)
 
-	// Build alarm payload (matching C struct layout)
-	alarmPayload := make([]byte, 16)
-	// timestamp (4 bytes)
+	// Build alarm payload using the new float-based format
+	// Use the Encode method to ensure wire format matches
 	timestamp := uint32(12345)
-	alarmPayload[0] = byte(timestamp)
-	alarmPayload[1] = byte(timestamp >> 8)
-	alarmPayload[2] = byte(timestamp >> 16)
-	alarmPayload[3] = byte(timestamp >> 24)
-	// alarmType (1 byte)
-	alarmPayload[4] = protocol.MeterAlarmLeak
-	// flowRateLPM (2 bytes) - 15.0 L/min = 150
-	flowRate := uint16(150)
-	alarmPayload[5] = byte(flowRate)
-	alarmPayload[6] = byte(flowRate >> 8)
-	// durationSec (4 bytes)
+	alarmType := protocol.MeterAlarmLeak
+	flowRate := float32(15.0)
 	duration := uint32(3600)
-	alarmPayload[7] = byte(duration)
-	alarmPayload[8] = byte(duration >> 8)
-	alarmPayload[9] = byte(duration >> 16)
-	alarmPayload[10] = byte(duration >> 24)
-	// totalLiters (4 bytes)
-	total := uint32(50000)
-	alarmPayload[11] = byte(total)
-	alarmPayload[12] = byte(total >> 8)
-	alarmPayload[13] = byte(total >> 16)
-	alarmPayload[14] = byte(total >> 24)
-	// flags (1 byte)
-	alarmPayload[15] = 0x01
+	totalVolume := float32(50000.0)
+
+	alarm := &protocol.MeterAlarmPayload{
+		Timestamp:    timestamp,
+		AlarmType:    alarmType,
+		Reserved:     0,
+		FlowRateLPM:  flowRate,
+		DurationSec:  duration,
+		TotalVolumeL: totalVolume,
+		Flags:        0x01,
+	}
+	alarmPayload := alarm.Encode()
 
 	// Create full message
 	msg := &protocol.LoRaMessage{
@@ -340,17 +333,17 @@ func TestProtocolMessageFlow(t *testing.T) {
 	if decoded.Timestamp != timestamp {
 		t.Errorf("Timestamp mismatch: got %d, want %d", decoded.Timestamp, timestamp)
 	}
-	if decoded.AlarmType != protocol.MeterAlarmLeak {
-		t.Errorf("AlarmType mismatch: got %d, want %d", decoded.AlarmType, protocol.MeterAlarmLeak)
+	if decoded.AlarmType != alarmType {
+		t.Errorf("AlarmType mismatch: got %d, want %d", decoded.AlarmType, alarmType)
 	}
 	if decoded.FlowRateLPM != flowRate {
-		t.Errorf("FlowRateLPM mismatch: got %d, want %d", decoded.FlowRateLPM, flowRate)
+		t.Errorf("FlowRateLPM mismatch: got %f, want %f", decoded.FlowRateLPM, flowRate)
 	}
 	if decoded.DurationSec != duration {
 		t.Errorf("DurationSec mismatch: got %d, want %d", decoded.DurationSec, duration)
 	}
-	if decoded.TotalLiters != total {
-		t.Errorf("TotalLiters mismatch: got %d, want %d", decoded.TotalLiters, total)
+	if decoded.TotalVolumeL != totalVolume {
+		t.Errorf("TotalVolumeL mismatch: got %f, want %f", decoded.TotalVolumeL, totalVolume)
 	}
 }
 

@@ -18,13 +18,13 @@ type TestVectors struct {
 }
 
 type MeterAlarmVector struct {
-	Timestamp   uint32 `json:"timestamp"`
-	AlarmType   uint8  `json:"alarm_type"`
-	FlowRateLPM uint16 `json:"flow_rate_lpm"`
-	DurationSec uint32 `json:"duration_sec"`
-	TotalLiters uint32 `json:"total_liters"`
-	Flags       uint8  `json:"flags"`
-	Encoded     string `json:"encoded"`
+	Timestamp    uint32  `json:"timestamp"`
+	AlarmType    uint8   `json:"alarm_type"`
+	FlowRateLPM  float32 `json:"flow_rate_lpm"`
+	DurationSec  uint32  `json:"duration_sec"`
+	TotalVolumeL float32 `json:"total_volume_l"`
+	Flags        uint8   `json:"flags"`
+	Encoded      string  `json:"encoded"`
 }
 
 type MeterConfigVector struct {
@@ -121,13 +121,13 @@ func TestCrossValidateMeterAlarm(t *testing.T) {
 				t.Errorf("AlarmType: got %d, want %d", decoded.AlarmType, v.AlarmType)
 			}
 			if decoded.FlowRateLPM != v.FlowRateLPM {
-				t.Errorf("FlowRateLPM: got %d, want %d", decoded.FlowRateLPM, v.FlowRateLPM)
+				t.Errorf("FlowRateLPM: got %f, want %f", decoded.FlowRateLPM, v.FlowRateLPM)
 			}
 			if decoded.DurationSec != v.DurationSec {
 				t.Errorf("DurationSec: got %d, want %d", decoded.DurationSec, v.DurationSec)
 			}
-			if decoded.TotalLiters != v.TotalLiters {
-				t.Errorf("TotalLiters: got %d, want %d", decoded.TotalLiters, v.TotalLiters)
+			if decoded.TotalVolumeL != v.TotalVolumeL {
+				t.Errorf("TotalVolumeL: got %f, want %f", decoded.TotalVolumeL, v.TotalVolumeL)
 			}
 			if decoded.Flags != v.Flags {
 				t.Errorf("Flags: got %d, want %d", decoded.Flags, v.Flags)

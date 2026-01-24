@@ -25,7 +25,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "ads131m02.h"
+#include "ads131m0x_hal.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,6 +78,32 @@ typedef enum {
     PIPE_SIZE_COUNT
 } flow_pipe_size_t;
 
+/* Pipe inner diameters (meters) for Schedule 40/80 PVC */
+static const float FLOW_PIPE_DIAMETERS_M[PIPE_SIZE_COUNT] = {
+    0.0381f,    /* 1.5" Sch 80: 38.1mm ID */
+    0.0525f,    /* 2" Sch 80: 52.5mm ID */
+    0.0635f,    /* 2.5" Sch 40: 63.5mm ID */
+    0.0779f,    /* 3" Sch 40: 77.9mm ID */
+    0.1023f,    /* 4" Sch 40: 102.3mm ID */
+    0.1282f,    /* 5" Sch 40: 128.2mm ID */
+    0.1541f,    /* 6" Sch 40: 154.1mm ID */
+};
+
+/* Default span coefficients (µV per m/s) - empirical, needs calibration */
+static const float FLOW_DEFAULT_SPAN_UV_PER_MPS[PIPE_SIZE_COUNT] = {
+    150.0f,     /* 1.5" */
+    180.0f,     /* 2" */
+    200.0f,     /* 2.5" */
+    220.0f,     /* 3" */
+    250.0f,     /* 4" */
+    280.0f,     /* 5" */
+    300.0f,     /* 6" */
+};
+
+/* ==========================================================================
+ * BOARD TIER CONFIGURATION
+ * ========================================================================== */
+
 /* Board tier (detected via TIER_ID voltage divider) */
 typedef enum {
     FLOW_TIER_S = 0,            /* MM-S: 1.5" - 2" pipes */
@@ -86,6 +112,35 @@ typedef enum {
     FLOW_TIER_COUNT,
     FLOW_TIER_UNKNOWN = 0xFF
 } flow_tier_t;
+
+/* Tier ID voltage thresholds (mV) - from power board voltage dividers */
+#define FLOW_TIER_S_VOLTAGE_MV      825     /* 0.825V ± 10% */
+#define FLOW_TIER_M_VOLTAGE_MV      1650    /* 1.65V ± 10% */
+#define FLOW_TIER_L_VOLTAGE_MV      2475    /* 2.475V ± 10% */
+#define FLOW_TIER_TOLERANCE_MV      165     /* ±10% tolerance */
+
+/* ==========================================================================
+ * HARDWARE CONSTANTS
+ * ========================================================================== */
+
+/* Current sense resistor and gain for coil current measurement */
+#define FLOW_CURRENT_SENSE_RESISTOR_OHM     0.1f    /* MM-S uses 0.1Ω */
+#define FLOW_CURRENT_SENSE_GAIN             1.0f    /* Direct measurement for MM-S */
+
+/* ADC full scale (24-bit signed) */
+#define FLOW_ADC_FULL_SCALE                 8388607 /* 2^23 - 1 */
+
+/* ==========================================================================
+ * ADC CALIBRATION CONFIGURATION
+ * ========================================================================== */
+
+/* Calibration thresholds */
+#define FLOW_ADC_CAL_MAX_AGE_SEC            (24 * 60 * 60)  /* 24 hours */
+#define FLOW_ADC_CAL_TEMP_THRESHOLD_C       10.0f           /* Re-cal if temp changes >10°C */
+#define FLOW_ADC_CAL_NUM_SAMPLES            32              /* Samples for offset averaging */
+
+/* Global-chop delay setting for best offset performance */
+#define FLOW_ADC_GLOBAL_CHOP_DELAY          ADS131M0X_GC_DLY_16
 
 /* ==========================================================================
  * CALIBRATION DATA (stored in FRAM)
@@ -218,7 +273,7 @@ typedef struct {
 
 typedef struct {
     /* ADC context (external, must be initialized) */
-    ads131m02_ctx_t *adc;
+    ads131m0x_ctx_t *adc;
     
     /* Calibration data */
     flow_calibration_t calibration;
@@ -234,7 +289,7 @@ typedef struct {
     uint32_t period_start_tick;
     
     /* Configuration */
-    ads131m02_gain_t adc_gain;      /* Current PGA gain setting */
+    ads131m0x_gain_t adc_gain;      /* Current PGA gain setting */
     bool auto_gain;                 /* Enable auto-ranging */
     
     /* Auto-zero state */
@@ -259,7 +314,7 @@ typedef struct {
  * @param adc ADC context (must be initialized)
  * @return true on success
  */
-bool flow_calc_init(flow_calc_ctx_t *ctx, ads131m02_ctx_t *adc);
+bool flow_calc_init(flow_calc_ctx_t *ctx, ads131m0x_ctx_t *adc);
 
 /**
  * @brief Load calibration data from FRAM
@@ -313,7 +368,7 @@ void flow_calc_stop(flow_calc_ctx_t *ctx);
  * @param coil_on Current coil excitation state (true = field on)
  */
 void flow_calc_process_sample(flow_calc_ctx_t *ctx, 
-                               const ads131m02_sample_t *sample,
+                               const ads131m0x_sample_t *sample,
                                bool coil_on);
 
 /**
@@ -378,7 +433,7 @@ void flow_calc_set_auto_zero(flow_calc_ctx_t *ctx, bool enable);
  * @param gain Current PGA gain setting
  * @return Voltage in microvolts
  */
-float flow_calc_raw_to_uv(int32_t raw, ads131m02_gain_t gain);
+float flow_calc_raw_to_uv(int32_t raw, ads131m0x_gain_t gain);
 
 /**
  * @brief Get pipe inner diameter for pipe size

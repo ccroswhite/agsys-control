@@ -64,12 +64,15 @@ type SoilMoistureReading struct {
 	SyncedToCloud   bool      `json:"synced_to_cloud"`
 }
 
-// WaterMeterReading represents a water meter reading
+// WaterMeterReading represents a water meter reading with full float precision
 type WaterMeterReading struct {
 	ID            int64     `json:"id"`
 	DeviceUID     string    `json:"device_uid"`
-	TotalLiters   uint32    `json:"total_liters"`
-	FlowRateLPM   float32   `json:"flow_rate_lpm"` // Liters per minute
+	TotalVolumeL  float32   `json:"total_volume_l"` // Total volume in liters (IEEE 754 float)
+	FlowRateLPM   float32   `json:"flow_rate_lpm"`  // Liters per minute (IEEE 754 float)
+	SignalUV      float32   `json:"signal_uv"`      // Raw electrode signal in microvolts
+	TemperatureC  float32   `json:"temperature_c"`  // Device temperature in Celsius
+	SignalQuality uint8     `json:"signal_quality"` // Signal quality 0-100%
 	BatteryMV     uint16    `json:"battery_mv"`
 	RSSI          int16     `json:"rssi"`
 	Timestamp     time.Time `json:"timestamp"`
@@ -140,14 +143,14 @@ type CloudSyncQueue struct {
 	LastError string    `json:"last_error,omitempty"`
 }
 
-// MeterAlarm represents a water meter alarm event
+// MeterAlarm represents a water meter alarm event with full float precision
 type MeterAlarm struct {
 	ID            int64     `json:"id"`
 	DeviceUID     string    `json:"device_uid"`
-	AlarmType     uint8     `json:"alarm_type"`    // 0=cleared, 1=leak, 2=reverse, 3=tamper, 4=high_flow
-	FlowRateLPM   float32   `json:"flow_rate_lpm"` // Flow rate at alarm time
-	DurationSec   uint32    `json:"duration_sec"`  // Duration of alarm condition
-	TotalLiters   uint32    `json:"total_liters"`  // Total liters at alarm time
+	AlarmType     uint8     `json:"alarm_type"`     // 0=cleared, 1=leak, 2=reverse, 3=tamper, 4=high_flow
+	FlowRateLPM   float32   `json:"flow_rate_lpm"`  // Flow rate at alarm time (IEEE 754 float)
+	DurationSec   uint32    `json:"duration_sec"`   // Duration of alarm condition
+	TotalVolumeL  float32   `json:"total_volume_l"` // Total volume at alarm time (IEEE 754 float)
 	RSSI          int16     `json:"rssi"`
 	Timestamp     time.Time `json:"timestamp"`
 	SyncedToCloud bool      `json:"synced_to_cloud"`

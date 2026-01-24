@@ -76,14 +76,17 @@ static char m_ota_version_str[16] = {0};
  * FLOW MEASUREMENT STATE
  * ========================================================================== */
 
-static ads131m02_ctx_t m_adc_ctx;
+static ads131m0x_ctx_t m_adc_ctx;
 static flow_calc_ctx_t m_flow_ctx;
 coil_driver_ctx_t m_coil_ctx;  /* Non-static for flow_calc access */
 temp_sensor_ctx_t g_temp_sensor;  /* Non-static for LoRa task access */
 
-/* Global flow data for LoRa task access */
+/* Global flow data for LoRa task access (full float precision) */
 volatile float g_flow_rate_lpm = 0.0f;
 volatile float g_total_volume_l = 0.0f;
+volatile float g_signal_uv = 0.0f;
+volatile float g_temperature_c = 25.0f;
+volatile uint8_t g_signal_quality = 0;
 volatile uint8_t g_alarm_flags = 0;
 
 /* Calibration state - set true if device needs calibration */
@@ -854,7 +857,7 @@ static bool create_shared_resources(void)
  * ADC DRDY CALLBACK - Called when new sample ready
  * ========================================================================== */
 
-static void adc_drdy_callback(ads131m02_sample_t *sample, void *user_data)
+static void adc_drdy_callback(ads131m0x_sample_t *sample, void *user_data)
 {
     (void)user_data;
     
@@ -917,17 +920,14 @@ static void adc_task(void *pvParameters)
     
     SEGGER_RTT_printf(0, "SPI: 3 buses initialized with DMA\n");
     
-    /* Initialize ADS131M02 ADC */
-    ads131m02_config_t adc_config = {
-        .cs_pin = AGSYS_ADC_CS_PIN,
-        .drdy_pin = AGSYS_ADC_DRDY_PIN,
-        .sync_pin = AGSYS_ADC_SYNC_PIN,
-        .osr = ADS131M02_OSR_256,       /* 16 kSPS (OSR=256 with 8.192MHz clock) */
-        .gain_ch0 = ADS131M02_GAIN_32,  /* Electrode signal */
-        .gain_ch1 = ADS131M02_GAIN_1,   /* Coil current sense */
-    };
-    
-    if (!ads131m02_init(&m_adc_ctx, &adc_config)) {
+    /* Initialize ADS131M02 ADC using HAL wrapper */
+    if (!ads131m0x_hal_init(&m_adc_ctx,
+                            AGSYS_ADC_CS_PIN,
+                            AGSYS_ADC_DRDY_PIN,
+                            AGSYS_ADC_SYNC_PIN,
+                            ADS131M0X_OSR_256,      /* 16 kSPS (OSR=256 with 8.192MHz clock) */
+                            ADS131M0X_GAIN_32X,     /* Electrode signal */
+                            ADS131M0X_GAIN_1X)) {   /* Coil current sense */
         SEGGER_RTT_printf(0, "ADC: Init failed!\n");
         vTaskSuspend(NULL);
     }
@@ -1031,7 +1031,7 @@ static void adc_task(void *pvParameters)
     }
     
     /* Set up DRDY callback for interrupt-driven sampling */
-    ads131m02_set_drdy_callback(&m_adc_ctx, adc_drdy_callback, NULL);
+    ads131m0x_hal_set_drdy_callback(&m_adc_ctx, adc_drdy_callback, NULL);
     
     /* Prepare ADC with calibration before starting measurements */
     SEGGER_RTT_printf(0, "ADC: Preparing with calibration...\n");
@@ -1061,9 +1061,12 @@ static void adc_task(void *pvParameters)
         /* Get current flow state */
         flow_calc_get_state(&m_flow_ctx, &flow_state);
         
-        /* Update global flow data for LoRa task */
+        /* Update global flow data for LoRa task (full float precision) */
         g_flow_rate_lpm = flow_state.flow_rate_lpm;
         g_total_volume_l = flow_state.total_volume_l;
+        g_signal_uv = flow_state.signal_uv;
+        g_temperature_c = flow_state.temperature_c;
+        g_signal_quality = flow_state.signal_quality;
         
         /* Set alarm flags */
         g_alarm_flags = 0;

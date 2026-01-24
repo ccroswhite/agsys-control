@@ -411,12 +411,12 @@ func (c *GRPCClient) SendMeterData(deviceUID string, readings []*controllerv1.Me
 
 // MeterAlarmData holds meter alarm information for cloud transmission
 type MeterAlarmData struct {
-	AlarmType   uint8
-	FlowRateLPM float32
-	DurationSec uint32
-	TotalLiters uint32
-	RSSI        int16
-	Timestamp   time.Time
+	AlarmType    uint8
+	FlowRateLPM  float32
+	DurationSec  uint32
+	TotalVolumeL float32 // Full float precision
+	RSSI         int16
+	Timestamp    time.Time
 }
 
 // mapAlarmType converts internal alarm type to protobuf enum
@@ -446,7 +446,7 @@ func (c *GRPCClient) SendMeterAlarm(deviceUID string, alarm *MeterAlarmData) err
 				AlarmType:       mapAlarmType(alarm.AlarmType),
 				FlowRateLpm:     alarm.FlowRateLPM,
 				DurationSeconds: int64(alarm.DurationSec),
-				TotalLiters:     float64(alarm.TotalLiters),
+				TotalLiters:     float64(alarm.TotalVolumeL),
 				Timestamp:       timestamppb.New(alarm.Timestamp),
 				SignalRssi:      int32(alarm.RSSI),
 			},

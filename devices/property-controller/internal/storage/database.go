@@ -386,11 +386,11 @@ func (db *DB) MarkSoilMoistureReadingSynced(id int64) error {
 // InsertWaterMeterReading inserts a new water meter reading
 func (db *DB) InsertWaterMeterReading(r *WaterMeterReading) (int64, error) {
 	query := `INSERT INTO water_meter_readings 
-		(device_uid, total_liters, flow_rate_lpm, battery_mv, rssi, timestamp)
-		VALUES (?, ?, ?, ?, ?, ?)`
+		(device_uid, total_volume_l, flow_rate_lpm, signal_uv, temperature_c, signal_quality, battery_mv, rssi, timestamp)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	result, err := db.conn.Exec(query, r.DeviceUID, r.TotalLiters, r.FlowRateLPM,
-		r.BatteryMV, r.RSSI, r.Timestamp)
+	result, err := db.conn.Exec(query, r.DeviceUID, r.TotalVolumeL, r.FlowRateLPM,
+		r.SignalUV, r.TemperatureC, r.SignalQuality, r.BatteryMV, r.RSSI, r.Timestamp)
 	if err != nil {
 		return 0, err
 	}
@@ -399,7 +399,7 @@ func (db *DB) InsertWaterMeterReading(r *WaterMeterReading) (int64, error) {
 
 // GetUnsyncedWaterMeterReadings retrieves readings not yet synced to cloud
 func (db *DB) GetUnsyncedWaterMeterReadings(limit int) ([]*WaterMeterReading, error) {
-	query := `SELECT id, device_uid, total_liters, flow_rate_lpm, battery_mv, rssi, timestamp, synced_to_cloud
+	query := `SELECT id, device_uid, total_volume_l, flow_rate_lpm, signal_uv, temperature_c, signal_quality, battery_mv, rssi, timestamp, synced_to_cloud
 		FROM water_meter_readings WHERE synced_to_cloud = 0
 		ORDER BY timestamp LIMIT ?`
 
@@ -412,8 +412,8 @@ func (db *DB) GetUnsyncedWaterMeterReadings(limit int) ([]*WaterMeterReading, er
 	var readings []*WaterMeterReading
 	for rows.Next() {
 		r := &WaterMeterReading{}
-		if err := rows.Scan(&r.ID, &r.DeviceUID, &r.TotalLiters, &r.FlowRateLPM,
-			&r.BatteryMV, &r.RSSI, &r.Timestamp, &r.SyncedToCloud); err != nil {
+		if err := rows.Scan(&r.ID, &r.DeviceUID, &r.TotalVolumeL, &r.FlowRateLPM,
+			&r.SignalUV, &r.TemperatureC, &r.SignalQuality, &r.BatteryMV, &r.RSSI, &r.Timestamp, &r.SyncedToCloud); err != nil {
 			return nil, err
 		}
 		readings = append(readings, r)
@@ -432,11 +432,11 @@ func (db *DB) MarkWaterMeterReadingSynced(id int64) error {
 // InsertMeterAlarm inserts a new meter alarm
 func (db *DB) InsertMeterAlarm(a *MeterAlarm) (int64, error) {
 	query := `INSERT INTO meter_alarms 
-		(device_uid, alarm_type, flow_rate_lpm, duration_sec, total_liters, rssi, timestamp)
+		(device_uid, alarm_type, flow_rate_lpm, duration_sec, total_volume_l, rssi, timestamp)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`
 
 	result, err := db.conn.Exec(query, a.DeviceUID, a.AlarmType, a.FlowRateLPM,
-		a.DurationSec, a.TotalLiters, a.RSSI, a.Timestamp)
+		a.DurationSec, a.TotalVolumeL, a.RSSI, a.Timestamp)
 	if err != nil {
 		return 0, err
 	}
@@ -445,7 +445,7 @@ func (db *DB) InsertMeterAlarm(a *MeterAlarm) (int64, error) {
 
 // GetUnsyncedMeterAlarms retrieves alarms not yet synced to cloud
 func (db *DB) GetUnsyncedMeterAlarms(limit int) ([]*MeterAlarm, error) {
-	query := `SELECT id, device_uid, alarm_type, flow_rate_lpm, duration_sec, total_liters, rssi, timestamp, synced_to_cloud
+	query := `SELECT id, device_uid, alarm_type, flow_rate_lpm, duration_sec, total_volume_l, rssi, timestamp, synced_to_cloud
 		FROM meter_alarms WHERE synced_to_cloud = 0
 		ORDER BY timestamp LIMIT ?`
 
@@ -459,7 +459,7 @@ func (db *DB) GetUnsyncedMeterAlarms(limit int) ([]*MeterAlarm, error) {
 	for rows.Next() {
 		a := &MeterAlarm{}
 		if err := rows.Scan(&a.ID, &a.DeviceUID, &a.AlarmType, &a.FlowRateLPM,
-			&a.DurationSec, &a.TotalLiters, &a.RSSI, &a.Timestamp, &a.SyncedToCloud); err != nil {
+			&a.DurationSec, &a.TotalVolumeL, &a.RSSI, &a.Timestamp, &a.SyncedToCloud); err != nil {
 			return nil, err
 		}
 		alarms = append(alarms, a)

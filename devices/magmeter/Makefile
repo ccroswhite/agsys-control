@@ -74,7 +74,8 @@ SRC_FILES += \
   $(SDK_ROOT)/components/ble/common/ble_advdata.c \
   $(SDK_ROOT)/components/ble/common/ble_srv_common.c \
   $(PROJ_DIR)/src/main.c \
-  $(PROJ_DIR)/src/ads131m02.c \
+  $(PROJ_DIR)/src/ads131m0x_hal.c \
+  $(COMMON_DIR)/FreeRTOS-ADS131Mxx-Driver/ads131m0x.c \
   $(PROJ_DIR)/src/st7789.c \
   $(PROJ_DIR)/src/display_new.c \
   $(PROJ_DIR)/src/ui/ui_screen_main.c \
@@ -147,6 +148,7 @@ INC_FOLDERS += \
   $(PROJ_DIR)/src \
   $(PROJ_DIR)/src/ui \
   $(COMMON_DIR)/include \
+  $(COMMON_DIR)/FreeRTOS-ADS131Mxx-Driver \
   $(COMMON_DIR)/include/ui \
   $(SDK_ROOT)/components \
   $(SDK_ROOT)/components/boards \
@@ -203,6 +205,7 @@ CFLAGS += -DNRF52840_XXAA
 CFLAGS += -DNRF_SD_BLE_API_VERSION=7
 CFLAGS += -DS140
 CFLAGS += -DSOFTDEVICE_PRESENT
+CFLAGS += -DADS131M0X_DEVICE_M02
 CFLAGS += -mcpu=cortex-m4
 CFLAGS += -mthumb -mabi=aapcs
 CFLAGS += -Wall -Werror

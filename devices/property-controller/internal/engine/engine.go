@@ -296,14 +296,17 @@ func (e *Engine) handleWaterMeterData(deviceUID string, msg *protocol.LoRaMessag
 		return
 	}
 
-	// Store in database
+	// Store in database (data already has full float precision)
 	reading := &storage.WaterMeterReading{
-		DeviceUID:   deviceUID,
-		TotalLiters: data.TotalLiters,
-		FlowRateLPM: float32(data.FlowRateLPM) / 10.0,
-		BatteryMV:   data.BatteryMV,
-		RSSI:        msg.RSSI,
-		Timestamp:   time.Now(),
+		DeviceUID:     deviceUID,
+		TotalVolumeL:  data.TotalVolumeL,
+		FlowRateLPM:   data.FlowRateLPM,
+		SignalUV:      data.SignalUV,
+		TemperatureC:  data.TemperatureC,
+		SignalQuality: data.SignalQuality,
+		BatteryMV:     data.BatteryMV,
+		RSSI:          msg.RSSI,
+		Timestamp:     time.Now(),
 	}
 
 	id, err := e.db.InsertWaterMeterReading(reading)
@@ -312,8 +315,8 @@ func (e *Engine) handleWaterMeterData(deviceUID string, msg *protocol.LoRaMessag
 		return
 	}
 
-	log.Printf("Water meter from %s: %d L total, %.1f L/min flow",
-		deviceUID, data.TotalLiters, reading.FlowRateLPM)
+	log.Printf("Water meter from %s: %.2f L total, %.2f L/min flow, signal=%.1f µV",
+		deviceUID, data.TotalVolumeL, reading.FlowRateLPM, data.SignalUV)
 
 	// Queue for cloud sync
 	e.queueForCloudSync("meter", id, reading)
@@ -328,18 +331,18 @@ func (e *Engine) handleMeterAlarm(deviceUID string, msg *protocol.LoRaMessage) {
 	}
 
 	alarmTypeStr := protocol.MeterAlarmTypeString(alarm.AlarmType)
-	log.Printf("ALARM from water meter %s: %s, flow: %.1f L/min, duration: %ds",
-		deviceUID, alarmTypeStr, float32(alarm.FlowRateLPM)/10.0, alarm.DurationSec)
+	log.Printf("ALARM from water meter %s: %s, flow: %.2f L/min, duration: %ds",
+		deviceUID, alarmTypeStr, alarm.FlowRateLPM, alarm.DurationSec)
 
-	// Store alarm in database
+	// Store alarm in database (data already has full float precision)
 	meterAlarm := &storage.MeterAlarm{
-		DeviceUID:   deviceUID,
-		AlarmType:   alarm.AlarmType,
-		FlowRateLPM: float32(alarm.FlowRateLPM) / 10.0,
-		DurationSec: alarm.DurationSec,
-		TotalLiters: alarm.TotalLiters,
-		RSSI:        msg.RSSI,
-		Timestamp:   time.Now(),
+		DeviceUID:    deviceUID,
+		AlarmType:    alarm.AlarmType,
+		FlowRateLPM:  alarm.FlowRateLPM,
+		DurationSec:  alarm.DurationSec,
+		TotalVolumeL: alarm.TotalVolumeL,
+		RSSI:         msg.RSSI,
+		Timestamp:    time.Now(),
 	}
 
 	id, err := e.db.InsertMeterAlarm(meterAlarm)
@@ -366,12 +369,12 @@ func (e *Engine) sendAlarmToCloud(deviceUID string, alarm *storage.MeterAlarm) {
 
 	// Convert storage.MeterAlarm to cloud.MeterAlarmData
 	alarmData := &cloud.MeterAlarmData{
-		AlarmType:   alarm.AlarmType,
-		FlowRateLPM: alarm.FlowRateLPM,
-		DurationSec: alarm.DurationSec,
-		TotalLiters: alarm.TotalLiters,
-		RSSI:        alarm.RSSI,
-		Timestamp:   alarm.Timestamp,
+		AlarmType:    alarm.AlarmType,
+		FlowRateLPM:  alarm.FlowRateLPM,
+		DurationSec:  alarm.DurationSec,
+		TotalVolumeL: alarm.TotalVolumeL,
+		RSSI:         alarm.RSSI,
+		Timestamp:    alarm.Timestamp,
 	}
 
 	if err := e.cloud.SendMeterAlarm(deviceUID, alarmData); err != nil {
@@ -832,8 +835,8 @@ func (e *Engine) syncToCloud() {
 		for _, r := range meterReadings {
 			reading := &controllerv1.MeterReading{
 				Timestamp:   timestamppb.New(r.Timestamp),
-				TotalLiters: float64(r.TotalLiters),
-				FlowRateLpm: float32(r.FlowRateLPM),
+				TotalLiters: float64(r.TotalVolumeL),
+				FlowRateLpm: r.FlowRateLPM,
 				BatteryMv:   intPtr32(int32(r.BatteryMV)),
 				SignalRssi:  int32(r.RSSI),
 			}
