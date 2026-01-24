@@ -24,17 +24,22 @@ extern "C" {
 typedef struct {
     bool initialized;
     
-    /* Board temperature (NTC) */
+    /* Board temperature (NTC) - near ADC for offset drift compensation */
     bool ntc_valid;
     float board_temp_c;
     uint16_t ntc_adc_raw;
     
-    /* Pipe/coil temperature (TMP102) */
-    bool tmp102_present;
-    float pipe_temp_c;
+    /* Coil temperature (TMP102 @ 0x48) - on coil spool */
+    bool tmp102_coil_present;
+    float coil_temp_c;
     
-    /* Derived values */
-    float coil_temp_c;          /* Estimated from resistance if available */
+    /* Electrode temperature (TMP102 @ 0x49) - near capacitive electrodes */
+    bool tmp102_electrode_present;
+    float electrode_temp_c;
+    
+    /* Legacy alias for backward compatibility */
+    #define tmp102_present tmp102_coil_present
+    #define pipe_temp_c coil_temp_c
 } temp_sensor_ctx_t;
 
 /* ==========================================================================
@@ -56,26 +61,44 @@ bool temp_sensor_init(temp_sensor_ctx_t *ctx);
 float temp_sensor_read_board(temp_sensor_ctx_t *ctx);
 
 /**
- * @brief Read pipe/coil temperature from TMP102
+ * @brief Read coil temperature from TMP102 (address 0x48)
  * @param ctx Temperature sensor context
  * @return Temperature in °C, or NAN if sensor not present
  */
-float temp_sensor_read_pipe(temp_sensor_ctx_t *ctx);
+float temp_sensor_read_coil(temp_sensor_ctx_t *ctx);
+
+/**
+ * @brief Read electrode temperature from TMP102 (address 0x49)
+ * @param ctx Temperature sensor context
+ * @return Temperature in °C, or NAN if sensor not present
+ */
+float temp_sensor_read_electrode(temp_sensor_ctx_t *ctx);
 
 /**
  * @brief Read all temperature sensors
  * @param ctx Temperature sensor context
  * 
- * Updates ctx->board_temp_c and ctx->pipe_temp_c
+ * Updates ctx->board_temp_c, ctx->coil_temp_c, and ctx->electrode_temp_c
  */
 void temp_sensor_read_all(temp_sensor_ctx_t *ctx);
 
 /**
- * @brief Check if TMP102 is present and responding
+ * @brief Check if coil TMP102 is present and responding
  * @param ctx Temperature sensor context
- * @return true if TMP102 is detected
+ * @return true if coil TMP102 is detected
  */
-bool temp_sensor_tmp102_present(temp_sensor_ctx_t *ctx);
+bool temp_sensor_coil_present(temp_sensor_ctx_t *ctx);
+
+/**
+ * @brief Check if electrode TMP102 is present and responding
+ * @param ctx Temperature sensor context
+ * @return true if electrode TMP102 is detected
+ */
+bool temp_sensor_electrode_present(temp_sensor_ctx_t *ctx);
+
+/* Legacy function aliases for backward compatibility */
+#define temp_sensor_read_pipe temp_sensor_read_coil
+#define temp_sensor_tmp102_present temp_sensor_coil_present
 
 /**
  * @brief Estimate coil temperature from measured resistance

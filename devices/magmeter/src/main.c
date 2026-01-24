@@ -1024,13 +1024,20 @@ static void adc_task(void *pvParameters)
     if (!temp_sensor_init(&g_temp_sensor)) {
         SEGGER_RTT_printf(0, "TEMP: Init failed (non-fatal)\n");
     } else {
-        SEGGER_RTT_printf(0, "TEMP: Board NTC=%s, Pipe TMP102=%s\n",
+        SEGGER_RTT_printf(0, "TEMP: Board NTC=%s, Coil TMP102=%s, Electrode TMP102=%s\n",
                           g_temp_sensor.ntc_valid ? "OK" : "FAIL",
-                          g_temp_sensor.tmp102_present ? "OK" : "NOT FOUND");
+                          g_temp_sensor.tmp102_coil_present ? "OK" : "N/A",
+                          g_temp_sensor.tmp102_electrode_present ? "OK" : "N/A");
     }
     
     /* Set up DRDY callback for interrupt-driven sampling */
     ads131m02_set_drdy_callback(&m_adc_ctx, adc_drdy_callback, NULL);
+    
+    /* Prepare ADC with calibration before starting measurements */
+    SEGGER_RTT_printf(0, "ADC: Preparing with calibration...\n");
+    if (!flow_calc_adc_prepare(&m_flow_ctx)) {
+        SEGGER_RTT_printf(0, "ADC: Preparation failed - continuing with defaults\n");
+    }
     
     /* Start flow measurement */
     flow_calc_start(&m_flow_ctx);
@@ -1079,10 +1086,30 @@ static void adc_task(void *pvParameters)
             
             if (g_temp_sensor.ntc_valid && !isnan(g_temp_sensor.board_temp_c)) {
                 SEGGER_RTT_printf(0, "TEMP: Board=%.1f°C", g_temp_sensor.board_temp_c);
-                if (g_temp_sensor.tmp102_present && !isnan(g_temp_sensor.pipe_temp_c)) {
-                    SEGGER_RTT_printf(0, ", Pipe=%.1f°C", g_temp_sensor.pipe_temp_c);
+                if (g_temp_sensor.tmp102_coil_present && !isnan(g_temp_sensor.coil_temp_c)) {
+                    SEGGER_RTT_printf(0, ", Coil=%.1f°C", g_temp_sensor.coil_temp_c);
+                }
+                if (g_temp_sensor.tmp102_electrode_present && !isnan(g_temp_sensor.electrode_temp_c)) {
+                    SEGGER_RTT_printf(0, ", Electrode=%.1f°C", g_temp_sensor.electrode_temp_c);
                 }
                 SEGGER_RTT_printf(0, "\n");
+                
+                /* Update flow state temperature for calibration tracking (use board temp for ADC) */
+                m_flow_ctx.state.temperature_c = g_temp_sensor.board_temp_c;
+                
+                /* Check if ADC recalibration is needed due to temperature drift */
+                if (flow_calc_adc_needs_calibration(&m_flow_ctx, g_temp_sensor.board_temp_c)) {
+                    SEGGER_RTT_printf(0, "ADC: Temperature drift detected - performing quick recalibration\n");
+                    
+                    /* Stop flow measurement briefly for recalibration */
+                    flow_calc_stop(&m_flow_ctx);
+                    
+                    /* Perform quick offset recalibration */
+                    flow_calc_adc_quick_offset_cal(&m_flow_ctx);
+                    
+                    /* Resume flow measurement */
+                    flow_calc_start(&m_flow_ctx);
+                }
             }
         }
         

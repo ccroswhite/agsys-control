@@ -397,3 +397,330 @@ float ads131m02_to_voltage(int32_t raw, ads131m02_gain_t gain, float vref)
     float full_scale = vref / (float)gain_values[gain];
     return ((float)raw / 8388608.0f) * full_scale;
 }
+
+/* ==========================================================================
+ * CALIBRATION FUNCTIONS
+ * ========================================================================== */
+
+static uint8_t get_ocal_msb_reg(uint8_t channel)
+{
+    return (channel == 0) ? ADS131M02_REG_CH0_OCAL_MSB : ADS131M02_REG_CH1_OCAL_MSB;
+}
+
+static uint8_t get_ocal_lsb_reg(uint8_t channel)
+{
+    return (channel == 0) ? ADS131M02_REG_CH0_OCAL_LSB : ADS131M02_REG_CH1_OCAL_LSB;
+}
+
+static uint8_t get_gcal_msb_reg(uint8_t channel)
+{
+    return (channel == 0) ? ADS131M02_REG_CH0_GCAL_MSB : ADS131M02_REG_CH1_GCAL_MSB;
+}
+
+static uint8_t get_gcal_lsb_reg(uint8_t channel)
+{
+    return (channel == 0) ? ADS131M02_REG_CH0_GCAL_LSB : ADS131M02_REG_CH1_GCAL_LSB;
+}
+
+static uint8_t get_ch_cfg_reg(uint8_t channel)
+{
+    return (channel == 0) ? ADS131M02_REG_CH0_CFG : ADS131M02_REG_CH1_CFG;
+}
+
+bool ads131m02_set_offset_cal(ads131m02_ctx_t *ctx, uint8_t channel, int32_t offset)
+{
+    if (ctx == NULL || !ctx->initialized || channel > 1) return false;
+    
+    /* Offset is 24-bit signed, stored in two 16-bit registers */
+    /* MSB register: bits [23:8], LSB register: bits [7:0] in upper byte */
+    uint16_t msb = (offset >> 8) & 0xFFFF;
+    uint16_t lsb = (offset & 0xFF) << 8;
+    
+    if (!ads131m02_write_reg(ctx, get_ocal_msb_reg(channel), msb)) return false;
+    if (!ads131m02_write_reg(ctx, get_ocal_lsb_reg(channel), lsb)) return false;
+    
+    SEGGER_RTT_printf(0, "ADS131M02: CH%d offset cal set to %d\n", channel, offset);
+    return true;
+}
+
+bool ads131m02_get_offset_cal(ads131m02_ctx_t *ctx, uint8_t channel, int32_t *offset)
+{
+    if (ctx == NULL || !ctx->initialized || channel > 1 || offset == NULL) return false;
+    
+    uint16_t msb, lsb;
+    if (!ads131m02_read_reg(ctx, get_ocal_msb_reg(channel), &msb)) return false;
+    if (!ads131m02_read_reg(ctx, get_ocal_lsb_reg(channel), &lsb)) return false;
+    
+    /* Reconstruct 24-bit signed value */
+    int32_t val = ((int32_t)msb << 8) | ((lsb >> 8) & 0xFF);
+    
+    /* Sign extend from 24-bit to 32-bit */
+    if (val & 0x800000) {
+        val |= 0xFF000000;
+    }
+    
+    *offset = val;
+    return true;
+}
+
+bool ads131m02_set_gain_cal(ads131m02_ctx_t *ctx, uint8_t channel, uint32_t gain_cal)
+{
+    if (ctx == NULL || !ctx->initialized || channel > 1) return false;
+    
+    /* Gain is 24-bit unsigned, stored in two 16-bit registers */
+    /* Limit to 24 bits */
+    gain_cal &= 0xFFFFFF;
+    
+    uint16_t msb = (gain_cal >> 8) & 0xFFFF;
+    uint16_t lsb = (gain_cal & 0xFF) << 8;
+    
+    if (!ads131m02_write_reg(ctx, get_gcal_msb_reg(channel), msb)) return false;
+    if (!ads131m02_write_reg(ctx, get_gcal_lsb_reg(channel), lsb)) return false;
+    
+    SEGGER_RTT_printf(0, "ADS131M02: CH%d gain cal set to 0x%06X (%.4f)\n", 
+                      channel, gain_cal, (float)gain_cal / 8388608.0f);
+    return true;
+}
+
+bool ads131m02_get_gain_cal(ads131m02_ctx_t *ctx, uint8_t channel, uint32_t *gain_cal)
+{
+    if (ctx == NULL || !ctx->initialized || channel > 1 || gain_cal == NULL) return false;
+    
+    uint16_t msb, lsb;
+    if (!ads131m02_read_reg(ctx, get_gcal_msb_reg(channel), &msb)) return false;
+    if (!ads131m02_read_reg(ctx, get_gcal_lsb_reg(channel), &lsb)) return false;
+    
+    /* Reconstruct 24-bit unsigned value */
+    *gain_cal = ((uint32_t)msb << 8) | ((lsb >> 8) & 0xFF);
+    return true;
+}
+
+bool ads131m02_auto_offset_cal(ads131m02_ctx_t *ctx, uint8_t channel, uint16_t num_samples)
+{
+    if (ctx == NULL || !ctx->initialized || channel > 1 || num_samples == 0) return false;
+    
+    SEGGER_RTT_printf(0, "ADS131M02: Starting auto offset cal for CH%d (%d samples)\n", 
+                      channel, num_samples);
+    
+    /* Save current mux setting */
+    uint16_t ch_cfg;
+    if (!ads131m02_read_reg(ctx, get_ch_cfg_reg(channel), &ch_cfg)) return false;
+    
+    /* Set mux to shorted inputs */
+    uint16_t shorted_cfg = (ch_cfg & ~ADS131M02_CHCFG_MUX_MASK) | ADS131M02_CHCFG_MUX_SHORT;
+    if (!ads131m02_write_reg(ctx, get_ch_cfg_reg(channel), shorted_cfg)) return false;
+    
+    /* Wait for settling (a few conversion cycles) */
+    nrf_delay_ms(10);
+    
+    /* Accumulate samples */
+    int64_t sum = 0;
+    uint16_t valid_samples = 0;
+    
+    for (uint16_t i = 0; i < num_samples; i++) {
+        /* Wait for data ready */
+        uint32_t timeout = 1000;
+        while (!ads131m02_data_ready(ctx) && timeout > 0) {
+            nrf_delay_us(100);
+            timeout--;
+        }
+        
+        if (timeout == 0) {
+            SEGGER_RTT_printf(0, "ADS131M02: Timeout waiting for sample %d\n", i);
+            continue;
+        }
+        
+        ads131m02_sample_t sample;
+        if (ads131m02_read_sample(ctx, &sample) && sample.valid) {
+            sum += (channel == 0) ? sample.ch0 : sample.ch1;
+            valid_samples++;
+        }
+    }
+    
+    /* Restore original mux setting */
+    ads131m02_write_reg(ctx, get_ch_cfg_reg(channel), ch_cfg);
+    
+    if (valid_samples == 0) {
+        SEGGER_RTT_printf(0, "ADS131M02: No valid samples for offset cal\n");
+        return false;
+    }
+    
+    /* Calculate average offset */
+    int32_t avg_offset = (int32_t)(sum / valid_samples);
+    
+    SEGGER_RTT_printf(0, "ADS131M02: CH%d measured offset = %d (%d samples)\n", 
+                      channel, avg_offset, valid_samples);
+    
+    /* Store the offset */
+    return ads131m02_set_offset_cal(ctx, channel, avg_offset);
+}
+
+bool ads131m02_reset_calibration(ads131m02_ctx_t *ctx, uint8_t channel)
+{
+    if (ctx == NULL || !ctx->initialized || channel > 1) return false;
+    
+    /* Reset offset to 0 */
+    if (!ads131m02_set_offset_cal(ctx, channel, ADS131M02_OCAL_DEFAULT)) return false;
+    
+    /* Reset gain to 1.0 (0x800000) */
+    if (!ads131m02_set_gain_cal(ctx, channel, ADS131M02_GCAL_DEFAULT)) return false;
+    
+    SEGGER_RTT_printf(0, "ADS131M02: CH%d calibration reset to defaults\n", channel);
+    return true;
+}
+
+/* ==========================================================================
+ * GLOBAL-CHOP FUNCTIONS
+ * ========================================================================== */
+
+bool ads131m02_enable_global_chop(ads131m02_ctx_t *ctx, uint16_t delay_setting)
+{
+    if (ctx == NULL || !ctx->initialized) return false;
+    
+    uint16_t cfg;
+    if (!ads131m02_read_reg(ctx, ADS131M02_REG_CFG, &cfg)) return false;
+    
+    /* Clear existing delay, set new delay and enable */
+    cfg &= ~ADS131M02_CFG_GC_DLY_MASK;
+    cfg |= (delay_setting & ADS131M02_CFG_GC_DLY_MASK);
+    cfg |= ADS131M02_CFG_GC_EN;
+    
+    if (!ads131m02_write_reg(ctx, ADS131M02_REG_CFG, cfg)) return false;
+    
+    SEGGER_RTT_printf(0, "ADS131M02: Global-chop enabled (delay=%d)\n", 
+                      (delay_setting >> 9) & 0x0F);
+    return true;
+}
+
+bool ads131m02_disable_global_chop(ads131m02_ctx_t *ctx)
+{
+    if (ctx == NULL || !ctx->initialized) return false;
+    
+    uint16_t cfg;
+    if (!ads131m02_read_reg(ctx, ADS131M02_REG_CFG, &cfg)) return false;
+    
+    cfg &= ~ADS131M02_CFG_GC_EN;
+    
+    if (!ads131m02_write_reg(ctx, ADS131M02_REG_CFG, cfg)) return false;
+    
+    SEGGER_RTT_printf(0, "ADS131M02: Global-chop disabled\n");
+    return true;
+}
+
+bool ads131m02_is_global_chop_enabled(ads131m02_ctx_t *ctx)
+{
+    if (ctx == NULL || !ctx->initialized) return false;
+    
+    uint16_t cfg;
+    if (!ads131m02_read_reg(ctx, ADS131M02_REG_CFG, &cfg)) return false;
+    
+    return (cfg & ADS131M02_CFG_GC_EN) != 0;
+}
+
+/* ==========================================================================
+ * CRC FUNCTIONS
+ * ========================================================================== */
+
+bool ads131m02_enable_crc(ads131m02_ctx_t *ctx, bool enable_input, bool enable_output, bool use_ccitt)
+{
+    if (ctx == NULL || !ctx->initialized) return false;
+    
+    uint16_t mode;
+    if (!ads131m02_read_reg(ctx, ADS131M02_REG_MODE, &mode)) return false;
+    
+    /* Clear CRC bits */
+    mode &= ~(ADS131M02_MODE_REG_CRC_EN | ADS131M02_MODE_RX_CRC_EN | ADS131M02_MODE_CRC_TYPE);
+    
+    /* Set requested options */
+    if (enable_output) mode |= ADS131M02_MODE_REG_CRC_EN;
+    if (enable_input) mode |= ADS131M02_MODE_RX_CRC_EN;
+    if (!use_ccitt) mode |= ADS131M02_MODE_CRC_TYPE;  /* ANSI if not CCITT */
+    
+    if (!ads131m02_write_reg(ctx, ADS131M02_REG_MODE, mode)) return false;
+    
+    SEGGER_RTT_printf(0, "ADS131M02: CRC enabled (in=%d, out=%d, %s)\n", 
+                      enable_input, enable_output, use_ccitt ? "CCITT" : "ANSI");
+    return true;
+}
+
+bool ads131m02_disable_crc(ads131m02_ctx_t *ctx)
+{
+    if (ctx == NULL || !ctx->initialized) return false;
+    
+    uint16_t mode;
+    if (!ads131m02_read_reg(ctx, ADS131M02_REG_MODE, &mode)) return false;
+    
+    mode &= ~(ADS131M02_MODE_REG_CRC_EN | ADS131M02_MODE_RX_CRC_EN);
+    
+    if (!ads131m02_write_reg(ctx, ADS131M02_REG_MODE, mode)) return false;
+    
+    SEGGER_RTT_printf(0, "ADS131M02: CRC disabled\n");
+    return true;
+}
+
+bool ads131m02_read_regmap_crc(ads131m02_ctx_t *ctx, uint16_t *crc)
+{
+    if (ctx == NULL || !ctx->initialized || crc == NULL) return false;
+    
+    return ads131m02_read_reg(ctx, ADS131M02_REG_REGMAP_CRC, crc);
+}
+
+bool ads131m02_check_crc_error(uint16_t status)
+{
+    return (status & ADS131M02_STATUS_CRC_ERR) != 0;
+}
+
+/* ==========================================================================
+ * PHASE CALIBRATION FUNCTIONS
+ * ========================================================================== */
+
+bool ads131m02_set_phase_delay(ads131m02_ctx_t *ctx, uint8_t channel, uint16_t phase_delay)
+{
+    if (ctx == NULL || !ctx->initialized || channel > 1) return false;
+    
+    /* Phase delay is 10-bit (0-1023) */
+    phase_delay &= ADS131M02_CHCFG_PHASE_MASK;
+    
+    uint16_t ch_cfg;
+    if (!ads131m02_read_reg(ctx, get_ch_cfg_reg(channel), &ch_cfg)) return false;
+    
+    /* Clear existing phase, set new value */
+    ch_cfg = (ch_cfg & ~ADS131M02_CHCFG_PHASE_MASK) | phase_delay;
+    
+    if (!ads131m02_write_reg(ctx, get_ch_cfg_reg(channel), ch_cfg)) return false;
+    
+    SEGGER_RTT_printf(0, "ADS131M02: CH%d phase delay set to %d\n", channel, phase_delay);
+    return true;
+}
+
+bool ads131m02_get_phase_delay(ads131m02_ctx_t *ctx, uint8_t channel, uint16_t *phase_delay)
+{
+    if (ctx == NULL || !ctx->initialized || channel > 1 || phase_delay == NULL) return false;
+    
+    uint16_t ch_cfg;
+    if (!ads131m02_read_reg(ctx, get_ch_cfg_reg(channel), &ch_cfg)) return false;
+    
+    *phase_delay = ch_cfg & ADS131M02_CHCFG_PHASE_MASK;
+    return true;
+}
+
+/* ==========================================================================
+ * INPUT MULTIPLEXER FUNCTIONS
+ * ========================================================================== */
+
+bool ads131m02_set_input_mux(ads131m02_ctx_t *ctx, uint8_t channel, ads131m02_mux_t mux)
+{
+    if (ctx == NULL || !ctx->initialized || channel > 1 || mux > ADS131M02_MUX_NEG_DC) return false;
+    
+    uint16_t ch_cfg;
+    if (!ads131m02_read_reg(ctx, get_ch_cfg_reg(channel), &ch_cfg)) return false;
+    
+    /* Clear existing mux, set new value */
+    ch_cfg = (ch_cfg & ~ADS131M02_CHCFG_MUX_MASK) | ((uint16_t)mux << 10);
+    
+    if (!ads131m02_write_reg(ctx, get_ch_cfg_reg(channel), ch_cfg)) return false;
+    
+    const char *mux_names[] = {"NORMAL", "SHORTED", "POS_DC", "NEG_DC"};
+    SEGGER_RTT_printf(0, "ADS131M02: CH%d mux set to %s\n", channel, mux_names[mux]);
+    return true;
+}

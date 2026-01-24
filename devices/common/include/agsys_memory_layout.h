@@ -125,6 +125,10 @@ extern "C" {
 #define AGSYS_FRAM_FLOW_CAL_ADDR            (AGSYS_FRAM_CALIB_ADDR + 0x0000)
 #define AGSYS_FRAM_FLOW_CAL_SIZE            0x0080  /* 128 bytes */
 
+/* ADC calibration within Calibration region (for ADS131M02) */
+#define AGSYS_FRAM_ADC_CAL_ADDR             (AGSYS_FRAM_CALIB_ADDR + 0x0080)
+#define AGSYS_FRAM_ADC_CAL_SIZE             0x0040  /* 64 bytes */
+
 /* ==========================================================================
  * EXTERNAL FLASH MEMORY LAYOUT (W25Q16 - 2MB)
  * 

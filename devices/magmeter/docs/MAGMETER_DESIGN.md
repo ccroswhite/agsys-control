@@ -635,19 +635,27 @@ Temperature monitoring is critical for accurate flow measurement due to:
 - Electronics drift with temperature
 - Calibration accuracy over operating range
 
-### Dual Temperature Sensors
+### Triple Temperature Sensing
 
 **1. Board Temperature (NTC Thermistor)**
-- Location: Main PCB near analog front-end
+- Location: Main PCB near analog front-end (ADS131M02 ADC)
 - Part: 10kΩ NTC (NCP18XH103F03RB), B=3380K
-- Purpose: Monitor electronics temperature for drift compensation
+- Purpose: ADC offset drift compensation
 - Interface: nRF52840 ADC (P0.29/AIN5)
 
-**2. Pipe/Coil Temperature (Remote I2C Sensor)**
-- Location: Mounted on coil spool, near pipe
+**2. Coil Temperature (Remote I2C Sensor)**
+- Location: Mounted on coil spool
 - Part: TMP102 (±1°C accuracy)
-- Purpose: Monitor actual measurement environment
+- I2C Address: 0x48 (ADD0 → GND)
+- Purpose: Coil resistance compensation (copper tempco +0.393%/°C)
 - Interface: I2C via M8 industrial connector
+
+**3. Electrode Temperature (Remote I2C Sensor)**
+- Location: Near capacitive electrodes on pipe
+- Part: TMP102 (±1°C accuracy)
+- I2C Address: 0x49 (ADD0 → VCC)
+- Purpose: Electrode/capacitive coupling compensation
+- Interface: Same I2C bus as coil sensor (daisy-chained)
 
 ### Industrial Connector for Remote Sensor
 
@@ -697,44 +705,77 @@ P0.07 (I2C_SCL) ──┬──── R62 (4.7k) ──── +3V3_D
 | 3 | I2C SDA | Blue | P0.06 |
 | 4 | I2C SCL | Black | P0.07 |
 
-#### Remote Sensor Module (TMP102)
+#### Remote Sensor Modules (TMP102 x2)
+
+Both TMP102 sensors share the same I2C bus via daisy-chain wiring.
+
+**Coil Temperature Sensor (U14 - Address 0x48)**
 
 | Ref | Part Number | Description | Package |
 |-----|-------------|-------------|---------|
 | U14 | TMP102AIDRLT | I2C temperature sensor, ±1°C | SOT-23-6 |
 | C81 | 100nF | Bypass capacitor | 0402 |
-| J8 | SACC-M8MS-4CON-M | M8 4-pin cable plug (molded) | - |
 
-**TMP102 Schematic (on sensor PCB):**
 ```
-J8 Pin 1 (Brown, +3V3) ──┬──── U14 VCC
-                         │
-                        C81 (100nF)
-                         │
-J8 Pin 2 (White, GND) ───┴──── U14 GND ──── U14 ADD0 (addr 0x48)
++3V3 ──┬──── U14 VCC
+       │
+      C81 (100nF)
+       │
+GND ───┴──── U14 GND ──── U14 ADD0 (addr 0x48)
 
-J8 Pin 3 (Blue, SDA) ─────────── U14 SDA
-
-J8 Pin 4 (Black, SCL) ────────── U14 SCL
-
-U14 ALT ──── NC (not connected)
+SDA ─────────── U14 SDA
+SCL ─────────── U14 SCL
+U14 ALT ──── NC
 ```
+
+**Electrode Temperature Sensor (U15 - Address 0x49)**
+
+| Ref | Part Number | Description | Package |
+|-----|-------------|-------------|---------|
+| U15 | TMP102AIDRLT | I2C temperature sensor, ±1°C | SOT-23-6 |
+| C82 | 100nF | Bypass capacitor | 0402 |
+| R63 | 10kΩ 0402 | ADD0 pull-up to VCC | 0402 |
+
+```
++3V3 ──┬──── U15 VCC ──── R63 (10k) ──── U15 ADD0 (addr 0x49)
+       │
+      C82 (100nF)
+       │
+GND ───┴──── U15 GND
+
+SDA ─────────── U15 SDA
+SCL ─────────── U15 SCL
+U15 ALT ──── NC
+```
+
+**Wiring Options:**
+
+*Option A: Single Cable with Y-Splitter*
+- M8 cable from control board to Y-splitter junction box
+- Two short cables to each sensor module
+- Simpler installation, single cable run
+
+*Option B: Daisy-Chain*
+- M8 cable from control board to coil sensor
+- Second M8 cable from coil sensor to electrode sensor
+- Requires pass-through connector on coil sensor module
 
 **Sensor Module Assembly:**
 - TMP102 mounted on small PCB (~15mm × 10mm)
 - PCB potted in IP67 enclosure (e.g., Hammond 1551SNAP or similar)
 - M8 pigtail cable exits through cable gland
-- Mount on coil spool flange or pipe clamp bracket
-- Ensure thermal contact with coil/pipe for accurate reading
+- Coil sensor: Mount on coil spool flange, thermal contact with coil
+- Electrode sensor: Mount near capacitive electrodes, thermal contact with pipe
 
 #### I2C Configuration
 
 | Parameter | Value |
 |-----------|-------|
-| I2C Address | 0x48 (ADD0 tied to GND) |
+| Coil Sensor Address | 0x48 (ADD0 → GND) |
+| Electrode Sensor Address | 0x49 (ADD0 → VCC) |
 | I2C Speed | 100 kHz (standard mode) |
 | Pull-up Resistors | 4.7kΩ (on main board) |
-| Max Cable Length | 2 meters |
+| Max Total Cable Length | 2 meters (both sensors combined) |
 
 ### Temperature Compensation
 

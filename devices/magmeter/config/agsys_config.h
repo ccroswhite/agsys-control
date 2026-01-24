@@ -106,10 +106,11 @@
 #define AGSYS_TEMP_NTC_R25          10000                   /* NTC resistance at 25°C */
 #define AGSYS_TEMP_REF_R            10000                   /* Reference resistor */
 
-/* Pipe/coil temperature - TMP102 on I2C */
+/* Remote temperature sensors - TMP102 on I2C */
 #define AGSYS_TEMP_I2C_SDA_PIN      NRF_GPIO_PIN_MAP(0, 6)  /* P0.06 - I2C SDA */
 #define AGSYS_TEMP_I2C_SCL_PIN      NRF_GPIO_PIN_MAP(0, 7)  /* P0.07 - I2C SCL */
-#define AGSYS_TEMP_TMP102_ADDR      0x48                    /* TMP102 I2C address (ADD0=GND) */
+#define AGSYS_TEMP_TMP102_COIL_ADDR     0x48                /* Coil TMP102 (ADD0=GND) */
+#define AGSYS_TEMP_TMP102_ELECTRODE_ADDR 0x49               /* Electrode TMP102 (ADD0=VCC) */
 
 /* ==========================================================================
  * BLE CONFIGURATION

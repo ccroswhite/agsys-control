@@ -4,6 +4,7 @@
  */
 
 #include "temp_sensor.h"
+#include "tmp102.h"
 #include "agsys_config.h"
 #include "nrf_gpio.h"
 #include "nrf_drv_saadc.h"
@@ -11,6 +12,7 @@
 /* #include "nrf_drv_twi.h" */
 #include "SEGGER_RTT.h"
 #include <math.h>
+#include <string.h>
 
 /* Stub out TWI functionality until boards have TMP102 populated */
 #define TWI_DISABLED 1
@@ -23,9 +25,11 @@
 #define NTC_T0_KELVIN       298.15f     /* 25°C in Kelvin */
 #define KELVIN_OFFSET       273.15f
 
-/* TMP102 registers */
-#define TMP102_REG_TEMP     0x00
-#define TMP102_REG_CONFIG   0x01
+/* TMP102 device contexts */
+#if !TWI_DISABLED
+static tmp102_ctx_t s_tmp102_coil;
+static tmp102_ctx_t s_tmp102_electrode;
+#endif
 
 /* ADC configuration */
 #define ADC_RESOLUTION      12
@@ -77,7 +81,45 @@ static float ntc_adc_to_temp(uint16_t adc_raw)
 
 #if !TWI_DISABLED
 /**
- * @brief Initialize I2C for TMP102
+ * @brief I2C read function for TMP102 driver
+ */
+static bool nrf_i2c_read(uint8_t addr, uint8_t reg, uint8_t *data, uint8_t len, void *user_data)
+{
+    (void)user_data;
+    
+    if (!s_twi_initialized) {
+        return false;
+    }
+    
+    ret_code_t err = nrf_drv_twi_tx(&m_twi, addr, &reg, 1, true);
+    if (err != NRF_SUCCESS) {
+        return false;
+    }
+    
+    return nrf_drv_twi_rx(&m_twi, addr, data, len) == NRF_SUCCESS;
+}
+
+/**
+ * @brief I2C write function for TMP102 driver
+ */
+static bool nrf_i2c_write(uint8_t addr, uint8_t reg, const uint8_t *data, uint8_t len, void *user_data)
+{
+    (void)user_data;
+    
+    if (!s_twi_initialized) {
+        return false;
+    }
+    
+    /* Build buffer with register address + data */
+    uint8_t buf[17];
+    buf[0] = reg;
+    memcpy(&buf[1], data, len);
+    
+    return nrf_drv_twi_tx(&m_twi, addr, buf, len + 1, false) == NRF_SUCCESS;
+}
+
+/**
+ * @brief Initialize I2C for TMP102 sensors
  */
 static bool init_twi(void)
 {
@@ -105,48 +147,13 @@ static bool init_twi(void)
     SEGGER_RTT_printf(0, "TEMP: TWI initialized\n");
     return true;
 }
-#endif
 
-#if !TWI_DISABLED
-/**
- * @brief Read TMP102 temperature register
- */
-static bool tmp102_read_temp(float *temp_c)
-{
-    if (!s_twi_initialized) {
-        return false;
-    }
-    
-    uint8_t reg = TMP102_REG_TEMP;
-    uint8_t data[2];
-    
-    /* Write register address */
-    ret_code_t err = nrf_drv_twi_tx(&m_twi, AGSYS_TEMP_TMP102_ADDR, &reg, 1, true);
-    if (err != NRF_SUCCESS) {
-        return false;
-    }
-    
-    /* Read 2 bytes */
-    err = nrf_drv_twi_rx(&m_twi, AGSYS_TEMP_TMP102_ADDR, data, 2);
-    if (err != NRF_SUCCESS) {
-        return false;
-    }
-    
-    /* Convert to temperature
-     * TMP102 returns 12-bit value, MSB first
-     * Bits [15:4] = temperature, [3:0] = 0
-     * Resolution: 0.0625°C per LSB
-     */
-    int16_t raw = ((int16_t)data[0] << 4) | (data[1] >> 4);
-    
-    /* Handle negative temperatures (sign extend) */
-    if (raw & 0x800) {
-        raw |= 0xF000;
-    }
-    
-    *temp_c = (float)raw * 0.0625f;
-    return true;
-}
+/* I2C interface for TMP102 driver */
+static tmp102_i2c_t s_i2c = {
+    .read = nrf_i2c_read,
+    .write = nrf_i2c_write,
+    .user_data = NULL
+};
 #endif /* !TWI_DISABLED */
 
 /* ==========================================================================
@@ -164,9 +171,10 @@ bool temp_sensor_init(temp_sensor_ctx_t *ctx)
     ctx->ntc_valid = false;
     ctx->board_temp_c = NAN;
     ctx->ntc_adc_raw = 0;
-    ctx->tmp102_present = false;
-    ctx->pipe_temp_c = NAN;
+    ctx->tmp102_coil_present = false;
     ctx->coil_temp_c = NAN;
+    ctx->tmp102_electrode_present = false;
+    ctx->electrode_temp_c = NAN;
     
     /* Initialize SAADC for NTC */
     ret_code_t err = nrf_drv_saadc_init(NULL, NULL);
@@ -191,20 +199,41 @@ bool temp_sensor_init(temp_sensor_ctx_t *ctx)
     SEGGER_RTT_printf(0, "TEMP: NTC initialized on AIN5\n");
     
 #if !TWI_DISABLED
-    /* Initialize I2C for TMP102 */
+    /* Initialize I2C for TMP102 sensors */
     if (init_twi()) {
-        /* Check if TMP102 is present */
-        float temp;
-        if (tmp102_read_temp(&temp)) {
-            ctx->tmp102_present = true;
-            ctx->pipe_temp_c = temp;
-            SEGGER_RTT_printf(0, "TEMP: TMP102 detected (%.1f°C)\n", temp);
+        tmp102_config_t coil_config = TMP102_CONFIG_DEFAULT(AGSYS_TEMP_TMP102_COIL_ADDR);
+        tmp102_config_t electrode_config = TMP102_CONFIG_DEFAULT(AGSYS_TEMP_TMP102_ELECTRODE_ADDR);
+        
+        /* Initialize coil TMP102 (address 0x48) */
+        if (tmp102_init(&s_tmp102_coil, &s_i2c, &coil_config)) {
+            ctx->tmp102_coil_present = true;
+            float temp;
+            if (tmp102_read_temp_c(&s_tmp102_coil, &temp)) {
+                ctx->coil_temp_c = temp;
+                SEGGER_RTT_printf(0, "TEMP: Coil TMP102 detected @ 0x%02X (%.1f°C)\n", 
+                                  AGSYS_TEMP_TMP102_COIL_ADDR, temp);
+            }
         } else {
-            SEGGER_RTT_printf(0, "TEMP: TMP102 not detected\n");
+            SEGGER_RTT_printf(0, "TEMP: Coil TMP102 not detected @ 0x%02X\n",
+                              AGSYS_TEMP_TMP102_COIL_ADDR);
+        }
+        
+        /* Initialize electrode TMP102 (address 0x49) */
+        if (tmp102_init(&s_tmp102_electrode, &s_i2c, &electrode_config)) {
+            ctx->tmp102_electrode_present = true;
+            float temp;
+            if (tmp102_read_temp_c(&s_tmp102_electrode, &temp)) {
+                ctx->electrode_temp_c = temp;
+                SEGGER_RTT_printf(0, "TEMP: Electrode TMP102 detected @ 0x%02X (%.1f°C)\n",
+                                  AGSYS_TEMP_TMP102_ELECTRODE_ADDR, temp);
+            }
+        } else {
+            SEGGER_RTT_printf(0, "TEMP: Electrode TMP102 not detected @ 0x%02X\n",
+                              AGSYS_TEMP_TMP102_ELECTRODE_ADDR);
         }
     }
 #else
-    SEGGER_RTT_printf(0, "TEMP: TMP102 disabled (TWI not configured)\n");
+    SEGGER_RTT_printf(0, "TEMP: TMP102 sensors disabled (TWI not configured)\n");
 #endif
     
     ctx->initialized = true;
@@ -234,16 +263,33 @@ float temp_sensor_read_board(temp_sensor_ctx_t *ctx)
     return ctx->board_temp_c;
 }
 
-float temp_sensor_read_pipe(temp_sensor_ctx_t *ctx)
+float temp_sensor_read_coil(temp_sensor_ctx_t *ctx)
 {
-    if (ctx == NULL || !ctx->tmp102_present) {
+    if (ctx == NULL || !ctx->tmp102_coil_present) {
         return NAN;
     }
     
 #if !TWI_DISABLED
     float temp;
-    if (tmp102_read_temp(&temp)) {
-        ctx->pipe_temp_c = temp;
+    if (tmp102_read_temp_c(&s_tmp102_coil, &temp)) {
+        ctx->coil_temp_c = temp;
+        return temp;
+    }
+#endif
+    
+    return NAN;
+}
+
+float temp_sensor_read_electrode(temp_sensor_ctx_t *ctx)
+{
+    if (ctx == NULL || !ctx->tmp102_electrode_present) {
+        return NAN;
+    }
+    
+#if !TWI_DISABLED
+    float temp;
+    if (tmp102_read_temp_c(&s_tmp102_electrode, &temp)) {
+        ctx->electrode_temp_c = temp;
         return temp;
     }
 #endif
@@ -258,15 +304,24 @@ void temp_sensor_read_all(temp_sensor_ctx_t *ctx)
     }
     
     temp_sensor_read_board(ctx);
-    temp_sensor_read_pipe(ctx);
+    temp_sensor_read_coil(ctx);
+    temp_sensor_read_electrode(ctx);
 }
 
-bool temp_sensor_tmp102_present(temp_sensor_ctx_t *ctx)
+bool temp_sensor_coil_present(temp_sensor_ctx_t *ctx)
 {
     if (ctx == NULL) {
         return false;
     }
-    return ctx->tmp102_present;
+    return ctx->tmp102_coil_present;
+}
+
+bool temp_sensor_electrode_present(temp_sensor_ctx_t *ctx)
+{
+    if (ctx == NULL) {
+        return false;
+    }
+    return ctx->tmp102_electrode_present;
 }
 
 float temp_sensor_estimate_coil_temp(uint32_t r_measured, uint32_t r_cal)

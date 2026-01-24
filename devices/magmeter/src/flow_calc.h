@@ -429,6 +429,108 @@ uint16_t flow_calc_measure_coil_resistance(flow_calc_ctx_t *ctx);
  */
 void flow_calc_apply_tier_defaults(flow_calc_ctx_t *ctx, flow_tier_t tier);
 
+/* ==========================================================================
+ * ADC CALIBRATION FUNCTIONS
+ * ========================================================================== */
+
+/**
+ * @brief ADC calibration data (stored in FRAM alongside flow calibration)
+ */
+typedef struct {
+    uint32_t magic;                 /* 0x41444343 = "ADCC" */
+    uint8_t  version;
+    uint8_t  reserved[3];
+    
+    /* Channel 0 (electrode signal) calibration */
+    int32_t  ch0_offset;            /* Offset calibration value */
+    uint32_t ch0_gain;              /* Gain calibration value (0x800000 = 1.0) */
+    
+    /* Channel 1 (coil current sense) calibration */
+    int32_t  ch1_offset;            /* Offset calibration value */
+    uint32_t ch1_gain;              /* Gain calibration value (0x800000 = 1.0) */
+    
+    /* Calibration metadata */
+    uint32_t cal_timestamp;         /* Unix timestamp of last calibration */
+    float    cal_temperature_c;     /* Temperature at calibration */
+    
+    uint32_t crc32;
+} flow_adc_cal_t;
+
+#define FLOW_ADC_CAL_MAGIC          0x41444343  /* "ADCC" */
+#define FLOW_ADC_CAL_VERSION        1
+
+/**
+ * @brief Perform full ADC calibration (offset + gain for both channels)
+ * 
+ * This function:
+ *   1. Enables global-chop mode for offset drift reduction
+ *   2. Performs automatic offset calibration on both channels
+ *   3. Optionally performs gain calibration if reference is available
+ *   4. Saves calibration to FRAM
+ * 
+ * Should be called:
+ *   - On first boot (no ADC calibration stored)
+ *   - Periodically (e.g., daily) to compensate for drift
+ *   - When temperature changes significantly (>10°C from cal temp)
+ * 
+ * @param ctx Flow calculator context
+ * @return true on success
+ */
+bool flow_calc_adc_calibrate(flow_calc_ctx_t *ctx);
+
+/**
+ * @brief Load ADC calibration from FRAM and apply to ADC
+ * @param ctx Flow calculator context
+ * @return true if valid calibration loaded and applied
+ */
+bool flow_calc_adc_load_calibration(flow_calc_ctx_t *ctx);
+
+/**
+ * @brief Save current ADC calibration to FRAM
+ * @param ctx Flow calculator context
+ * @return true on success
+ */
+bool flow_calc_adc_save_calibration(flow_calc_ctx_t *ctx);
+
+/**
+ * @brief Check if ADC calibration is needed
+ * 
+ * Returns true if:
+ *   - No calibration stored in FRAM
+ *   - Calibration is older than 24 hours
+ *   - Temperature has changed >10°C since calibration
+ * 
+ * @param ctx Flow calculator context
+ * @param current_temp_c Current temperature in Celsius
+ * @return true if calibration is recommended
+ */
+bool flow_calc_adc_needs_calibration(flow_calc_ctx_t *ctx, float current_temp_c);
+
+/**
+ * @brief Perform pre-measurement ADC setup
+ * 
+ * Call this before starting flow measurements. It:
+ *   1. Loads ADC calibration from FRAM (or performs calibration if needed)
+ *   2. Enables global-chop mode for offset drift reduction
+ *   3. Verifies ADC is responding correctly
+ * 
+ * @param ctx Flow calculator context
+ * @return true if ADC is ready for measurement
+ */
+bool flow_calc_adc_prepare(flow_calc_ctx_t *ctx);
+
+/**
+ * @brief Quick offset recalibration (faster than full calibration)
+ * 
+ * Performs offset-only calibration on both channels. Useful for:
+ *   - Periodic drift correction during operation
+ *   - Temperature compensation
+ * 
+ * @param ctx Flow calculator context
+ * @return true on success
+ */
+bool flow_calc_adc_quick_offset_cal(flow_calc_ctx_t *ctx);
+
 #ifdef __cplusplus
 }
 #endif

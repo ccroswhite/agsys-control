@@ -789,6 +789,295 @@ void flow_calc_apply_tier_defaults(flow_calc_ctx_t *ctx, flow_tier_t tier)
     }
 }
 
+/* ==========================================================================
+ * ADC CALIBRATION FUNCTIONS
+ * ========================================================================== */
+
+/* ADC calibration state (loaded from FRAM) */
+static flow_adc_cal_t s_adc_cal;
+static bool s_adc_cal_loaded = false;
+
+/* Calibration thresholds */
+#define ADC_CAL_MAX_AGE_SEC         (24 * 60 * 60)  /* 24 hours */
+#define ADC_CAL_TEMP_THRESHOLD_C    10.0f           /* Re-cal if temp changes >10°C */
+#define ADC_CAL_NUM_SAMPLES         32              /* Samples for offset averaging */
+
+/* Global-chop delay setting for best offset performance */
+#define ADC_GLOBAL_CHOP_DELAY       ADS131M02_CFG_GC_DLY_16
+
+bool flow_calc_adc_calibrate(flow_calc_ctx_t *ctx)
+{
+    if (ctx == NULL || ctx->adc == NULL) {
+        return false;
+    }
+    
+    SEGGER_RTT_printf(0, "FLOW: Starting ADC calibration...\n");
+    
+    /* Disable DRDY interrupt during calibration */
+    ads131m02_disable_drdy_interrupt(ctx->adc);
+    
+    /* Enable global-chop mode for better offset stability */
+    if (!ads131m02_enable_global_chop(ctx->adc, ADC_GLOBAL_CHOP_DELAY)) {
+        SEGGER_RTT_printf(0, "FLOW: Failed to enable global-chop\n");
+        return false;
+    }
+    
+    /* Wait for global-chop to settle */
+    vTaskDelay(pdMS_TO_TICKS(50));
+    
+    /* Perform automatic offset calibration on CH0 (electrode signal) */
+    SEGGER_RTT_printf(0, "FLOW: Calibrating CH0 offset...\n");
+    if (!ads131m02_auto_offset_cal(ctx->adc, 0, ADC_CAL_NUM_SAMPLES)) {
+        SEGGER_RTT_printf(0, "FLOW: CH0 offset calibration failed\n");
+        ads131m02_enable_drdy_interrupt(ctx->adc);
+        return false;
+    }
+    
+    /* Perform automatic offset calibration on CH1 (coil current sense) */
+    SEGGER_RTT_printf(0, "FLOW: Calibrating CH1 offset...\n");
+    if (!ads131m02_auto_offset_cal(ctx->adc, 1, ADC_CAL_NUM_SAMPLES)) {
+        SEGGER_RTT_printf(0, "FLOW: CH1 offset calibration failed\n");
+        ads131m02_enable_drdy_interrupt(ctx->adc);
+        return false;
+    }
+    
+    /* Read back the calibration values */
+    int32_t ch0_offset, ch1_offset;
+    uint32_t ch0_gain, ch1_gain;
+    
+    ads131m02_get_offset_cal(ctx->adc, 0, &ch0_offset);
+    ads131m02_get_offset_cal(ctx->adc, 1, &ch1_offset);
+    ads131m02_get_gain_cal(ctx->adc, 0, &ch0_gain);
+    ads131m02_get_gain_cal(ctx->adc, 1, &ch1_gain);
+    
+    /* Store in calibration structure */
+    s_adc_cal.magic = FLOW_ADC_CAL_MAGIC;
+    s_adc_cal.version = FLOW_ADC_CAL_VERSION;
+    s_adc_cal.ch0_offset = ch0_offset;
+    s_adc_cal.ch0_gain = ch0_gain;
+    s_adc_cal.ch1_offset = ch1_offset;
+    s_adc_cal.ch1_gain = ch1_gain;
+    s_adc_cal.cal_temperature_c = ctx->state.temperature_c;
+    s_adc_cal.cal_timestamp = 0;  /* TODO: Get RTC time if available */
+    
+    s_adc_cal_loaded = true;
+    
+    /* Save to FRAM */
+    if (!flow_calc_adc_save_calibration(ctx)) {
+        SEGGER_RTT_printf(0, "FLOW: Warning - failed to save ADC calibration to FRAM\n");
+    }
+    
+    /* Re-enable DRDY interrupt */
+    ads131m02_enable_drdy_interrupt(ctx->adc);
+    
+    SEGGER_RTT_printf(0, "FLOW: ADC calibration complete\n");
+    SEGGER_RTT_printf(0, "  CH0: offset=%d, gain=0x%06X\n", ch0_offset, ch0_gain);
+    SEGGER_RTT_printf(0, "  CH1: offset=%d, gain=0x%06X\n", ch1_offset, ch1_gain);
+    
+    return true;
+}
+
+bool flow_calc_adc_load_calibration(flow_calc_ctx_t *ctx)
+{
+    if (ctx == NULL || ctx->adc == NULL || g_fram_ctx == NULL) {
+        return false;
+    }
+    
+    /* Read calibration from FRAM */
+    flow_adc_cal_t cal;
+    agsys_err_t err = agsys_fram_read(g_fram_ctx,
+                                       AGSYS_FRAM_ADC_CAL_ADDR,
+                                       (uint8_t *)&cal,
+                                       sizeof(cal));
+    
+    if (err != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "FLOW: ADC cal FRAM read failed (err=%d)\n", err);
+        return false;
+    }
+    
+    /* Validate magic */
+    if (cal.magic != FLOW_ADC_CAL_MAGIC) {
+        SEGGER_RTT_printf(0, "FLOW: No valid ADC calibration in FRAM\n");
+        return false;
+    }
+    
+    /* Validate CRC */
+    uint32_t expected_crc = crc32_calc(&cal, offsetof(flow_adc_cal_t, crc32));
+    if (cal.crc32 != expected_crc) {
+        SEGGER_RTT_printf(0, "FLOW: ADC cal CRC mismatch\n");
+        return false;
+    }
+    
+    /* Apply calibration to ADC */
+    if (!ads131m02_set_offset_cal(ctx->adc, 0, cal.ch0_offset)) {
+        SEGGER_RTT_printf(0, "FLOW: Failed to apply CH0 offset\n");
+        return false;
+    }
+    
+    if (!ads131m02_set_offset_cal(ctx->adc, 1, cal.ch1_offset)) {
+        SEGGER_RTT_printf(0, "FLOW: Failed to apply CH1 offset\n");
+        return false;
+    }
+    
+    if (!ads131m02_set_gain_cal(ctx->adc, 0, cal.ch0_gain)) {
+        SEGGER_RTT_printf(0, "FLOW: Failed to apply CH0 gain\n");
+        return false;
+    }
+    
+    if (!ads131m02_set_gain_cal(ctx->adc, 1, cal.ch1_gain)) {
+        SEGGER_RTT_printf(0, "FLOW: Failed to apply CH1 gain\n");
+        return false;
+    }
+    
+    /* Store locally */
+    memcpy(&s_adc_cal, &cal, sizeof(cal));
+    s_adc_cal_loaded = true;
+    
+    SEGGER_RTT_printf(0, "FLOW: ADC calibration loaded from FRAM\n");
+    SEGGER_RTT_printf(0, "  CH0: offset=%d, gain=0x%06X\n", cal.ch0_offset, cal.ch0_gain);
+    SEGGER_RTT_printf(0, "  CH1: offset=%d, gain=0x%06X\n", cal.ch1_offset, cal.ch1_gain);
+    SEGGER_RTT_printf(0, "  Cal temp: %.1f°C\n", cal.cal_temperature_c);
+    
+    return true;
+}
+
+bool flow_calc_adc_save_calibration(flow_calc_ctx_t *ctx)
+{
+    if (ctx == NULL || g_fram_ctx == NULL || !s_adc_cal_loaded) {
+        return false;
+    }
+    
+    /* Calculate CRC */
+    s_adc_cal.crc32 = crc32_calc(&s_adc_cal, offsetof(flow_adc_cal_t, crc32));
+    
+    /* Write to FRAM */
+    agsys_err_t err = agsys_fram_write(g_fram_ctx,
+                                        AGSYS_FRAM_ADC_CAL_ADDR,
+                                        (const uint8_t *)&s_adc_cal,
+                                        sizeof(s_adc_cal));
+    
+    if (err != AGSYS_OK) {
+        SEGGER_RTT_printf(0, "FLOW: ADC cal FRAM write failed (err=%d)\n", err);
+        return false;
+    }
+    
+    SEGGER_RTT_printf(0, "FLOW: ADC calibration saved to FRAM\n");
+    return true;
+}
+
+bool flow_calc_adc_needs_calibration(flow_calc_ctx_t *ctx, float current_temp_c)
+{
+    if (ctx == NULL) {
+        return true;
+    }
+    
+    /* No calibration loaded = needs calibration */
+    if (!s_adc_cal_loaded) {
+        SEGGER_RTT_printf(0, "FLOW: ADC cal needed - no calibration loaded\n");
+        return true;
+    }
+    
+    /* Check calibration age (if timestamp is available) */
+    if (s_adc_cal.cal_timestamp > 0) {
+        /* TODO: Compare with current RTC time */
+        /* For now, skip age check if no RTC */
+    }
+    
+    /* Check temperature drift */
+    float temp_diff = fabsf(current_temp_c - s_adc_cal.cal_temperature_c);
+    if (temp_diff > ADC_CAL_TEMP_THRESHOLD_C) {
+        SEGGER_RTT_printf(0, "FLOW: ADC cal needed - temp drift %.1f°C (was %.1f, now %.1f)\n",
+                          temp_diff, s_adc_cal.cal_temperature_c, current_temp_c);
+        return true;
+    }
+    
+    return false;
+}
+
+bool flow_calc_adc_prepare(flow_calc_ctx_t *ctx)
+{
+    if (ctx == NULL || ctx->adc == NULL) {
+        return false;
+    }
+    
+    SEGGER_RTT_printf(0, "FLOW: Preparing ADC for measurement...\n");
+    
+    /* Try to load existing calibration from FRAM */
+    bool cal_loaded = flow_calc_adc_load_calibration(ctx);
+    
+    /* Check if calibration is needed */
+    if (!cal_loaded || flow_calc_adc_needs_calibration(ctx, ctx->state.temperature_c)) {
+        SEGGER_RTT_printf(0, "FLOW: Performing ADC calibration...\n");
+        if (!flow_calc_adc_calibrate(ctx)) {
+            SEGGER_RTT_printf(0, "FLOW: ADC calibration failed - continuing with defaults\n");
+            /* Reset calibration to defaults */
+            ads131m02_reset_calibration(ctx->adc, 0);
+            ads131m02_reset_calibration(ctx->adc, 1);
+        }
+    }
+    
+    /* Enable global-chop mode for measurement */
+    if (!ads131m02_enable_global_chop(ctx->adc, ADC_GLOBAL_CHOP_DELAY)) {
+        SEGGER_RTT_printf(0, "FLOW: Warning - failed to enable global-chop\n");
+    }
+    
+    /* Verify ADC is responding by reading a sample */
+    ads131m02_sample_t test_sample;
+    if (!ads131m02_read_sample(ctx->adc, &test_sample)) {
+        SEGGER_RTT_printf(0, "FLOW: ADC not responding!\n");
+        return false;
+    }
+    
+    SEGGER_RTT_printf(0, "FLOW: ADC ready (test sample: CH0=%d, CH1=%d)\n",
+                      test_sample.ch0, test_sample.ch1);
+    
+    return true;
+}
+
+bool flow_calc_adc_quick_offset_cal(flow_calc_ctx_t *ctx)
+{
+    if (ctx == NULL || ctx->adc == NULL) {
+        return false;
+    }
+    
+    SEGGER_RTT_printf(0, "FLOW: Quick offset recalibration...\n");
+    
+    /* Disable DRDY interrupt during calibration */
+    ads131m02_disable_drdy_interrupt(ctx->adc);
+    
+    /* Perform offset calibration on both channels with fewer samples */
+    bool success = true;
+    
+    if (!ads131m02_auto_offset_cal(ctx->adc, 0, 16)) {
+        SEGGER_RTT_printf(0, "FLOW: Quick cal CH0 failed\n");
+        success = false;
+    }
+    
+    if (!ads131m02_auto_offset_cal(ctx->adc, 1, 16)) {
+        SEGGER_RTT_printf(0, "FLOW: Quick cal CH1 failed\n");
+        success = false;
+    }
+    
+    /* Update stored calibration */
+    if (success && s_adc_cal_loaded) {
+        ads131m02_get_offset_cal(ctx->adc, 0, &s_adc_cal.ch0_offset);
+        ads131m02_get_offset_cal(ctx->adc, 1, &s_adc_cal.ch1_offset);
+        s_adc_cal.cal_temperature_c = ctx->state.temperature_c;
+        
+        /* Save to FRAM (non-blocking, best effort) */
+        flow_calc_adc_save_calibration(ctx);
+    }
+    
+    /* Re-enable DRDY interrupt */
+    ads131m02_enable_drdy_interrupt(ctx->adc);
+    
+    return success;
+}
+
+/* ==========================================================================
+ * AUTO-DETECTION FUNCTIONS
+ * ========================================================================== */
+
 uint16_t flow_calc_measure_coil_resistance(flow_calc_ctx_t *ctx)
 {
     if (ctx == NULL || ctx->adc == NULL) {

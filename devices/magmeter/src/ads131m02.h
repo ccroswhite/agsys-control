@@ -105,6 +105,53 @@ extern "C" {
 #define ADS131M02_GAIN_64           6
 #define ADS131M02_GAIN_128          7
 
+/* CFG register bits */
+#define ADS131M02_CFG_GC_DLY_MASK   (0x0F << 9)  /* Global-chop delay */
+#define ADS131M02_CFG_GC_DLY_2      (0 << 9)     /* 2 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_4      (1 << 9)     /* 4 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_8      (2 << 9)     /* 8 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_16     (3 << 9)     /* 16 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_32     (4 << 9)     /* 32 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_64     (5 << 9)     /* 64 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_128    (6 << 9)     /* 128 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_256    (7 << 9)     /* 256 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_512    (8 << 9)     /* 512 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_1024   (9 << 9)     /* 1024 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_2048   (10 << 9)    /* 2048 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_4096   (11 << 9)    /* 4096 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_8192   (12 << 9)    /* 8192 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_16384  (13 << 9)    /* 16384 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_32768  (14 << 9)    /* 32768 fMOD periods */
+#define ADS131M02_CFG_GC_DLY_65536  (15 << 9)    /* 65536 fMOD periods */
+#define ADS131M02_CFG_GC_EN         (1 << 8)     /* Global-chop enable */
+#define ADS131M02_CFG_CD_ALLCH      (1 << 7)     /* Current-detect all channels */
+#define ADS131M02_CFG_CD_NUM_MASK   (0x07 << 4)  /* Current-detect number */
+#define ADS131M02_CFG_CD_LEN_MASK   (0x07 << 1)  /* Current-detect length */
+#define ADS131M02_CFG_CD_EN         (1 << 0)     /* Current-detect enable */
+
+/* CHn_CFG register bits */
+#define ADS131M02_CHCFG_PHASE_MASK  0x03FF       /* Phase delay [9:0] */
+#define ADS131M02_CHCFG_MUX_MASK    (0x03 << 10) /* Input mux selection */
+#define ADS131M02_CHCFG_MUX_NORMAL  (0 << 10)    /* Normal input */
+#define ADS131M02_CHCFG_MUX_SHORT   (1 << 10)    /* Inputs shorted */
+#define ADS131M02_CHCFG_MUX_POS_DC  (2 << 10)    /* Positive DC test signal */
+#define ADS131M02_CHCFG_MUX_NEG_DC  (3 << 10)    /* Negative DC test signal */
+
+/* STATUS register bits */
+#define ADS131M02_STATUS_LOCK       (1 << 15)    /* SPI locked */
+#define ADS131M02_STATUS_F_RESYNC   (1 << 14)    /* Resync occurred */
+#define ADS131M02_STATUS_REG_MAP    (1 << 13)    /* Register map CRC error */
+#define ADS131M02_STATUS_CRC_ERR    (1 << 12)    /* Input CRC error */
+#define ADS131M02_STATUS_CRC_TYPE   (1 << 11)    /* CRC type used */
+#define ADS131M02_STATUS_RESET      (1 << 10)    /* Reset occurred */
+#define ADS131M02_STATUS_WLENGTH    (0x03 << 8)  /* Word length */
+#define ADS131M02_STATUS_DRDY1      (1 << 1)     /* CH1 data ready */
+#define ADS131M02_STATUS_DRDY0      (1 << 0)     /* CH0 data ready */
+
+/* Calibration constants */
+#define ADS131M02_OCAL_DEFAULT      0x000000     /* Default offset: 0 */
+#define ADS131M02_GCAL_DEFAULT      0x800000     /* Default gain: 1.0 (2^23) */
+
 /* ==========================================================================
  * DATA TYPES
  * ========================================================================== */
@@ -304,6 +351,174 @@ uint32_t ads131m02_get_sample_rate(ads131m02_osr_t osr);
  * @return Voltage in volts
  */
 float ads131m02_to_voltage(int32_t raw, ads131m02_gain_t gain, float vref);
+
+/* ==========================================================================
+ * CALIBRATION FUNCTIONS
+ * ========================================================================== */
+
+/**
+ * @brief Set offset calibration for a channel
+ * @param ctx ADC context
+ * @param channel Channel (0 or 1)
+ * @param offset 24-bit signed offset value (subtracted from raw data)
+ * @return true on success
+ * @note Offset is applied as: calibrated = raw - offset
+ */
+bool ads131m02_set_offset_cal(ads131m02_ctx_t *ctx, uint8_t channel, int32_t offset);
+
+/**
+ * @brief Get offset calibration for a channel
+ * @param ctx ADC context
+ * @param channel Channel (0 or 1)
+ * @param offset Output offset value
+ * @return true on success
+ */
+bool ads131m02_get_offset_cal(ads131m02_ctx_t *ctx, uint8_t channel, int32_t *offset);
+
+/**
+ * @brief Set gain calibration for a channel
+ * @param ctx ADC context
+ * @param channel Channel (0 or 1)
+ * @param gain_cal 24-bit unsigned gain value (0x800000 = 1.0)
+ * @return true on success
+ * @note Gain is applied as: calibrated = raw * (gain_cal / 2^23)
+ *       Range: 0 to ~2.0 (0x000000 to 0xFFFFFF)
+ */
+bool ads131m02_set_gain_cal(ads131m02_ctx_t *ctx, uint8_t channel, uint32_t gain_cal);
+
+/**
+ * @brief Get gain calibration for a channel
+ * @param ctx ADC context
+ * @param channel Channel (0 or 1)
+ * @param gain_cal Output gain calibration value
+ * @return true on success
+ */
+bool ads131m02_get_gain_cal(ads131m02_ctx_t *ctx, uint8_t channel, uint32_t *gain_cal);
+
+/**
+ * @brief Perform automatic offset calibration (inputs shorted)
+ * @param ctx ADC context
+ * @param channel Channel (0 or 1)
+ * @param num_samples Number of samples to average (recommend 16-64)
+ * @return true on success
+ * @note This shorts the inputs internally, measures offset, and stores it
+ */
+bool ads131m02_auto_offset_cal(ads131m02_ctx_t *ctx, uint8_t channel, uint16_t num_samples);
+
+/**
+ * @brief Reset calibration to defaults
+ * @param ctx ADC context
+ * @param channel Channel (0 or 1)
+ * @return true on success
+ */
+bool ads131m02_reset_calibration(ads131m02_ctx_t *ctx, uint8_t channel);
+
+/* ==========================================================================
+ * GLOBAL-CHOP FUNCTIONS
+ * ========================================================================== */
+
+/**
+ * @brief Enable global-chop mode
+ * @param ctx ADC context
+ * @param delay_setting Chop delay (use ADS131M02_CFG_GC_DLY_* constants)
+ * @return true on success
+ * @note Global-chop reduces offset drift by periodically swapping input polarity
+ */
+bool ads131m02_enable_global_chop(ads131m02_ctx_t *ctx, uint16_t delay_setting);
+
+/**
+ * @brief Disable global-chop mode
+ * @param ctx ADC context
+ * @return true on success
+ */
+bool ads131m02_disable_global_chop(ads131m02_ctx_t *ctx);
+
+/**
+ * @brief Check if global-chop is enabled
+ * @param ctx ADC context
+ * @return true if enabled
+ */
+bool ads131m02_is_global_chop_enabled(ads131m02_ctx_t *ctx);
+
+/* ==========================================================================
+ * CRC FUNCTIONS
+ * ========================================================================== */
+
+/**
+ * @brief Enable CRC on communications
+ * @param ctx ADC context
+ * @param enable_input Enable CRC checking on input data
+ * @param enable_output Enable CRC on output data (register reads)
+ * @param use_ccitt Use CCITT polynomial (true) or ANSI (false)
+ * @return true on success
+ */
+bool ads131m02_enable_crc(ads131m02_ctx_t *ctx, bool enable_input, bool enable_output, bool use_ccitt);
+
+/**
+ * @brief Disable CRC on communications
+ * @param ctx ADC context
+ * @return true on success
+ */
+bool ads131m02_disable_crc(ads131m02_ctx_t *ctx);
+
+/**
+ * @brief Read register map CRC
+ * @param ctx ADC context
+ * @param crc Output CRC value
+ * @return true on success
+ */
+bool ads131m02_read_regmap_crc(ads131m02_ctx_t *ctx, uint16_t *crc);
+
+/**
+ * @brief Check if last communication had CRC error
+ * @param status Status word from sample
+ * @return true if CRC error occurred
+ */
+bool ads131m02_check_crc_error(uint16_t status);
+
+/* ==========================================================================
+ * PHASE CALIBRATION FUNCTIONS
+ * ========================================================================== */
+
+/**
+ * @brief Set phase delay for a channel
+ * @param ctx ADC context
+ * @param channel Channel (0 or 1)
+ * @param phase_delay 10-bit phase delay value (0-1023)
+ * @return true on success
+ * @note Each step is 1/fCLKIN (122ns at 8.192MHz)
+ *       Used to align channels when measuring signals with phase difference
+ */
+bool ads131m02_set_phase_delay(ads131m02_ctx_t *ctx, uint8_t channel, uint16_t phase_delay);
+
+/**
+ * @brief Get phase delay for a channel
+ * @param ctx ADC context
+ * @param channel Channel (0 or 1)
+ * @param phase_delay Output phase delay value
+ * @return true on success
+ */
+bool ads131m02_get_phase_delay(ads131m02_ctx_t *ctx, uint8_t channel, uint16_t *phase_delay);
+
+/* ==========================================================================
+ * INPUT MULTIPLEXER FUNCTIONS
+ * ========================================================================== */
+
+typedef enum {
+    ADS131M02_MUX_NORMAL  = 0,  /* Normal differential input */
+    ADS131M02_MUX_SHORTED = 1,  /* Inputs shorted (for offset cal) */
+    ADS131M02_MUX_POS_DC  = 2,  /* Positive DC test signal */
+    ADS131M02_MUX_NEG_DC  = 3,  /* Negative DC test signal */
+} ads131m02_mux_t;
+
+/**
+ * @brief Set input multiplexer for a channel
+ * @param ctx ADC context
+ * @param channel Channel (0 or 1)
+ * @param mux Multiplexer setting
+ * @return true on success
+ */
+bool ads131m02_set_input_mux(ads131m02_ctx_t *ctx, uint8_t channel, ads131m02_mux_t mux);
 
 #ifdef __cplusplus
 }
